@@ -247,6 +247,12 @@ FalconPresentationPose smw_falcon_presentation_pose_for_state(
     pose.frame = (float)state_frame;
     pose.facing_right = facing >= 0.0f;
     switch (state) {
+    case FL_JAB: pose.state = FALCON_PRESENT_JAB; break;
+    case FL_FTILT: pose.state = FALCON_PRESENT_FTILT; break;
+    case FL_ATTACK_AIR_N: pose.state = FALCON_PRESENT_NAIR; break;
+    case FL_ATTACK_AIR_F: pose.state = FALCON_PRESENT_FAIR; break;
+    case FL_ATTACK_AIR_B: pose.state = FALCON_PRESENT_BAIR; break;
+    case FL_ATTACK_AIR_LW: pose.state = FALCON_PRESENT_DAIR; break;
     case FL_WALK_SLOW: case FL_WALK_MIDDLE: case FL_WALK_FAST: pose.state = FALCON_PRESENT_WALK; break;
     case FL_DASH: case FL_RUN: case FL_RUN_BRAKE: pose.state = FALCON_PRESENT_RUN; break;
     case FL_KNEEBEND: case FL_JUMP_F: case FL_JUMP_B:
