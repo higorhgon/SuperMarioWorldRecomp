@@ -22,3 +22,13 @@ default_enabled = false
 [[plugin]]
 feature = "captain-falcon"
 id = "super-mario-world.smash64.captain-falcon"
+
+[[external_rom]]
+feature = "captain-falcon"
+id = "smash64-us-v10"
+label = "Super Smash Bros. (US v1.0)"
+description = "Required only for the approved Captain Falcon owner cache; z64, v64, and n64 byte orders are verified in memory."
+format = "n64"
+identity = "Super Smash Bros. US v1.0"
+normalized_sha1 = "e2929e10fccc0aa84e5776227e798abc07cedabf"
+size = 16777216

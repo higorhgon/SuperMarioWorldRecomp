@@ -138,6 +138,8 @@ set(SMW_RUNTIME_SOURCES
     src/smw_spc_player.c
     src/mods/falcon/falcon_locomotion.c
     src/mods/falcon/captain_falcon_foreign.c
+    src/mods/falcon/falcon_presentation.c
+    src/mods/falcon/smw_falcon_presentation_runtime.c
     src/mods/smw_falcon_plugin.c
     # Trusted static plugin backing the widescreen mod package's activation.
     src/mods/smw_widescreen_plugin.c

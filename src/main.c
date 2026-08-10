@@ -34,6 +34,7 @@
 #if SNESRECOMP_ENABLE_MODS
 #include "mod_runtime.h"
 #endif
+#include "mods/falcon/smw_falcon_presentation_runtime.h"
 
 #include "snes/snes.h"
 #ifdef __SWITCH__
@@ -438,9 +439,12 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
       memset(g_my_pixels, 0, row_bytes * g_snes_height);
     }
   }
+  smw_falcon_presentation_prepare_ppu(g_ppu);
   g_rtl_game_info->draw_ppu_frame();
   RtlWidescreenPresent(pixel_buffer, pitch, g_my_pixels,
                        g_snes_width, g_snes_height);
+  smw_falcon_presentation_present(pixel_buffer, pitch, g_snes_width,
+                                  g_snes_height);
 }
 
 static void DrawPpuFrameWithPerf(void) {

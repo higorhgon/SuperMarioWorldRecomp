@@ -1,0 +1,22 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "falcon_presentation.h"
+#include "snes/ppu.h"
+
+/* Called only after mod_runtime has committed the exact owner-ROM resource. */
+void smw_falcon_presentation_activate(const char *owner_rom_path);
+void smw_falcon_presentation_reset(void);
+
+/* Configure the narrow player OBJ suppression before PPU draw, then composite
+ * the approved owner cache after RtlWidescreenPresent. */
+void smw_falcon_presentation_prepare_ppu(Ppu *ppu);
+void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
+                                     int width, int height);
+int smw_falcon_presentation_is_active(void);
+
+/* Exposed for focused host-boundary tests. */
+FalconPresentationPose smw_falcon_presentation_pose_for_state(
+    int state, unsigned state_frame, float facing);

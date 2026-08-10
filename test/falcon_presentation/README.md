@@ -24,3 +24,8 @@ _triage/falcon_presentation_harness.exe --sheet <external-cache>/falcon_runtime.
 
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.
+
+`build_host_runtime_test.bat` compiles the game-owned host bridge without the
+generated game and checks controller state/frame/facing pose mapping. The full
+runtime cache and OBJ suppression contract is in
+`docs/falcon_owner_cache_runtime.md`.
