@@ -67,6 +67,7 @@ static int s_audio_attempted;
 static int s_death_latched;
 static unsigned s_death_frame;
 static float s_death_anchor_y;
+static FalconPresentationPose s_last_pose = { FALCON_PRESENT_IDLE, 0.0f, 1 };
 
 static int death_active(void) { return s_presentation && misc_game_mode == 0x14 && player_current_state == 9; }
 
@@ -314,6 +315,8 @@ void smw_falcon_presentation_reset(void) {
     s_validated_audio_dir[0] = '\0';
     s_audio_pending = 0;
     s_audio_attempted = 0;
+    s_death_latched = 0; s_death_frame = 0; s_death_anchor_y = 0.0f;
+    s_last_pose.state = FALCON_PRESENT_IDLE; s_last_pose.frame = 0.0f; s_last_pose.facing_right = 1;
 }
 
 void smw_falcon_presentation_audio_ready(void) {
@@ -380,7 +383,7 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
         return;
     }
     state = snes_foreign_state();
-    if (!state) return;
+    if (!state && !death_active()) return;
     memset(&target, 0, sizeof(target));
     target.framebuffer = (uint32_t *)pixels;
     target.width = width;
@@ -395,8 +398,11 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     /* Mature NES port convention: Captain's authored front/back axis must be
      * yawed 88 degrees into the 2D host plane for readable left/right profile. */
     target.yaw_degrees = 88.0f;
-    pose = smw_falcon_presentation_pose_for_state(
-        state->state, state->state_frame, state->facing);
+    if (state) {
+        pose = smw_falcon_presentation_pose_for_state(
+            state->state, state->state_frame, state->facing);
+        s_last_pose = pose;
+    } else pose = s_last_pose;
     if (death_active()) {
         if (!s_death_latched) { s_death_latched = 1; s_death_frame = 0; s_death_anchor_y = target.anchor_y; }
         target.anchor_y = s_death_anchor_y - (.30f * s_death_frame + .018f * s_death_frame * s_death_frame);
