@@ -1,0 +1,22 @@
+{
+  "format": "falcon-validation/v1",
+  "name": "falcon-live-left-right-profile",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
+  "steps": [
+    {"op":"wait_ram","id":"title","addr":"0x0100","len":1,"equals":"0x07","timeout_frames":1200,"step_frames":4},
+    {"op":"pulse_input_until_ram","id":"overworld","p1":["start"],"addr":"0x0100","len":1,"equals":"0x0e","timeout_frames":1800,"hold_frames":1,"release_frames":8},
+    {"op":"pulse_input_until_ram","id":"gameplay","p1":["a"],"addr":"0x0100","len":1,"equals":"0x14","timeout_frames":1200,"hold_frames":1,"release_frames":8},
+    {"op":"step","frames":3},
+    {"op":"capture","id":"right_profile","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x14"},{"name":"facing","addr":"0x0076","len":1,"equals":"0x01"},{"name":"screen_xy","addr":"0x007e","len":4}]},
+    {"op":"input","p1":["left"]},
+    {"op":"step","frames":8},
+    {"op":"input","p1":null},
+    {"op":"step","frames":1},
+    {"op":"capture","id":"left_profile","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x14"},{"name":"facing","addr":"0x0076","len":1,"equals":"0x00"},{"name":"screen_xy","addr":"0x007e","len":4}]}
+  ]
+}

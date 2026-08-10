@@ -69,6 +69,17 @@ class FalconValidationTests(unittest.TestCase):
                             step["addr"] == "0x0071" and step["equals"] == "0x09"
                             for step in waits))
 
+    def test_profile_scenario_pins_both_native_facing_values(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_profile.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures],
+                         ["right_profile", "left_profile"])
+        self.assertIn({"name": "facing", "addr": "0x0076", "len": 1,
+                       "equals": "0x01"}, captures[0]["wram"])
+        self.assertIn({"name": "facing", "addr": "0x0076", "len": 1,
+                       "equals": "0x00"}, captures[1]["wram"])
+
     def test_rejects_out_of_range_wram(self) -> None:
         bad = {"format": "falcon-validation/v1", "steps": [
             {"op": "capture", "id": "bad", "wram": [
