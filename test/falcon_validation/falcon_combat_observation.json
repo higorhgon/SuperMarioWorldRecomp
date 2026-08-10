@@ -1,0 +1,19 @@
+{
+  "format": "falcon-validation/v1",
+  "name": "falcon-combat-observation-no-seed",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
+  "steps": [
+    {"op": "wait_ram", "id": "title_ready", "addr": "0x0100", "len": 1, "equals": "0x07", "timeout_frames": 1200, "step_frames": 4},
+    {"op": "pulse_input_until_ram", "id": "overworld_ready", "p1": ["start"], "addr": "0x0100", "len": 1, "equals": "0x0e", "timeout_frames": 1800, "hold_frames": 1, "release_frames": 8},
+    {"op": "pulse_input_until_ram", "id": "gameplay_ready", "p1": ["a"], "addr": "0x0100", "len": 1, "equals": "0x14", "timeout_frames": 1200, "hold_frames": 1, "release_frames": 8},
+    {"op": "step", "frames": 3},
+    {"op": "capture", "id": "before_punch", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "normal_sprite_status", "addr": "0x14c8", "len": 12}, {"name": "score_sprites", "addr": "0x16e1", "len": 36}]},
+    {"op": "input", "p1": ["x"]}, {"op": "step", "frames": 42}, {"op": "input", "p1": null}, {"op": "step", "frames": 2},
+    {"op": "capture", "id": "punch_window", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "normal_sprite_status", "addr": "0x14c8", "len": 12}, {"name": "score_sprites", "addr": "0x16e1", "len": 36}]}
+  ]
+}

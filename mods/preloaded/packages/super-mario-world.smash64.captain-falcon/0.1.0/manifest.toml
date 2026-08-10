@@ -3,7 +3,7 @@ id = "super-mario-world.smash64.captain-falcon"
 version = "0.1.0"
 name = "Captain Falcon (first playable)"
 author = "mstan"
-description = "Experimental Captain Falcon movement controller using native Super Mario World collision. No character assets, audio, or combat consequences are included yet."
+description = "Experimental Captain Falcon controller with verified owner-cache presentation and PCM audio, native SMW collision, and a conservative native-combat bridge for supported ordinary enemies and blocks."
 license = "LicenseRef-Upstream-Review"
 resolver = "declarative"
 save_compatibility = "shared"
@@ -15,7 +15,7 @@ rom_sha256 = "0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b"
 [[feature]]
 id = "captain-falcon"
 name = "Captain Falcon"
-description = "Replace controllable in-level movement with the experimental Captain Falcon controller."
+description = "Replace controllable in-level movement with Captain Falcon movement, owner-cache presentation/audio, and conservative native SMW combat consequences."
 group = "Characters"
 default_enabled = false
 
