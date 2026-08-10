@@ -178,11 +178,11 @@ int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentation
     a=find(p,falcon_presentation_animation(pose->state));if(!a)a=find(p,"Wait");if(!a)return 0;
     for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);}
     {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
-    matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);height=p->bind_max[1]-p->bind_min[1];scale=(t->scale>0?t->scale:1)*32.0f/height;dir=pose->facing_right?1:-1;
+    matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);/* Rebound in the same 88deg view space used below. */{float a=t->yaw_degrees*3.14159265358979323846f/180.f,ca=cosf(a),sa=sinf(a);unsigned k;lo[0]=lo[1]=lo[2]=FLT_MAX;hi[0]=hi[1]=hi[2]=-FLT_MAX;for(i=0;i<p->triangles_n;i++)for(k=0;k<3;k++){float q[3],x,z;point(w[p->triangles[i].joint],p->triangles[i].v[k].p,q);x=q[0]*ca+q[2]*sa;z=-q[0]*sa+q[2]*ca;if(x<lo[0])lo[0]=x;if(x>hi[0])hi[0]=x;if(q[1]<lo[1])lo[1]=q[1];if(q[1]>hi[1])hi[1]=q[1];if(z<lo[2])lo[2]=z;if(z>hi[2])hi[2]=z;}}height=hi[1]-lo[1];scale=(t->scale>0?t->scale:1)*32.0f/height;/* Smash authored +LR projects opposite screen X after yaw. */dir=pose->facing_right?-1:1;
     /* Ground against the projected mesh foot plane, not raw Y bounds.  The
      * camera's Z shear otherwise leaves some poses visibly hovering. */
     foot=-FLT_MAX;
-    for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];uint32_t j;for(j=0;j<3;j++){float pt[3],v;point(w[q->joint],q->v[j].p,pt);v=-(pt[1]-lo[1])-pt[2]*.08f;if(v>foot)foot=v;}}
+    for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];uint32_t j;for(j=0;j<3;j++){float pt[3],v,a=t->yaw_degrees*3.14159265358979323846f/180.f,z;point(w[q->joint],q->v[j].p,pt);z=-pt[0]*sinf(a)+pt[2]*cosf(a);v=-(pt[1]-lo[1])-z*.08f;if(v>foot)foot=v;}}
     draws=(DrawTriangle*)malloc((size_t)p->triangles_n*sizeof(*draws)); if(!draws)return 0;
     fallback.w=fallback.h=1;fallback.pixels=&gray;
     for(i=0;i<p->triangles_n;i++){
