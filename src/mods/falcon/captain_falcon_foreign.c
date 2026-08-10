@@ -3,6 +3,7 @@
 #include "falcon_locomotion.h"
 #include "foreign_controller.h"
 
+#include <limits.h>
 #include <string.h>
 
 static FalconFighter s_fighter;
@@ -109,9 +110,44 @@ static const char *cf_state_name(ForeignMoveState state)
     return falcon_state_name(state);
 }
 
+/* The foreign core owns its generic state record.  Falcon's source-accurate
+ * locomotion state is controller-private and therefore travels as its bounded
+ * optional payload.  Deserialize into a local first so a bad blob cannot
+ * partially overwrite the live fighter. */
+static int cf_serialize(const ForeignState *state, uint8_t *dst,
+                        uint32_t capacity, uint32_t *out_size)
+{
+    int size;
+    (void)state;
+    if (!dst || !out_size || capacity > INT_MAX) return 0;
+    size = falcon_serialize(&s_fighter, dst, (int)capacity);
+    if (size < 0) return 0;
+    *out_size = (uint32_t)size;
+    return 1;
+}
+
+static int cf_deserialize(ForeignState *state, const uint8_t *src,
+                          uint32_t size, uint32_t version)
+{
+    FalconFighter candidate;
+    (void)state;
+    if (!src || version != 1 || size > INT_MAX) return 0;
+    candidate = s_fighter;
+    if (!falcon_deserialize(&candidate, src, (int)size)) return 0;
+    s_fighter = candidate;
+    return 1;
+}
+
 static const ForeignController k_captain_falcon = {
-    SMW_CAPTAIN_FALCON_ID, "Captain Falcon", cf_reset, cf_tick, cf_resolve,
-    cf_state_name,
+    .id = SMW_CAPTAIN_FALCON_ID,
+    .name = "Captain Falcon",
+    .reset = cf_reset,
+    .tick = cf_tick,
+    .resolve = cf_resolve,
+    .state_name = cf_state_name,
+    .save_version = 1,
+    .serialize = cf_serialize,
+    .deserialize = cf_deserialize,
 };
 
 int smw_captain_falcon_register(void)
