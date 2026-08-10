@@ -10,6 +10,11 @@ For release or development first-run generation, set `SNESRECOMP_FALCON_CACHE_HE
 <helper> --rom <committed-owner-rom> --cache-root <root> --result-file <root>/.smw-falcon-cache-result-<pid>.txt
 ```
 
-It must use the strict `tools/owner_ssb64/build_final_cache.py` recipe (or a release wrapper), atomically write only the final cache basename to the result file, and exit zero only after complete cache verification. The game rejects paths, separators, non-content-addressed names, and a runtime-blob hash mismatch. A verified cache may instead be supplied directly through `SNESRECOMP_FALCON_CACHE=<absolute final-cache directory>`.
+It must be an executable wrapper around the strict `tools/owner_ssb64/build_final_cache.py` recipe, atomically write only the final cache basename to the result file, and exit zero only after complete cache verification. The game launches it with an argv API (`_spawnv` or `fork`/`execv`), never a shell: paths containing `&|<>^%!$\`` are literal path arguments. The game rejects relative paths, separators in the returned basename, non-content-addressed names, and a runtime-blob hash mismatch. A verified cache may instead be supplied directly through `SNESRECOMP_FALCON_CACHE=<absolute final-cache directory>`.
 
-During ordinary foreign-owned level control, PPU OBJ slots 64–75 (`$0300` to `$032f`, written by SMW `PlayerGFXRt`) are captured and removed before PPU composition; no other OBJ slots are affected. After `RtlWidescreenPresent`, the approved mesh is composited at Mario's screen-foot anchor. Pipes, death, goals, and inactive/failed presentation keep native Mario visible.
+During ordinary foreign-owned level control, PPU OBJ slots 64–75 (`$0300` to `$032f`, written by SMW `PlayerGFXRt`) are captured and removed before PPU composition; no other OBJ slots are affected. Falcon presentation is the current sole owner of the PPU overlay-capture policy, so it clears and re-publishes that policy once per frame; a future overlay user must compose this policy rather than independently calling `PpuClearOverlayCaptures`. After `RtlWidescreenPresent`, the approved mesh is composited at Mario's screen-foot anchor. Pipes, death, goals, and inactive/failed presentation keep native Mario visible.
+
+For a coordinated TCP run, set `SNESRECOMP_FALCON_PRESENTATION_TRACE` to an
+external writable text file. It records only gate transitions (`approved runtime
+cache loaded`, `active`, handoff reasons, OBJ suppression, and mesh compositor
+state), never an owner-ROM or cache path.

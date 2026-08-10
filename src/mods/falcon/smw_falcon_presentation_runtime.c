@@ -9,7 +9,6 @@
 #include "sha256.h"
 #include "variables.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +17,8 @@
 #include <process.h>
 #define SMW_GETPID _getpid
 #else
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #define SMW_GETPID getpid
 #endif
@@ -39,9 +40,23 @@ static const uint8_t k_runtime_sha256[32] = {
 static uint32_t s_obj_scratch[512 * 240];
 static FalconPresentation *s_presentation;
 static int s_bound;
+static int s_suppression_active;
+static int s_mesh_draw_active;
+static char s_last_gate[96];
+
+/* Opt-in, path-free activation trace for TCP validation. The caller chooses
+ * the external output file; no ROM/cache path or owner data is ever logged. */
+static void trace(const char *event) {
+    const char *path = getenv("SNESRECOMP_FALCON_PRESENTATION_TRACE");
+    FILE *file;
+    if (!path || !*path || !(file = fopen(path, "ab"))) return;
+    fprintf(file, "%s\n", event);
+    fclose(file);
+}
 
 static void note(const char *message) {
     fprintf(stderr, "Falcon presentation disabled: %s\n", message);
+    trace(message);
 }
 
 static int absolute_path(const char *path) {
@@ -53,11 +68,6 @@ static int absolute_path(const char *path) {
 #else
     return path[0] == '/';
 #endif
-}
-
-static int quote_safe(const char *text) {
-    return text && *text && !strchr(text, '"') && !strchr(text, '\r') &&
-           !strchr(text, '\n');
 }
 
 static void join_path(char *out, size_t out_size, const char *left,
@@ -124,6 +134,7 @@ static int load_final_cache(const char *cache) {
     if (!loaded) { note("runtime blob is malformed"); return 0; }
     falcon_presentation_destroy(s_presentation);
     s_presentation = loaded;
+    trace("approved runtime cache loaded");
     return 1;
 }
 
@@ -132,10 +143,33 @@ static const char *default_cache_root(void) {
     return local && *local ? local : NULL;
 }
 
+/* Never route owner-controlled paths through a shell. The helper contract is
+ * an executable, not a command string or .cmd/.sh wrapper; each path below is
+ * one argv item even when it contains shell metacharacters or spaces. */
+static int run_cache_helper(const char *helper, const char *owner_rom_path,
+                            const char *root, const char *result) {
+    char *const argv[] = { (char *)helper, "--rom", (char *)owner_rom_path,
+                           "--cache-root", (char *)root, "--result-file",
+                           (char *)result, NULL };
+#ifdef _WIN32
+    return _spawnv(_P_WAIT, helper, (const char *const *)argv) == 0;
+#else
+    pid_t child = fork();
+    int status;
+    if (child < 0) return 0;
+    if (child == 0) {
+        execv(helper, argv);
+        _exit(127);
+    }
+    if (waitpid(child, &status, 0) < 0) return 0;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
+}
+
 static int invoke_cache_helper(const char *owner_rom_path) {
     const char *helper = getenv("SNESRECOMP_FALCON_CACHE_HELPER");
     const char *root = getenv("SNESRECOMP_FALCON_CACHE_ROOT");
-    char fallback_root[768], result[1024], command[4096], cache[1024], name[256];
+    char fallback_root[768], result[1024], cache[1024], name[256];
     FILE *file;
     int rc;
     if (!root || !*root) {
@@ -144,17 +178,14 @@ static int invoke_cache_helper(const char *owner_rom_path) {
         snprintf(fallback_root, sizeof(fallback_root), "%s/SuperMarioWorldRecomp/smash64", local);
         root = fallback_root;
     }
-    if (!absolute_path(helper) || !absolute_path(root) || !absolute_path(owner_rom_path) ||
-        !quote_safe(helper) || !quote_safe(root) || !quote_safe(owner_rom_path)) {
-        note("helper, cache root, or committed owner ROM path violates the helper contract");
+    if (!absolute_path(helper) || !absolute_path(root) || !absolute_path(owner_rom_path)) {
+        note("helper, cache root, or committed owner ROM path is not absolute");
         return 0;
     }
     snprintf(result, sizeof(result), "%s/.smw-falcon-cache-result-%ld.txt", root,
              (long)SMW_GETPID());
-    snprintf(command, sizeof(command), "\"%s\" --rom \"%s\" --cache-root \"%s\" --result-file \"%s\"",
-             helper, owner_rom_path, root, result);
-    rc = system(command);
-    if (rc != 0) { note("external final-cache helper failed (see helper output)"); return 0; }
+    rc = run_cache_helper(helper, owner_rom_path, root, result);
+    if (!rc) { note("external final-cache helper failed (see helper output)"); return 0; }
     file = fopen(result, "rb");
     if (!file || !fgets(name, sizeof(name), file)) {
         if (file) fclose(file);
@@ -195,23 +226,40 @@ FalconPresentationPose smw_falcon_presentation_pose_for_state(
     return pose;
 }
 
-static int controllable(void) {
+static const char *controllable_reason(void) {
     const ForeignController *controller = snes_foreign_active();
-    return s_presentation && controller && !strcmp(controller->id, SMW_CAPTAIN_FALCON_ID) &&
-        snes_foreign_ownership() == FOREIGN_OWNERSHIP_FOREIGN && misc_game_mode == 0x14 &&
-        player_current_state == 0 && !player_timer_pipe_warping && !player_pipe_action &&
-        !flag_about_to_warp_in_pipe && !timer_end_level && !timer_end_level_via_keyhole;
+    if (!s_presentation) return "cache unavailable";
+    if (!controller || strcmp(controller->id, SMW_CAPTAIN_FALCON_ID)) return "Falcon controller inactive";
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) return "controller handoff";
+    if (misc_game_mode != 0x14) return "not level gameplay";
+    if (player_current_state != 0) return "nonordinary player state";
+    if (player_timer_pipe_warping || player_pipe_action || flag_about_to_warp_in_pipe) return "pipe handoff";
+    if (timer_end_level || timer_end_level_via_keyhole) return "goal handoff";
+    return "active";
+}
+
+static int controllable(void) {
+    const char *reason = controllable_reason();
+    if (strcmp(reason, s_last_gate)) {
+        snprintf(s_last_gate, sizeof(s_last_gate), "%s", reason);
+        trace(reason);
+    }
+    return !strcmp(reason, "active");
 }
 
 void smw_falcon_presentation_reset(void) {
     falcon_presentation_destroy(s_presentation);
     s_presentation = NULL;
     s_bound = 0;
+    s_suppression_active = 0;
+    s_mesh_draw_active = 0;
+    s_last_gate[0] = '\0';
 }
 
 void smw_falcon_presentation_activate(const char *owner_rom_path) {
     const char *cache = getenv("SNESRECOMP_FALCON_CACHE");
     smw_falcon_presentation_reset();
+    trace("activation requested");
     if (!owner_rom_path || !absolute_path(owner_rom_path)) { note("committed owner ROM path unavailable"); return; }
     if (cache && *cache) (void)load_final_cache(cache);
     else if (!invoke_cache_helper(owner_rom_path))
@@ -223,7 +271,7 @@ int smw_falcon_presentation_is_active(void) { return controllable(); }
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);
-    if (!controllable()) return;
+    if (!controllable()) { s_suppression_active = 0; return; }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,
@@ -232,12 +280,18 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
             return;
         }
         s_bound = 1;
+        trace("player OBJ suppression bound");
     }
     if (!PpuSetOverlayCapture(ppu, kPpuOverlaySource_Obj, -128, 0, 512, 224,
                               kPpuOverlayFlag_RemoveFromGame) ||
         !PpuSetOverlayOamRange(ppu, FALCON_PLAYER_OAM_FIRST,
-                               FALCON_PLAYER_OAM_COUNT))
+                               FALCON_PLAYER_OAM_COUNT)) {
+        s_suppression_active = 0;
         note("could not suppress the player OBJ range");
+    } else if (!s_suppression_active) {
+        s_suppression_active = 1;
+        trace("player OBJ suppression active");
+    }
 }
 
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
@@ -245,7 +299,10 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     const ForeignState *state;
     FalconPresentationTarget target;
     FalconPresentationPose pose;
-    if (!controllable() || !pixels || pitch % sizeof(uint32_t)) return;
+    if (!controllable() || !pixels || pitch % sizeof(uint32_t)) {
+        s_mesh_draw_active = 0;
+        return;
+    }
     state = snes_foreign_state();
     if (!state) return;
     memset(&target, 0, sizeof(target));
@@ -258,5 +315,11 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     target.scale = 1.0f;
     pose = smw_falcon_presentation_pose_for_state(
         state->state, state->state_frame, state->facing);
-    (void)falcon_presentation_draw(s_presentation, &pose, &target);
+    if (!falcon_presentation_draw(s_presentation, &pose, &target)) {
+        s_mesh_draw_active = 0;
+        note("mesh compositor rejected the current target or pose");
+    } else if (!s_mesh_draw_active) {
+        s_mesh_draw_active = 1;
+        trace("mesh compositor active");
+    }
 }

@@ -29,3 +29,7 @@ animation data belongs in this repository.
 generated game and checks controller state/frame/facing pose mapping. The full
 runtime cache and OBJ suppression contract is in
 `docs/falcon_owner_cache_runtime.md`.
+
+`python -m unittest test/falcon_presentation/test_host_runtime_contract.py`
+guards the no-shell cache-helper process boundary, including hostile path
+metacharacters.
