@@ -31,15 +31,14 @@ on the following frame.
 
 ## Controls and scope
 
-- **B:** jump and short-hop hold logic
-- **Y:** normal-attack intent
-- **X:** special-attack intent
-- **A:** reserved and consumed until the shell/carry tranche supplies explicit
-  native carry semantics (it must not enter SMW's spin-jump path)
-- D-pad: source stick; Down fast-falls while airborne
+- **B / PlayStation Cross:** jump, short-hop hold logic, and aerial second jump
+- **Y / PlayStation Square:** special intent (Punch, Down+Y Kick, Up+Y Dive)
+- **X:** normal-attack intent
+- **A / PlayStation Circle:** native shell carry; release throws and
+  Down+release sets the item down
+- D-pad: first press walks; a same-direction second tap within 15 frames enters
+  the sourced Dash-to-Run path; Down fast-falls while airborne
 
-Attack hitbox and symbolic audio intent are exposed for a later combat layer;
-this milestone intentionally adds no sprites, audio, assets, shell behavior,
-or attack consequences. The source supports `jumps_max = 2`, but double jump
-is deliberately disabled here. It is the next fidelity item and requires
-explicit controller and host-seam tests before enabling.
+Attack hitboxes now feed the conservative native SMW combat bridge, and the
+verified owner cache supplies presentation, audio, and special-move root
+motion. Falcon retains the verified source `jumps_max = 2` aerial jump.

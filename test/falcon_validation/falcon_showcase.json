@@ -16,26 +16,26 @@
     {"op": "save_state", "id": "idle_checkpoint"},
 
     {"op": "load_state", "id": "idle_checkpoint"},
-    {"op": "input", "p1": ["y"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
-    {"op": "capture", "id": "normal_y", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
+    {"op": "input", "p1": ["x"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
+    {"op": "capture", "id": "normal_x", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
-    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["x"]}, {"op": "step", "frames": 42}, {"op": "input", "p1": null},
+    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["y"]}, {"op": "step", "frames": 42}, {"op": "input", "p1": null},
     {"op": "capture", "id": "falcon_punch_active", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
-    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["down", "x"]}, {"op": "step", "frames": 12}, {"op": "input", "p1": null},
+    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["down", "y"]}, {"op": "step", "frames": 12}, {"op": "input", "p1": null},
     {"op": "capture", "id": "falcon_kick_ground", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
-    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["up", "x"]}, {"op": "step", "frames": 8}, {"op": "input", "p1": null},
+    {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["up", "y"]}, {"op": "step", "frames": 8}, {"op": "input", "p1": null},
     {"op": "capture", "id": "falcon_dive", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
     {"op": "load_state", "id": "idle_checkpoint"}, {"op": "input", "p1": ["b"]}, {"op": "step", "frames": 2}, {"op": "input", "p1": null},
     {"op": "capture", "id": "jump_takeoff", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
-    {"op": "input", "p1": ["y"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
-    {"op": "capture", "id": "aerial_y", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
+    {"op": "input", "p1": ["x"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
+    {"op": "capture", "id": "aerial_x", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
-    {"op": "input", "p1": ["down", "y"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
-    {"op": "capture", "id": "aerial_down_y", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
+    {"op": "input", "p1": ["down", "x"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
+    {"op": "capture", "id": "aerial_down_x", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]},
 
     {"op": "input", "p1": ["b"]}, {"op": "step", "frames": 1}, {"op": "input", "p1": null}, {"op": "step", "frames": 1},
     {"op": "capture", "id": "aerial_second_jump", "wram": [{"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"}, {"name": "player", "addr": "0x0071", "len": 42}]}
