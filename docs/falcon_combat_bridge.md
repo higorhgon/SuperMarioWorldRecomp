@@ -15,11 +15,13 @@ it does not change plugin ownership.
 
 The attack is source-center-relative (+Y-up): its SMW center is
 `player + (8,32) + (facing*offset_x, -offset_y)*0.08`, with width/height as
-full extents. Falcon Punch's active frame uses `offset_x=480`, `width=640`,
-`offset_y=160`, and `height=240`: its front reaches 64 host pixels ahead of
-Falcon's centre (two rendered 32-pixel model widths, beyond the former 45.6px
-edge), while its 19.2-pixel vertical band stays at the torso/arm rather than
-sweeping a full player height.
+full extents. Falcon Punch remains visually authored at frame 42, but its SMW
+contact window is frame `42..<56`, through the visible fire effect. It uses
+`offset_x=560`, `width=900`, `offset_y=160`, and `height=400`: its 80.8px
+front edge reaches two broad Falcon body widths ahead and its 32px vertical
+union covers an ordinary SMW target. The adapter consumes the first successful
+native sprite *or* block consequence, so the contact linger neither sweeps a
+row of enemies nor breaks a second block.
 The policy tests both facings and vertical sign.
 
 The live `$00:CD36` hook is restricted to `M1X1`, `DB=$00`, `D=$0000`.
@@ -57,5 +59,6 @@ native no-hurt guard tested by `$01:A8E6`; it blocks only the remaining
 same-frame contact path. The next `$00:D5F2` seam clears only that unchanged
 one-frame value, so it is neither a synthetic kill nor broad invulnerability.
 
-Run `test\falcon_combat\build.bat` and
-`test\falcon_combat_apply\build.bat` for policy and mocked-native validation.
+Run `test\falcon_combat\build.bat`, `test\falcon_combat_apply\build.bat`, and
+`test\falcon_step_guard\build.bat` for policy, mocked-native, and exact
+one-block-step regression validation.

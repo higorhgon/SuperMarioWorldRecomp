@@ -37,9 +37,9 @@ static CpuState fresh(void) {
 }
 static ForeignAttackHitbox attack(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
-    /* Same 64px forward / 19.2px vertical Falcon Punch envelope as the
-     * controller's active source hitbox. */
-    a.offset_x=480; a.offset_y=160; a.width=640; a.height=240;
+    /* Same 80px-forward / full-torso host contact envelope as the
+     * controller's lingered Falcon Punch window. */
+    a.offset_x=560; a.offset_y=160; a.width=900; a.height=400;
     a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
 }
 static void install_sprite(unsigned slot, uint8_t id, uint16_t x, uint16_t y) {
@@ -51,8 +51,9 @@ int main(void) {
     CpuState cpu=fresh(); ForeignAttackHitbox a=attack(); ForeignCollisionResult hit;
     uint8_t scratch[16], interaction[5]; int calls;
     put16(0x94,100); put16(0x96,100);
-    /* 60px-forward ordinary target remains inside Punch's 64px front edge. */
-    install_sprite(3,0x0f,160,120); install_sprite(5,0x0f,162,110); s_expected_slot=3;
+    /* A target 76px ahead is beyond the former 64px front edge but inside
+     * the deliberate two-body host contact envelope. */
+    install_sprite(3,0x0f,184,120); install_sprite(5,0x0f,186,110); s_expected_slot=3;
     memset(s_ram,0x5a,16); memcpy(scratch,s_ram,16); memset(&hit,0,sizeof(hit));
     smw_falcon_combat_apply(&cpu,&a,1,&hit);
     CHECK(s_sprite_calls==1 && s_native_contact_effects==1 &&
@@ -61,10 +62,10 @@ int main(void) {
 
     /* IDs $04-$07 are upright shelled Koopas and retain the 16x24 union.
      * A loose shell (native status $09) is deliberately excluded. */
-    cpu=fresh(); put16(0x94,100); put16(0x96,100); install_sprite(2,0x04,160,120); s_expected_slot=2;
+    cpu=fresh(); put16(0x94,100); put16(0x96,100); install_sprite(2,0x04,184,120); s_expected_slot=2;
     calls=s_sprite_calls; smw_falcon_combat_apply(&cpu,&a,1,&(ForeignCollisionResult){0});
     CHECK(s_sprite_calls==calls+1 && s_ram[0x14ca]==2);
-    cpu=fresh(); put16(0x94,100); put16(0x96,100); install_sprite(2,0x04,160,120); s_ram[0x14ca]=9;
+    cpu=fresh(); put16(0x94,100); put16(0x96,100); install_sprite(2,0x04,184,120); s_ram[0x14ca]=9;
     calls=s_sprite_calls; smw_falcon_combat_apply(&cpu,&a,1,&(ForeignCollisionResult){0}); CHECK(s_sprite_calls==calls);
 
     /* Facing mirrors source X offset; the left target is selected only left. */
@@ -76,6 +77,16 @@ int main(void) {
     calls=s_block_calls; smw_falcon_combat_apply(&cpu,&a,1,&(ForeignCollisionResult){0});
     CHECK(s_block_calls==calls+1 && memcmp(s_ram,scratch,16)==0 && memcmp(s_ram+0x98,interaction,5)==0);
     CHECK(s_ram[0x7c]==0x33 && s_ram[0x7d]==0x44);
+
+    /* A lingering host frame receives one native consequence: sprite contact
+     * wins and the same frame must not also break the current collision
+     * block. The adapter latches this successful return for the remainder of
+     * the Punch contact window. */
+    cpu=fresh(); put16(0x94,100); put16(0x96,100); put16(0x9a,128); put16(0x98,112);
+    install_sprite(4,0x0f,184,120); s_expected_slot=4; s_ram[4]=7;
+    calls=s_sprite_calls; int block_before=s_block_calls;
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&hit));
+    CHECK(s_sprite_calls==calls+1 && s_block_calls==block_before && s_ram[0x14cc]==2);
 
     /* Question/pipe/scenery paths never invoke the native transaction. */
     cpu=fresh(); put16(0x94,100); put16(0x96,100); put16(0x9a,128); put16(0x98,112); s_ram[0x1693]=0x21;

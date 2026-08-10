@@ -7,6 +7,7 @@
 # $01:80D2 is the later carry bridge seam. Restrict M1X1.
 @hook HandlePlayerPhysics -> SmwFalconBeforePlayerPhysics M1X1
 @hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
+@hook HandlePlayerLevelColl_00E9FB -> SmwFalconBeforeCrushCheck M1X1
 @hook PlayerState00_00CD36 -> SmwFalconAfterPhysics M1X1
 @hook ProcessNormalSprites_GetNormalSpriteOAMIndexAndDecrementTimers -> SmwFalconBeforeNormalSprites M1X1
 @hook Spr035_Yoshi -> SmwFalconBeforeYoshi M1X1

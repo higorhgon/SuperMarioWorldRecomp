@@ -170,8 +170,8 @@ static int attack_touches_native_collision_block(const CpuState *cpu,
     return smw_falcon_aabb_overlaps(hit, block);
 }
 
-static void apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
-                               float facing)
+static int apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
+                              float facing)
 {
     SmwFalconCpuSnapshot saved;
     uint8_t scratch[SMW_SCRATCH_COUNT];
@@ -179,7 +179,7 @@ static void apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
     SmwFalconMap16Class map16_class = native_collision_block_class(cpu);
     uint8_t player_y_speed[2];
     if (!smw_falcon_can_break_map16(attack, map16_class) ||
-        !attack_touches_native_collision_block(cpu, attack, facing)) return;
+        !attack_touches_native_collision_block(cpu, attack, facing)) return 0;
 
     memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
     memcpy(interaction, cpu->ram + SMW_TOUCH_Y, sizeof(interaction));
@@ -194,13 +194,22 @@ static void apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
     memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
     memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
     restore_cpu(cpu, &saved);
+    return 1;
 }
 
-void smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
-                             float facing, ForeignCollisionResult *out_collision)
+int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
+                            float facing, ForeignCollisionResult *out_collision)
 {
+    int sprite_applied;
     if (out_collision == NULL || !hook_contract_is_valid(cpu) ||
-        attack == NULL || !attack->active) return;
-    if (apply_one_sprite(cpu, attack, facing)) out_collision->attack_connected = 1;
-    apply_native_block(cpu, attack, facing);
+        attack == NULL || !attack->active) return 0;
+    sprite_applied = apply_one_sprite(cpu, attack, facing);
+    if (sprite_applied) {
+        out_collision->attack_connected = 1;
+        /* A host contact window is deliberately lingered. Its first admitted
+         * native sprite result is the whole move's consequence; do not also
+         * consume a block under the same frame. */
+        return 1;
+    }
+    return apply_native_block(cpu, attack, facing);
 }

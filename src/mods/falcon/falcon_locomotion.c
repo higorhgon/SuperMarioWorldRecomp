@@ -1306,13 +1306,18 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
                        14, 0.0, -80.0, 1);
         break;
     case FL_FALCON_PUNCH_GROUND:
-    case FL_FALCON_PUNCH_AIR: /* active 42..46, damage 24/25/26 */
-        if (t >= 42.0 && t < 47.0)
-            /* Host-space forward edge is 64 pixels from Falcon's centre:
-             * two rendered 32-pixel model widths and materially beyond the
-             * old 45.6px edge, while vertical coverage remains a bounded
-             * torso/arm band rather than a full player-height sweep. */
-            set_attack(out, 480.0, 160.0, 640.0, 240.0, 25, 105.0, 55.0, 1);
+    case FL_FALCON_PUNCH_AIR:
+        /* The owner animation's impact/audio stays exactly at frame 42.
+         * SMW, unlike Smash, usually gives a moving player just one pass by
+         * an enemy. Keep an intentionally host-only 42..55 contact linger
+         * after the authored impact so a normal platformer approach is not a
+         * five-frame timing test, but never damage before the visible fist /
+         * fire impact. Its 80px front edge is two broad Falcon body widths
+         * from his centre; the rear edge remains in front of him. The adapter
+         * consumes the first native consequence, so this cannot sweep a row
+         * of sprites or retrigger one block. */
+        if (t >= 42.0 && t < 56.0)
+            set_attack(out, 560.0, 160.0, 900.0, 400.0, 25, 105.0, 55.0, 1);
         break;
     case FL_FALCON_KICK_GROUND:
     case FL_FALCON_KICK_AIR: /* active 12..31, damage 15 */

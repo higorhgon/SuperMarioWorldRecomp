@@ -813,6 +813,57 @@ int main(void)
     if (timer_player_hurt != 0 || player_current_state != 0)
         return fail("stomp immunity latch clears before the next frame");
 
+    /* Live slot 0 reproduced this exact native condition while a small
+     * Falcon (powerup $00) ran into a one-block step: after collision, $77
+     * changed from $04 to $1D, and SMWDisX $00:E9FB would immediately
+     * branch to $00:EA08/DamagePlayer_KillAndDisableButtons.  This hook runs
+     * before that branch, restores the last DC2D position, and makes the
+     * opening a wall instead of granting invulnerability or leaving an
+     * embedded player. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for one-block-step guard");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_current_power_up = 0;
+    player_xpos = 0x070F;
+    player_ypos = 0x0160;
+    player_xspeed = 0x65;
+    player_yspeed = 0;
+    player_in_air_flag = 0;
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    /* This direct seam model supplies the immediately preceding valid
+     * coordinate. The live f310/f324 log establishes the signature, not a
+     * single 59px integration step. */
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_state() == NULL)
+        return fail("one-block-step guard has a Falcon state");
+    snes_foreign_state()->state = FL_RUN;
+    player_xpos = 0x074A;
+    player_ypos = 0x0160;
+    player_xspeed = 0;
+    player_yspeed = 0x96;
+    player_blocked_flags = 0x1D;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x070F || player_ypos != 0x0160 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        (player_blocked_flags & 0x1C) != 0)
+        return fail("run into one-block step restores pre-move position before native crush");
+    /* Do not broadly immunize genuine moving-ceiling / airborne crushes. */
+    player_xpos = 0x074A;
+    player_ypos = 0x015F;
+    player_xspeed = 0x65;
+    player_blocked_flags = 0x1D;
+    snes_foreign_state()->grounded = 0;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x074A || player_ypos != 0x015F ||
+        player_xspeed != 0x65 || player_blocked_flags != 0x1D)
+        return fail("airborne or vertically displaced crush remains native-owned");
+    snes_foreign_state()->grounded = 1;
+    SmwFalconAfterPhysics(NULL);
+
     /* The same hooks must be inert after the trusted Falcon controller is
      * reset/unselected, preserving exact native/mod-off behaviour. */
     player_riding_yoshi_flag = 1;

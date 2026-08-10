@@ -37,6 +37,7 @@ static int s_dash_ignore_until_release;
 static unsigned s_dash_tap_age;
 static int s_stomp_bounce_armed;
 static int s_stomp_contact_guard;
+static int s_attack_committed;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
 static ForeignMoveResult s_last_move;
@@ -284,11 +285,9 @@ static ForeignInput smw_falcon_input(void)
             s_dash_first_dir = 0;
     }
     if (s_dash_ignore_until_release) {
-        /* A turn-start press remains held through authored Turn frames. It
-         * must not become a phantom first dash tap when Turn releases into
-         * Wait/Walk; wait for the player's neutral edge. */
-        s_dash_first_dir = 0;
-        s_dash_tap_age = 0;
+        /* A turn-start press is the first edge of a deliberate double tap.
+         * It remains held through authored Turn frames, so wait for neutral
+         * before accepting the second edge, but retain its tap buffer. */
         s_dash_full_hold = 0;
         if (direction == 0) s_dash_ignore_until_release = 0;
     } else {
@@ -377,6 +376,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_pending = 0;
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
+        s_attack_committed = 0;
         smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
         return;
@@ -415,6 +415,8 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
+    if (!s_last_move.attack.active)
+        s_attack_committed = 0;
     /* An opposite-facing first press starts a source Turn, not a completed
      * SMW D-pad tap. Suppress it until its eventual neutral release. */
     if (state->state == FL_TURN || state->state == FL_TURN_RUN)
@@ -445,6 +447,38 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     /* $00:DC2D is intentionally velocity/collision ownership only. */
 }
 
+void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
+{
+    const ForeignState *state;
+    (void)cpu;
+
+    /* SMWDisX $00:E9FB sends $77&$1C==$1C to $00:EA08, which calls
+     * DamagePlayer_KillAndDisableButtons.  That exact combination means the
+     * movement reached the vertical face of a one-block step while grounded;
+     * it is not ordinary head contact.  Falcon's high-speed Dash/Run can
+     * reach that branch before the later CD36 seam. Restore the DC2D snapshot
+     * and let the original routine take its normal non-crush path, so the
+     * step behaves as a solid wall rather than leaving Falcon embedded or
+     * granting broad damage immunity. */
+    if (!s_pending || !snes_foreign_active() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        !smw_falcon_playable() ||
+        /* Slot 0's step path is wall bit $01 plus exact crush bits $1C;
+         * do not turn an airborne/moving-ceiling crush into immunity. */
+        (player_blocked_flags & 0x1Du) != 0x1Du ||
+        player_ypos != s_y_before) return;
+    state = snes_foreign_state();
+    if (state == NULL || !state->grounded ||
+        (state->state != FL_DASH && state->state != FL_RUN))
+        return;
+
+    player_xpos = s_x_before;
+    player_ypos = s_y_before;
+    player_sub_xspeed = player_sub_yspeed = 0;
+    player_xspeed = player_yspeed = 0;
+    player_blocked_flags &= 0xE3u; /* preserve native wall/edge bits only */
+}
+
 void SmwFalconAfterPhysics(struct CpuState *cpu)
 {
     ForeignCollisionResult hit;
@@ -471,10 +505,12 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
     }
-    if (cpu != NULL) {
+    if (cpu != NULL && s_last_move.attack.active && !s_attack_committed) {
         const ForeignState *state = snes_foreign_state();
-        smw_falcon_combat_apply(cpu, &s_last_move.attack,
-                                state != NULL ? state->facing : 1.0f, &hit);
+        if (smw_falcon_combat_apply(cpu, &s_last_move.attack,
+                                    state != NULL ? state->facing : 1.0f,
+                                    &hit))
+            s_attack_committed = 1;
     }
     /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the
      * post-write observer for this one frame so an accepted native stomp can
@@ -581,6 +617,7 @@ void SmwFalconOnStateLoaded(void)
     s_force_airborne_frames = 0;
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
+    s_attack_committed = 0;
     smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;
     smw_falcon_clear_carry_bridge();

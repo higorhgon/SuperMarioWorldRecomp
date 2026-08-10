@@ -10,7 +10,10 @@
  * currently under $98/$9A.  This must run at the M1X1 PlayerState00_00CD36
  * hook, immediately after native player collision and before foreign resolve.
  */
-void smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
-                             float facing, ForeignCollisionResult *out_collision);
+/* Returns nonzero only when the native sprite or block route actually took a
+ * consequence.  Callers use this to make a lingering host attack window
+ * consume one native consequence rather than one per frame. */
+int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
+                            float facing, ForeignCollisionResult *out_collision);
 
 #endif

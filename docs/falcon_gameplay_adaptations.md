@@ -21,8 +21,16 @@ The adapter has two deliberately separate host seams:
   swim, and active Yoshi rider/tongue state. This is the seam that suppresses
   native abilities; `$00:DC2D` is too late for that purpose.
 - `UpdatePlayerSpritePosition` at `$00:DC2D` remains the later
-  velocity/collision seam. It applies Falcon motion and resolves the native
-  collision result, but does not claim to suppress native action branches.
+velocity/collision seam. It applies Falcon motion and resolves the native
+collision result, but does not claim to suppress native action branches.
+
+When the sourced Dash/Run meets the vertical face of a one-block step, native
+SMW can report `$77=$1D` (wall plus its floor/ceiling crush bits) and branch
+to its kill path even for small Falcon. The precise `$00:E9FB` pre-branch hook
+is gated to playable foreign Dash/Run, grounded state, unchanged Y, and that
+exact wall signature. It restores the immediately pre-integration X/Y and
+zeros velocity while preserving the wall bit, so the step stops Falcon rather
+than killing him. Airborne and vertically displaced crushes remain native.
 
 Underwater levels remain Falcon-controlled: no native swim input is used, and
 attacks retain the saved raw controller input. At the `$00:DC2D` boundary every
