@@ -32,9 +32,25 @@ terminal fall speed while retaining the same locomotion and attack controller.
 
 Power-up state (`$19`) and the reserve item box remain entirely SMW-owned, so
 they continue to supply health, reserve, and progression. Yoshi mounting is
-not supported by this boundary: Falcon is cleanly dismounted and active tongue
-input is disabled, while owned-Yoshi persistence, wings, and the level entity
-remain under native SMW rather than sharing Falcon movement ownership.
+hard-disabled for an active Falcon level. The early input seam releases an
+already-mounted state (`$187A` and Yoshi-only `$00C2=1`) and tongue timers.
+More importantly, the `Spr035_Yoshi` entry (`$01:EBCA`) precedes the native
+`$01:ECE1` mount-contact branch. For a falling Falcon it temporarily makes
+that branch's Y-speed predicate upward, then restores the exact velocity at
+`PlayerDraw`, immediately after normal-sprite processing. The native contact
+therefore stays on ordinary off-Yoshi behavior before it can write the rider,
+mounted C2 state, carry-over, colour/facing, sound, smoke, bounce, or player
+position. State restoration also releases the transient mounted state whenever
+the Falcon controller is enabled, including a saved transition frame. It never
+changes Yoshi sprite status/position, the selected slot/entity, owned-Yoshi
+flags, colour, wings, or transition metadata: those remain native SMW
+progression. The title/attract demo and mod-off path are unmodified.
+
+The focused seam test models the confirmed `$01:ECE1` eligibility inputs and
+asserts that every observed pre-`$01:EB82` side-effect field remains unchanged.
+TCP validation must use a real stock Yoshi encounter; a WRAM-only mounted-bit
+fixture cannot establish the contact ordering and is intentionally not claimed
+as visual proof.
 
 ## Native shell carry
 

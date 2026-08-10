@@ -9,3 +9,5 @@
 @hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
 @hook PlayerState00_00CD36 -> SmwFalconAfterPhysics M1X1
 @hook ProcessNormalSprites_GetNormalSpriteOAMIndexAndDecrementTimers -> SmwFalconBeforeNormalSprites M1X1
+@hook Spr035_Yoshi -> SmwFalconBeforeYoshi M1X1
+@hook PlayerDraw -> SmwFalconBeforePlayerDraw M1X1

@@ -56,6 +56,41 @@ static int fail(const char *message)
     return 1;
 }
 
+static int yoshi_persistence_intact(void)
+{
+    return players_has_yoshi[0] == 1 &&
+           yoshi_carry_over_levels_flag == 1 &&
+           yoshi_yoshi_has_wings == 1 &&
+           yoshi_current_yoshi_color == 2 &&
+           sprites_yoshi_slot_index == 5 &&
+           yoshi_stray_yoshi_flag == 5;
+}
+
+/* Relevant native path, transcribed from SMWDisX bank_01:
+ * $01:ECE1/$01:ED70 accepts a falling airborne contact and writes C2, then
+ * PlayerDraw -> $01:EA70 -> $01:EA8F/$01:EB82 turns C2 into the rider and
+ * progression/presentation side effects. This small model is deliberately
+ * only the mount path; it lets the isolated host-seam harness prove that the
+ * pre-contact guard prevents all of those writes. */
+static void model_native_yoshi_mount(unsigned slot)
+{
+    if (player_in_air_flag != 0 && player_riding_yoshi_flag == 0 &&
+        (int8_t)player_yspeed >= 0) {
+        spr_table00c2[slot] = 1;
+        player_xspeed = 0;
+        player_yspeed = 0;
+        player_ypos = (uint16_t)(spr_ypos[slot] - 0x10);
+        io_sound_ch1 = 0x2f; /* native Yoshi-drum-on cue, value immaterial */
+        io_sound_ch3 = 0x29; /* native Yoshi cue */
+    }
+    if (spr_table00c2[slot] == 1) {
+        player_riding_yoshi_flag = 1;
+        yoshi_carry_over_levels_flag = 1;
+        yoshi_current_yoshi_color = spr_table15f6[slot];
+        player_facing_direction = (uint8_t)(spr_table157c[slot] ^ 1);
+    }
+}
+
 int main(void)
 {
     ForeignTraceEntry trace;
@@ -297,7 +332,13 @@ int main(void)
     players_has_yoshi[0] = 1;
     yoshi_carry_over_levels_flag = 1;
     yoshi_yoshi_has_wings = 1;
+    yoshi_current_yoshi_color = 2;
+    sprites_yoshi_slot_index = 5;
+    yoshi_stray_yoshi_flag = 5;
+    spr_spriteid[5] = 0x35;
+    spr_table00c2[5] = 1;
     timer_yoshi_tongue_is_out = 7;
+    timer_yoshi_tongue_init = 7;
     io_controller_hold1 = 0;
     io_controller_press1 = 0;
     io_controller_hold2 = io_controller_press2 = 0x40; /* X: normal attack. */
@@ -311,11 +352,43 @@ int main(void)
         timer_display_player_shoot_fireball_pose || player_cape_image ||
         flag_cape_to_sprite_interaction || timer_active_cape_spin ||
         player_cape_flying_phase || player_riding_yoshi_flag ||
-        timer_yoshi_tongue_is_out)
+        spr_table00c2[5] != 0 ||
+        timer_yoshi_tongue_is_out || timer_yoshi_tongue_init)
         return fail("early seam masks native extensions before SMW action input");
-    if (players_has_yoshi[0] != 1 || yoshi_carry_over_levels_flag != 1 ||
-        yoshi_yoshi_has_wings != 1)
+    if (!yoshi_persistence_intact())
         return fail("Yoshi ownership and level-entity persistence survive dismount");
+
+    /* Model the real $01:ECE1 mount candidate, rather than merely setting
+     * $187A after the fact. Native code would otherwise set C2=1, rider,
+     * colour/facing/carry-over, SFX, smoke, bounce, and player Y position
+     * before PlayerDraw later reasserts $187A at $01:EB82. */
+    player_in_air_flag = 1;
+    player_yspeed = 0x20;
+    player_riding_yoshi_flag = 0;
+    spr_table00c2[5] = 0;
+    spr_table15f6[5] = 7;
+    spr_table157c[5] = 0;
+    player_facing_direction = 0;
+    player_ypos = 0x1234;
+    spr_ypos[5] = 0x0200;
+    yoshi_current_yoshi_color = 2;
+    io_sound_ch1 = io_sound_ch3 = 0;
+    SmwFalconBeforeYoshi(NULL);
+    if (player_yspeed != 0xFF)
+        return fail("Yoshi pre-contact guard makes a falling Falcon ineligible");
+    model_native_yoshi_mount(5);
+    /* These are the actual $01:ED70/$01:EB82 side-effect fields. The model
+     * stays on its no-contact path because the hook changed only the guarded
+     * predicate, so the real generated code takes the same branch. */
+    if (spr_table00c2[5] != 0 || player_riding_yoshi_flag ||
+        yoshi_current_yoshi_color != 2 || player_facing_direction != 0 ||
+        player_ypos != 0x1234 || io_sound_ch1 || io_sound_ch3)
+        return fail("Yoshi mount contact reaches none of its native side effects");
+    if (!yoshi_persistence_intact())
+        return fail("mount guard preserves Yoshi entity and progression");
+    SmwFalconBeforePlayerDraw(NULL);
+    if (player_yspeed != 0x20)
+        return fail("Yoshi mount guard restores exact Falcon velocity before draw");
     SmwFalconBeforePhysics(NULL);
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         snes_foreign_trace_last(1, &trace) != 1 ||
@@ -329,10 +402,10 @@ int main(void)
         flag_cape_to_sprite_interaction || timer_active_cape_spin ||
         player_cape_flying_phase)
         return fail("native spin fire and cape actions are suppressed");
-    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out)
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
+        timer_yoshi_tongue_init)
         return fail("unsupported Yoshi mount is cleanly dismounted");
-    if (players_has_yoshi[0] != 1 || yoshi_carry_over_levels_flag != 1 ||
-        yoshi_yoshi_has_wings != 1)
+    if (!yoshi_persistence_intact())
         return fail("dismount preserves owned Yoshi and level entity state");
     if (player_current_power_up != 3 || player_current_item_box != 3)
         return fail("powerup and reserve progression remain SMW-owned");
@@ -458,6 +531,68 @@ int main(void)
     if ((io_controller_hold1 & 0x44) != 0)
         return fail("state load clears transient carry translation");
 
-    puts("falcon_smw_adapter: pad mapping, seam order, collision feedback PASS");
+    /* A Falcon-enabled level never lets native transition/load states retain
+     * mount ownership.  The persistent Yoshi records and selected entity stay
+     * untouched through pipe, goal, death, and an already-mounted save. */
+    player_riding_yoshi_flag = 1;
+    spr_table00c2[5] = 1;
+    timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
+    player_timer_pipe_warping = 1;
+    SmwFalconBeforeYoshi(NULL);
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
+        timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
+        !yoshi_persistence_intact())
+        return fail("pipe handoff dismounts without corrupting Yoshi persistence");
+    SmwFalconBeforePlayerDraw(NULL);
+    player_timer_pipe_warping = 0;
+
+    player_riding_yoshi_flag = 1;
+    spr_table00c2[5] = 1;
+    timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
+    timer_end_level = 1;
+    SmwFalconBeforeYoshi(NULL);
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
+        timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
+        !yoshi_persistence_intact())
+        return fail("goal handoff dismounts without corrupting Yoshi persistence");
+    SmwFalconBeforePlayerDraw(NULL);
+    timer_end_level = 0;
+
+    player_riding_yoshi_flag = 1;
+    spr_table00c2[5] = 1;
+    timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
+    player_current_state = 9;
+    SmwFalconBeforeYoshi(NULL);
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
+        timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
+        !yoshi_persistence_intact())
+        return fail("death handoff dismounts without corrupting Yoshi persistence");
+    SmwFalconBeforePlayerDraw(NULL);
+    player_current_state = 0;
+
+    player_riding_yoshi_flag = 1;
+    spr_table00c2[5] = 1;
+    timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
+    SmwFalconOnStateLoaded();
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
+        timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
+        !yoshi_persistence_intact())
+        return fail("mounted Falcon save loads as a clean native Yoshi dismount");
+
+    /* The same hooks must be inert after the trusted Falcon controller is
+     * reset/unselected, preserving exact native/mod-off behaviour. */
+    player_riding_yoshi_flag = 1;
+    spr_table00c2[5] = 1;
+    timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
+    snes_foreign_select(NULL);
+    SmwFalconBeforeYoshi(NULL);
+    SmwFalconOnStateLoaded();
+    if (player_riding_yoshi_flag != 1 || spr_table00c2[5] != 1 ||
+        timer_yoshi_tongue_is_out != 7 ||
+        timer_yoshi_tongue_init != 7 || !yoshi_persistence_intact())
+        return fail("mod-off Yoshi state is exact and untouched");
+
+    puts("falcon_smw_adapter: pad, collision, carry, and Yoshi seams PASS");
     return 0;
 }
