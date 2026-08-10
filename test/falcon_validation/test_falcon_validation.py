@@ -80,6 +80,21 @@ class FalconValidationTests(unittest.TestCase):
         self.assertIn({"name": "facing", "addr": "0x0076", "len": 1,
                        "equals": "0x00"}, captures[1]["wram"])
 
+    def test_attract_scenario_requires_native_return_before_start(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_attract.json")
+        waits = {step["id"]: step for step in scenario["steps"]
+                 if step["op"] in ("wait_ram", "pulse_input_until_ram")}
+        self.assertEqual(waits["attract_script_started"]["addr"], "0x1df4")
+        self.assertEqual(waits["natural_fade_to_title"]["equals"], "0x02")
+        self.assertEqual(waits["returned_title"]["equals"], "0x07")
+        self.assertEqual(waits["overworld_after_start"]["equals"], "0x0e")
+        self.assertEqual(waits["gameplay_after_attract"]["equals"], "0x14")
+        attract = next(step for step in scenario["steps"]
+                       if step.get("id") == "native_attract")
+        self.assertIn({"name": "native_iframe_guard", "addr": "0x1497",
+                       "len": 1, "equals": "0x01"}, attract["wram"])
+
     def test_rejects_out_of_range_wram(self) -> None:
         bad = {"format": "falcon-validation/v1", "steps": [
             {"op": "capture", "id": "bad", "wram": [
