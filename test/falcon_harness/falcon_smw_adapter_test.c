@@ -121,6 +121,15 @@ int main(void)
     ForeignTraceEntry trace;
     int count;
 
+    /* The title attract handler retains GM=$07 while it jumps into its level
+     * code. With no selected foreign controller this seam must be a no-op. */
+    memset(g_ram, 0, sizeof(g_ram));
+    misc_game_mode = 0x07;
+    timer_player_hurt = 0x5A;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (timer_player_hurt != 0x5A)
+        return fail("mod-off title attract leaves native invulnerability untouched");
+
     if (!smw_captain_falcon_register() ||
         !snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("register/select Captain Falcon");
@@ -187,6 +196,30 @@ int main(void)
         trace.state != FL_DASH || (int8_t)player_xspeed <= 0)
         return fail("same-direction double tap enters sourced Dash with right velocity");
     SmwFalconAfterPhysics(NULL);
+
+    /* SMWDisX's GameMode07 title attract routine JMPs into level handling
+     * without changing $0100. Its recorded Koopa side-hit must remain native
+     * except for one-frame $1497 invulnerability: collision treats any
+     * nonzero value as protected and PlayerDraw's value 1 remains visible.
+     * Only private deferred-carry state is discarded; the recorded input
+     * bytes themselves remain exactly native. */
+    misc_game_mode = 0x07;
+    timer_player_hurt = 0;
+    io_controller_hold1 = 0x54;  /* Start plus translated Y/Down carry bits */
+    io_controller_press1 = 0x40;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (timer_player_hurt != 1 || io_controller_hold1 != 0x54 ||
+        io_controller_press1 != 0x40)
+        return fail("active title attract receives visible native damage immunity");
+
+    misc_game_mode = 0x14;
+    timer_player_hurt = 0x5A;
+    io_controller_hold1 = 0x54;
+    io_controller_press1 = 0x40;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (timer_player_hurt != 0x5A || io_controller_hold1 != 0x54 ||
+        io_controller_press1 != 0x40)
+        return fail("ordinary GM14 never receives title-attract immunity");
 
     /* A left press from a right-facing idle starts source Turn, whose authored
      * facing flip is at frame 4.  Do not mistake the first three stationary

@@ -387,6 +387,21 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * CheckPlayerToNormalSpriteColl ($01:AA42) plus status-$0B carry handlers.
      * It is the first safe bridge point: $00:CD36 is earlier than native
      * climb/door/player interactions, so Down must not be emitted there. */
+    if (snes_foreign_active() != NULL && misc_game_mode == 0x07) {
+        /* GameMode07 retains its own mode value while it JMPs into the title
+         * demo's level handler.  The demo's recorded side-hit otherwise
+         * enters native death and can strand the title-to-start handoff.
+         * SMWDisX's collision check treats any nonzero $1497 as invulnerable;
+         * PlayerDraw uses a one-frame value without the flicker branch. */
+        timer_player_hurt = 1;
+        /* Drop only host bridge state.  Do not call clear_carry_bridge here:
+         * GM07's native script deliberately uses Y/Down bits (for example
+         * $41 = Y+Right), and its controller bytes must remain untouched. */
+        s_foreign_pad.carry_a = 0;
+        s_foreign_pad.carry_down = 0;
+        s_foreign_pad.carry_valid = 0;
+        return;
+    }
     if (!snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
         smw_falcon_clear_carry_bridge();
