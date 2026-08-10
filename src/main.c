@@ -441,10 +441,14 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
   }
   smw_falcon_presentation_prepare_ppu(g_ppu);
   g_rtl_game_info->draw_ppu_frame();
+  /* Composite into the PPU-owned frame before it is copied to the display.
+   * This keeps the debug/TCP screenshot path (which reads g_ppu->renderBuffer)
+   * authoritative, without ever binding the PPU to transient texture memory. */
+  smw_falcon_presentation_present(g_my_pixels,
+                                  (size_t)g_snes_width * sizeof(uint32_t),
+                                  g_snes_width, g_snes_height);
   RtlWidescreenPresent(pixel_buffer, pitch, g_my_pixels,
                        g_snes_width, g_snes_height);
-  smw_falcon_presentation_present(pixel_buffer, pitch, g_snes_width,
-                                  g_snes_height);
 }
 
 static void DrawPpuFrameWithPerf(void) {

@@ -37,10 +37,11 @@ static const uint8_t k_runtime_sha256[32] = {
 
 /* Binding is required for PPU's OBJ RemoveFromGame path. It is intentionally
  * not composited: only slots 64..75 are captured and removed. */
-static uint32_t s_obj_scratch[512 * 240];
+static uint32_t s_obj_scratch[kPpuBufWidth * 240];
 static FalconPresentation *s_presentation;
 static int s_bound;
 static int s_suppression_active;
+static int s_suppression_failed;
 static int s_mesh_draw_active;
 static char s_last_gate[96];
 
@@ -252,6 +253,7 @@ void smw_falcon_presentation_reset(void) {
     s_presentation = NULL;
     s_bound = 0;
     s_suppression_active = 0;
+    s_suppression_failed = 0;
     s_mesh_draw_active = 0;
     s_last_gate[0] = '\0';
 }
@@ -275,8 +277,11 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,
-                                   sizeof(s_obj_scratch) / 240)) {
-            note("could not bind narrow OBJ suppression surface");
+                                   kPpuBufWidth * sizeof(uint32_t))) {
+            if (!s_suppression_failed) {
+                s_suppression_failed = 1;
+                note("could not bind narrow OBJ suppression surface");
+            }
             return;
         }
         s_bound = 1;
@@ -287,8 +292,12 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
         !PpuSetOverlayOamRange(ppu, FALCON_PLAYER_OAM_FIRST,
                                FALCON_PLAYER_OAM_COUNT)) {
         s_suppression_active = 0;
-        note("could not suppress the player OBJ range");
+        if (!s_suppression_failed) {
+            s_suppression_failed = 1;
+            note("could not suppress the player OBJ range");
+        }
     } else if (!s_suppression_active) {
+        s_suppression_failed = 0;
         s_suppression_active = 1;
         trace("player OBJ suppression active");
     }
