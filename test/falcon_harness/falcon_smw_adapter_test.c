@@ -427,12 +427,23 @@ int main(void)
     SmwFalconBeforePhysics(NULL);
     if (player_in_air_flag == 0 || (int8_t)player_yspeed > -16)
         return fail("grounded Falcon Dive consumes force_airborne upward");
-    player_ypos = (uint16)(player_ypos - 1);
     player_in_air_flag = 0; /* emulate native floor rediscovery this frame */
     SmwFalconAfterPhysics(NULL);
     if (snes_foreign_trace_last(1, &trace) != 1 ||
         trace.state != FL_FALCON_DIVE_GROUND || trace.grounded != 0)
         return fail("Up-B startup resolves as airborne after native collision");
+    /* No test-only position nudge: the real SMW collision can report the
+     * same floor after the first subpixel/one-pixel request. The following
+     * DC2D seam must preserve the bounded departure edge and give native
+     * integration another upward opportunity before source state is sampled. */
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (player_in_air_flag == 0 || (int8_t)player_yspeed > -16 ||
+        snes_foreign_state()->grounded != 0)
+        return fail("Up-B departure latch survives native floor rediscovery");
+    SmwFalconAfterPhysics(NULL);
 
     /* The mature NES input seam gives a directionless special edge one frame
      * of grace.  This is particularly important on a D-pad: Y then Up must
@@ -457,7 +468,20 @@ int main(void)
     if (snes_foreign_trace_last(1, &trace) != 1 ||
         trace.state != FL_FALCON_DIVE_GROUND || player_in_air_flag == 0)
         return fail("Y then Up enters grounded Falcon Dive through the normal edge");
+    player_in_air_flag = 0; /* native may rediscover the starting floor */
     SmwFalconAfterPhysics(NULL);
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (player_in_air_flag == 0 || (int8_t)player_yspeed > -16 ||
+        snes_foreign_state()->grounded != 0)
+        return fail("Y then Up keeps the same departure latch through floor rediscovery");
+    SmwFalconAfterPhysics(NULL);
+    /* Direct controller selection is the harness's fresh-match boundary; use
+     * the real savestate/reset hook so no host latch leaks into the following
+     * independently seeded aerial parity case. */
+    SmwFalconOnStateLoaded();
 
     /* Ground and air use the same immediate Up+Y input priority; only the
      * source-selected state differs.  This keeps the floor handoff from

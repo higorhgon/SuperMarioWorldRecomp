@@ -21,9 +21,14 @@
 #define SMW_FALCON_WATER_VERTICAL_SCALE 0.45
 #define SMW_FALCON_WATER_TERMINAL_FALL 42.0
 #define SMW_FALCON_DASH_DOUBLE_TAP_FRAMES 15
+/* Approved owner cache FalconDive TransN is subpixel through source frame 13
+ * and first produces an upward SMW speed at frame 14.  The source resolver
+ * itself preserves grounded-Dive air kinetics through frame 15. */
+#define SMW_FALCON_DEPARTURE_MAX_FRAMES 16u
 
 static int s_pending;
 static int s_force_airborne_pending;
+static unsigned s_force_airborne_frames;
 static int s_dash_first_dir;
 static int s_dash_prev_dir;
 static int s_dash_full_hold;
@@ -80,6 +85,29 @@ static uint8_t clamp_speed(double source_delta, int y_axis)
     if (rounded > 127) rounded = 127;
     if (rounded < -127) rounded = -127;
     return (uint8_t)(int8_t)rounded;
+}
+
+/* A source controller's departure request is an edge, but SMW's collision
+ * probe can still find the floor while the source animation has not yet
+ * accumulated a representable upward displacement.  Keep the established
+ * SMW airborne value and a one-pixel upward opportunity live only until the
+ * native collision result accepts the lift.  This is the same bounded
+ * quantization bridge used by the mature NES host seam, not a repeated input
+ * or a controller-owned position write. */
+static void smw_falcon_hold_departure_edge(int advance_timeout)
+{
+    if (!s_force_airborne_pending) return;
+    if (advance_timeout &&
+        ++s_force_airborne_frames > SMW_FALCON_DEPARTURE_MAX_FRAMES) {
+        /* A malformed controller or a true obstruction cannot pin SMW in an
+         * artificial airborne state. Native collision regains authority. */
+        s_force_airborne_pending = 0;
+        s_force_airborne_frames = 0;
+        return;
+    }
+    player_in_air_flag = 1;
+    if (signed8(player_yspeed) >= 0)
+        player_yspeed = (uint8_t)(int8_t)-16;
 }
 
 static int smw_falcon_playable(void)
@@ -335,6 +363,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
 {
     ForeignState *state;
     ForeignInput input;
+    int departure_started = 0;
     (void)cpu;
 
     /* BoostMarioSpeed runs later in ProcessNormalSprites. Never let its
@@ -347,6 +376,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
             snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
         s_pending = 0;
         s_force_airborne_pending = 0;
+        s_force_airborne_frames = 0;
         smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
         return;
@@ -362,6 +392,14 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         state = snes_foreign_state();
         smw_falcon_reseed(state);
         snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    }
+
+    /* This must precede state->grounded.  A floor rediscovered after the
+     * previous tick is a host quantization artefact until native collision
+     * has accepted a whole upward lift; feeding it back now would turn a
+     * grounded Falcon Dive into a perpetual floor-bound pose. */
+    if (s_force_airborne_pending) {
+        smw_falcon_hold_departure_edge(1);
     }
 
     if (state->grounded && player_in_air_flag != 0)
@@ -391,16 +429,18 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
     player_sub_xspeed = player_sub_yspeed = 0;
     player_facing_direction = state->facing >= 0.0f;
-    s_force_airborne_pending = s_last_move.force_airborne ||
-                              state->jump_phase == FOREIGN_JUMP_LAUNCH;
-    if (s_force_airborne_pending) {
-        /* Ground Falcon Dive begins with near-zero root motion. Give its
-         * departure edge one whole native upward pixel so SMW does not keep
-         * rediscovering the same floor before the source launch progresses. */
-        player_in_air_flag = 1;
-        if (signed8(player_yspeed) >= 0)
-            player_yspeed = (uint8_t)(int8_t)-16;
+    if ((s_last_move.force_airborne ||
+         state->jump_phase == FOREIGN_JUMP_LAUNCH) &&
+        !s_force_airborne_pending) {
+        s_force_airborne_pending = 1;
+        s_force_airborne_frames = 0;
+        departure_started = 1;
     }
+    /* The controller's source delta was clamped just above. Reassert the
+     * already-authorized native departure after that clamp; timeout advances
+     * only at the pre-tick presentation, never twice in one guest frame. */
+    if (s_force_airborne_pending)
+        smw_falcon_hold_departure_edge(departure_started);
 
     /* $00:DC2D is intentionally velocity/collision ownership only. */
 }
@@ -422,6 +462,15 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     hit.hit_floor = hit.grounded && dy >= 0;
     hit.hit_ceiling = (player_blocked_flags & 0x08) != 0;
     hit.hit_wall = (player_blocked_flags & 0x03) != 0;
+    /* SMW has accepted this departure only when its own collision result is
+     * airborne after a real upward whole-pixel integration.  A one-pixel
+     * request that collision immediately re-grounds deliberately remains
+     * pending; the next DC2D seam presents the same native airborne state. */
+    if (s_force_airborne_pending && dy < 0 && player_in_air_flag != 0 &&
+        !hit.hit_ceiling) {
+        s_force_airborne_pending = 0;
+        s_force_airborne_frames = 0;
+    }
     if (cpu != NULL) {
         const ForeignState *state = snes_foreign_state();
         smw_falcon_combat_apply(cpu, &s_last_move.attack,
@@ -435,7 +484,6 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     snes_foreign_resolve(&hit);
     snes_foreign_trace_note_native(player_xpos, player_ypos);
     s_pending = 0;
-    s_force_airborne_pending = 0;
 }
 
 void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
@@ -530,6 +578,7 @@ void SmwFalconOnStateLoaded(void)
      * static host memory.  The grace latch is intentionally not schema state. */
     s_pending = 0;
     s_force_airborne_pending = 0;
+    s_force_airborne_frames = 0;
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
     smw_falcon_reset_dash_taps();
