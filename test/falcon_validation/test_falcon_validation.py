@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import socket
 import sys
 import tempfile
 import unittest
@@ -18,6 +19,14 @@ SPEC.loader.exec_module(falcon)
 
 
 class FalconValidationTests(unittest.TestCase):
+    def test_launch_refuses_an_already_owned_tcp_port(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            with self.assertRaisesRegex(RuntimeError, "already owned"):
+                falcon.require_port_free(port)
+
     def test_normalize_buttons(self) -> None:
         self.assertEqual(falcon.normalize_buttons(["right", "b"], "p1"), "right+b")
         self.assertEqual(falcon.normalize_buttons(None, "p1"), "none")

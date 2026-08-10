@@ -247,6 +247,16 @@ def launch_argv(exe: pathlib.Path, rom: pathlib.Path) -> list[str]:
     return [str(exe.resolve()), "--paused", str(rom.resolve())]
 
 
+def require_port_free(port: int) -> None:
+    """Refuse to drive an unrelated runner already listening on the port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.25)
+        if probe.connect_ex(("127.0.0.1", port)) == 0:
+            raise RuntimeError(
+                f"TCP port {port} is already owned by another process; "
+                "close that runner before validation")
+
+
 @dataclass
 class ModStateGuard:
     path: pathlib.Path
@@ -388,6 +398,7 @@ def run(args: argparse.Namespace) -> int:
         message = f"SKIP: Falcon executable not found: {args.exe}"
         print(message)
         return 2 if args.require_build else 0
+    require_port_free(args.port)
     args.out.mkdir(parents=True, exist_ok=True)
     mod_state = stage_mod_state(args.exe, scenario.get("mod"), getattr(args, "owner_rom", None))
     process: subprocess.Popen[Any] | None = None
