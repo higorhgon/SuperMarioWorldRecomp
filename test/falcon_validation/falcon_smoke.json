@@ -1,0 +1,22 @@
+{
+  "format": "falcon-validation/v1",
+  "name": "falcon-first-playable-smoke",
+  "steps": [
+    {"op": "capture", "id": "boot", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1},
+      {"name": "player_state", "addr": "0x0071", "len": 1},
+      {"name": "player_xy", "addr": "0x0094", "len": 8}
+    ]},
+    {"op": "input", "p1": ["right"]},
+    {"op": "step", "frames": 30},
+    {"op": "capture", "id": "walk_right", "wram": [
+      {"name": "player_xy_speed", "addr": "0x007b", "len": 32},
+      {"name": "sprite_status", "addr": "0x14c8", "len": 22}
+    ]},
+    {"op": "input", "p1": null},
+    {"op": "step", "frames": 1},
+    {"op": "capture", "id": "release", "wram": [
+      {"name": "player_xy_speed", "addr": "0x007b", "len": 32}
+    ]}
+  ]
+}
