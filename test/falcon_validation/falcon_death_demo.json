@@ -1,0 +1,45 @@
+{
+  "format": "falcon-validation/v1",
+  "name": "falcon-native-attract-demo-death",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
+  "steps": [
+    {"op": "wait_ram", "id": "title_ready", "addr": "0x0100", "len": 1, "equals": "0x07", "timeout_frames": 1200, "step_frames": 1},
+    {"op": "wait_ram", "id": "attract_loading", "addr": "0x0100", "len": 1, "equals": "0x17", "timeout_frames": 3600, "step_frames": 2},
+    {"op": "wait_ram", "id": "attract_gameplay", "addr": "0x0100", "len": 1, "equals": "0x14", "timeout_frames": 1800, "step_frames": 1},
+    {"op": "capture", "id": "falcon_before_death", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1},
+      {"name": "player_screen", "addr": "0x007e", "len": 16},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
+    ]},
+    {"op": "wait_ram", "id": "native_death", "addr": "0x0071", "len": 1, "equals": "0x09", "timeout_frames": 6000, "step_frames": 1},
+    {"op": "capture", "id": "falcon_death_0", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
+      {"name": "player_screen", "addr": "0x007e", "len": 16},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
+    ]},
+    {"op": "step", "frames": 5},
+    {"op": "capture", "id": "falcon_death_5", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
+    ]},
+    {"op": "step", "frames": 5},
+    {"op": "capture", "id": "falcon_death_10", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
+    ]},
+    {"op": "wait_ram", "id": "native_title_handoff", "addr": "0x0100", "len": 1, "equals": "0x07", "timeout_frames": 2400, "step_frames": 2},
+    {"op": "capture", "id": "title_after_death", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x07"},
+      {"name": "player_state", "addr": "0x0071", "len": 1}
+    ]}
+  ]
+}

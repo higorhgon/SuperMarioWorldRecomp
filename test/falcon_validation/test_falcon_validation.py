@@ -51,6 +51,24 @@ class FalconValidationTests(unittest.TestCase):
             self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
                            "equals": "0x14"}, capture["wram"])
 
+    def test_death_demo_proves_native_death_across_distinct_frames(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_death_demo.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures], [
+            "falcon_before_death", "falcon_death_0", "falcon_death_5",
+            "falcon_death_10", "title_after_death",
+        ])
+        for capture in captures[1:4]:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+            self.assertIn({"name": "player_state", "addr": "0x0071", "len": 1,
+                           "equals": "0x09"}, capture["wram"])
+        waits = [step for step in scenario["steps"] if step["op"] == "wait_ram"]
+        self.assertTrue(any(step["id"] == "native_death" and
+                            step["addr"] == "0x0071" and step["equals"] == "0x09"
+                            for step in waits))
+
     def test_rejects_out_of_range_wram(self) -> None:
         bad = {"format": "falcon-validation/v1", "steps": [
             {"op": "capture", "id": "bad", "wram": [
