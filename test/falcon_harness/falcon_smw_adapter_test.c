@@ -100,6 +100,22 @@ static void model_native_yoshi_contact_after_movement(unsigned slot, int skip_mo
     if (!skip_mount) model_native_yoshi_mount(slot);
 }
 
+/* Drive the two ordinary player seams in their guest execution order.  The
+ * harness has no native position integrator, intentionally: these directional
+ * checks assert the host velocity that would be consumed by $00:DC2D. */
+static void adapter_frame(uint8_t hold1, uint8_t press1,
+                          uint8_t hold2, uint8_t press2)
+{
+    io_controller_hold1 = hold1;
+    io_controller_press1 = press1;
+    io_controller_hold2 = hold2;
+    io_controller_press2 = press2;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+}
+
 int main(void)
 {
     ForeignTraceEntry trace;
@@ -171,6 +187,40 @@ int main(void)
         trace.state != FL_DASH || (int8_t)player_xspeed <= 0)
         return fail("same-direction double tap enters sourced Dash with right velocity");
     SmwFalconAfterPhysics(NULL);
+
+    /* A left press from a right-facing idle starts source Turn, whose authored
+     * facing flip is at frame 4.  Do not mistake the first three stationary
+     * Turn frames for an X-sign bug.  Once the flip is complete, require the
+     * exact neutral/left/neutral/left D-pad sequence to produce the same
+     * full-stick Dash->Run path as right, but with strictly negative native
+     * X velocity. */
+    player_timer_pipe_warping = 1;
+    SmwFalconBeforePhysics(NULL); /* also clears the adapter tap bridge */
+    player_timer_pipe_warping = 0;
+    player_facing_direction = 1;
+    player_in_air_flag = 0;
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for left Dash turn");
+    adapter_frame(0x02, 0x02, 0, 0); /* Left: enter FL_TURN. */
+    for (int frame = 0; frame < 4; ++frame)
+        adapter_frame(0x02, 0, 0, 0);
+    if (snes_foreign_state() == NULL || snes_foreign_state()->facing != -1.0f)
+        return fail("left turn reaches the source frame-4 facing flip");
+
+    adapter_frame(0, 0, 0, 0);
+    adapter_frame(0x02, 0x02, 0, 0); /* first left tap: half-stick walk */
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.stick_x != -0.5f)
+        return fail("first left tap remains a half-stick walk");
+    adapter_frame(0, 0, 0, 0);
+    adapter_frame(0x02, 0x02, 0, 0); /* second left tap: full source stick */
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.stick_x != -1.0f ||
+        trace.state != FL_DASH || (int8_t)player_xspeed >= 0)
+        return fail("left double tap enters sourced Dash with negative velocity");
+    for (int frame = 0; frame < 16; ++frame)
+        adapter_frame(0x02, 0, 0, 0);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.state != FL_RUN ||
+        (int8_t)player_xspeed >= 0)
+        return fail("left Dash advances to Run with negative velocity");
 
     /* The three Falcon actions are independent physical edges.  Square/Y is
      * special, X is normal, Cross/B is jump, and Circle/A alone remains a
