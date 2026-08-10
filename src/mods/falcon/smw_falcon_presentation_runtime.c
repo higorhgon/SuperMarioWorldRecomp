@@ -65,6 +65,7 @@ static char s_validated_audio_dir[1024];
 static int s_audio_pending;
 static int s_audio_attempted;
 static int s_death_latched;
+static int s_death_hidden;
 static unsigned s_death_frame;
 static float s_death_anchor_y;
 static FalconPresentationPose s_last_pose = { FALCON_PRESENT_IDLE, 0.0f, 1 };
@@ -315,7 +316,8 @@ void smw_falcon_presentation_reset(void) {
     s_validated_audio_dir[0] = '\0';
     s_audio_pending = 0;
     s_audio_attempted = 0;
-    s_death_latched = 0; s_death_frame = 0; s_death_anchor_y = 0.0f;
+    s_death_latched = 0; s_death_hidden = 0;
+    s_death_frame = 0; s_death_anchor_y = 0.0f;
     s_last_pose.state = FALCON_PRESENT_IDLE; s_last_pose.frame = 0.0f; s_last_pose.facing_right = 1;
 }
 
@@ -413,12 +415,25 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
         s_last_pose = pose;
     } else pose = s_last_pose;
     if (death_active()) {
-        if (!s_death_latched) { s_death_latched = 1; s_death_frame = 0; s_death_anchor_y = target.anchor_y; }
-        target.anchor_y = s_death_anchor_y - (.30f * s_death_frame + .018f * s_death_frame * s_death_frame);
+        if (!s_death_latched) {
+            s_death_latched = 1; s_death_hidden = 0;
+            s_death_frame = 0; s_death_anchor_y = target.anchor_y;
+        }
+        /* The mature NES port maps Smash's unreadable Star-KO depth travel to
+         * a gently accelerating screen-space fall. Its renderer uses a
+         * positive-up coordinate system; this framebuffer is positive-down. */
+        target.anchor_y = s_death_anchor_y +
+            (.30f * s_death_frame + .018f * s_death_frame * s_death_frame);
         target.tumble_radians = s_death_frame * (18.0f * 3.14159265358979323846f / 180.0f);
         target.tumble_center_y = -16.0f; /* NES render_death_vertex torso midpoint. */
         pose.state = FALCON_PRESENT_FALL; pose.frame = s_death_frame++ * .5f;
-    } else s_death_latched = 0;
+        if (target.anchor_y > (float)height + 64.0f) s_death_hidden = 1;
+        if (s_death_hidden) { s_mesh_draw_active = 0; return; }
+    } else if (controllable()) {
+        /* Only genuine ordinary control completes the death sequence. This
+         * prevents a transient scripted handoff from restarting it on-screen. */
+        s_death_latched = 0; s_death_hidden = 0; s_death_frame = 0;
+    }
     if (!falcon_presentation_draw(s_presentation, &pose, &target)) {
         s_mesh_draw_active = 0;
         note("mesh compositor rejected the current target or pose");

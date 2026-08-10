@@ -57,9 +57,9 @@ class FalconValidationTests(unittest.TestCase):
         captures = [step for step in scenario["steps"] if step["op"] == "capture"]
         self.assertEqual([step["id"] for step in captures], [
             "falcon_before_death", "falcon_death_0", "falcon_death_5",
-            "falcon_death_10", "title_after_death",
+            "falcon_death_10", "falcon_death_30", "falcon_death_50",
         ])
-        for capture in captures[1:4]:
+        for capture in captures[1:]:
             self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
                            "equals": "0x14"}, capture["wram"])
             self.assertIn({"name": "player_state", "addr": "0x0071", "len": 1,

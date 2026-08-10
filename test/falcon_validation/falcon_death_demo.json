@@ -36,10 +36,17 @@
       {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
       {"name": "player_oam", "addr": "0x0300", "len": 48}
     ]},
-    {"op": "wait_ram", "id": "native_title_handoff", "addr": "0x0100", "len": 1, "equals": "0x07", "timeout_frames": 2400, "step_frames": 2},
-    {"op": "capture", "id": "title_after_death", "wram": [
-      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x07"},
-      {"name": "player_state", "addr": "0x0071", "len": 1}
+    {"op": "step", "frames": 20},
+    {"op": "capture", "id": "falcon_death_30", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
+    ]},
+    {"op": "step", "frames": 20},
+    {"op": "capture", "id": "falcon_death_50", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
+      {"name": "player_state", "addr": "0x0071", "len": 1, "equals": "0x09"},
+      {"name": "player_oam", "addr": "0x0300", "len": 48}
     ]}
   ]
 }
