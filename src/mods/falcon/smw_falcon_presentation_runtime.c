@@ -308,14 +308,62 @@ void smw_falcon_presentation_reanchor_oam_group(uint8_t *entries,
     }
 }
 
+static int ppu_oam_x(const Ppu *ppu, unsigned slot) {
+    return (int)(ppu->oam[slot * 2u] & 0xffu) |
+        (((ppu->highOam[slot >> 2u] >> ((slot & 3u) * 2u)) & 1u) << 8u);
+}
+
+static void ppu_oam_set_xy(Ppu *ppu, unsigned slot, int x, int y) {
+    uint8_t *high = &ppu->highOam[slot >> 2u];
+    const uint8_t mask = (uint8_t)(1u << ((slot & 3u) * 2u));
+    ppu->oam[slot * 2u] = (uint16_t)((ppu->oam[slot * 2u] & 0xff00u) |
+                                      ((unsigned)x & 0xffu));
+    ppu->oam[slot * 2u] = (uint16_t)((ppu->oam[slot * 2u] & 0x00ffu) |
+                                      (((unsigned)y & 0xffu) << 8u));
+    if (x & 0x100) *high |= mask;
+    else *high &= (uint8_t)~mask;
+}
+
+void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
+                                                     unsigned first,
+                                                     unsigned count,
+                                                     int anchor_x,
+                                                     int anchor_y) {
+    unsigned i;
+    int min_x = 512, max_x = -1, min_y = 256, max_y = -1;
+    if (!ppu || !count || first >= 128u || count > 128u - first) return;
+    for (i = 0; i < count; ++i) {
+        const unsigned slot = first + i;
+        const int x = ppu_oam_x(ppu, slot);
+        const int y = ppu->oam[slot * 2u] >> 8u;
+        if (y >= 224) continue;
+        if (x < min_x) min_x = x;
+        if (x > max_x) max_x = x;
+        if (y < min_y) min_y = y;
+        if (y > max_y) max_y = y;
+    }
+    if (max_x < min_x || max_y < min_y) return;
+    for (i = 0; i < count; ++i) {
+        const unsigned slot = first + i;
+        const int x = ppu_oam_x(ppu, slot);
+        const int y = ppu->oam[slot * 2u] >> 8u;
+        if (y >= 224) continue;
+        ppu_oam_set_xy(ppu, slot,
+                       x + anchor_x - (min_x + max_x) / 2,
+                       y + anchor_y - (min_y + max_y) / 2);
+    }
+}
+
 /* `$15EA` is a completed normal-sprite OAM allocation.  By this point the
  * status-$0B routine has already updated native sprite positions, throw
  * state, collisions and despawn.  Touching just these finished OAM entries
  * therefore moves the visible carried shell/card without changing its SMW
- * lifecycle.  Stock StunnedShellDraw ($01:9806) writes two 16x16 OAM entries
+ * lifecycle.  Guest NMI has already DMA'd `$0200` before this prepare seam,
+ * so the relocation must change the transient PPU OAM copy, not WRAM. Stock
+ * StunnedShellDraw ($01:9806) writes two 16x16 OAM entries
  * at `$15EA` and `$15EA+4`, then FinishOAMWrite closes that two-entry group.
  * Do not infer a wider group: its next entry can belong to another sprite. */
-static void relocate_carried_oam(const FalconPresentationPose *pose) {
+static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
     FalconPresentationTarget target;
     float hand_x, hand_y;
     unsigned slot;
@@ -343,9 +391,8 @@ static void relocate_carried_oam(const FalconPresentationPose *pose) {
             spr_spriteid[slot] > 0x07u) continue;
         first = spr_oamindex[slot] / sizeof(*oam_buf);
         if (first > 126u) continue;
-        smw_falcon_presentation_reanchor_oam_group(
-            (uint8_t *)&oam_buf[first], 2u, (int)(hand_x + .5f),
-            (int)(hand_y + .5f));
+        smw_falcon_presentation_reanchor_ppu_oam_group(
+            ppu, first, 2u, (int)(hand_x + .5f), (int)(hand_y + .5f));
     }
 }
 
@@ -429,7 +476,7 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (controllable() && state) {
         pose = smw_falcon_presentation_pose_for_state(
             state->state, state->state_frame, state->facing);
-        relocate_carried_oam(&pose);
+        relocate_carried_oam(ppu, &pose);
     }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,

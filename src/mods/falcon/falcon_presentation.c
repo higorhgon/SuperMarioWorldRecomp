@@ -170,12 +170,31 @@ static void dive_particles(const FalconPresentationPose *pose,
     }
 }
 
+/* One stable camera-space scale keeps authored body proportions intact while
+ * Run/Kick change their silhouette.  Scaling every animated bounding box back
+ * to 32px made crouched or extended frames look like the mesh was rubbery.
+ * The bind pose's projected (including the Z shear used by rasterization)
+ * height is exactly the 32px mushroom-Mario target at target.scale == 1. */
+static float stable_projected_scale(const FalconPresentation *p,
+                                    const FalconPresentationTarget *t) {
+    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3];
+    Mat4 w[FALCON_JOINTS];
+    float low=FLT_MAX,high=-FLT_MAX;
+    float a=t->yaw_degrees*3.14159265358979323846f/180.f;
+    uint32_t i;
+    for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);}
+    matrices(p,tr,ro,sc,w);
+    for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];uint32_t j;for(j=0;j<3;j++){float pt[3],z,v;point(w[q->joint],q->v[j].p,pt);z=pt[0]*sinf(a)+pt[2]*cosf(a);v=-pt[1]-z*.08f;if(v<low)low=v;if(v>high)high=v;}}
+    if(high-low<=0.f)return 0.f;
+    return (t->scale>0?t->scale:1)*32.f/(high-low);
+}
+
 int falcon_presentation_joint_screen_position(const FalconPresentation *p,
                                                const FalconPresentationPose *pose,
                                                const FalconPresentationTarget *t,
                                                unsigned joint, float *out_x,
                                                float *out_y) {
-    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir,foot;
+    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],scale,dir,foot;
     Mat4 w[FALCON_JOINTS]; const Animation*a; uint32_t i;
     if(out_x)*out_x=0;
     if(out_y)*out_y=0;
@@ -185,7 +204,7 @@ int falcon_presentation_joint_screen_position(const FalconPresentation *p,
     {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
     matrices(p,tr,ro,sc,w);
     {float a0=t->yaw_degrees*3.14159265358979323846f/180.f,ca=cosf(a0),sa=sinf(a0);unsigned k;lo[0]=lo[1]=lo[2]=FLT_MAX;hi[0]=hi[1]=hi[2]=-FLT_MAX;for(i=0;i<p->triangles_n;i++)for(k=0;k<3;k++){float q[3],x,z;point(w[p->triangles[i].joint],p->triangles[i].v[k].p,q);x=q[0]*ca-q[2]*sa;z=q[0]*sa+q[2]*ca;if(x<lo[0])lo[0]=x;if(x>hi[0])hi[0]=x;if(q[1]<lo[1])lo[1]=q[1];if(q[1]>hi[1])hi[1]=q[1];if(z<lo[2])lo[2]=z;if(z>hi[2])hi[2]=z;}}
-    height=hi[1]-lo[1];if(height<=0)return 0;scale=(t->scale>0?t->scale:1)*32.0f/height;dir=pose->facing_right?-1:1;
+    scale=stable_projected_scale(p,t);if(scale<=0)return 0;dir=pose->facing_right?-1:1;
     foot=-FLT_MAX;
     for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];uint32_t j;for(j=0;j<3;j++){float pt[3],v,a0=t->yaw_degrees*3.14159265358979323846f/180.f,z;point(w[q->joint],q->v[j].p,pt);z=pt[0]*sinf(a0)+pt[2]*cosf(a0);v=-(pt[1]-lo[1])-z*.08f;if(v>foot)foot=v;}}
     {float origin[3]={0,0,0},pt[3],a0=t->yaw_degrees*3.14159265358979323846f/180.f,ca=cosf(a0),sa=sinf(a0),px,z,x,y,rx,ry,cy,c,sn;point(w[joint],origin,pt);px=pt[0]*ca-pt[2]*sa;z=pt[0]*sa+pt[2]*ca;x=(px-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];ry=(-y-z*.08f-foot)*scale;rx=x*scale+z*scale*.18f;cy=t->tumble_center_y;c=cosf(t->tumble_radians);sn=sinf(t->tumble_radians);if(out_x)*out_x=t->anchor_x+rx*c-(ry-cy)*sn;if(out_y)*out_y=t->anchor_y+cy+rx*sn+(ry-cy)*c;}
@@ -194,14 +213,14 @@ int falcon_presentation_joint_screen_position(const FalconPresentation *p,
 
 static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1;if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];card(t,q,t->anchor_x+dir*18*s,t->anchor_y-19*s,24*s,24*s);}else if((pose->state==FALCON_PRESENT_KICK||pose->state==FALCON_PRESENT_KICK_AIR)&&pose->frame>=12&&pose->frame<32){const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];float x,y;if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_KICK_EFFECT,&x,&y)){if(pose->state==FALCON_PRESENT_KICK_AIR)card_rotated(t,q,x,y,30*s,18*s,(pose->facing_right?1.f:-1.f)*(float)(3.14159265358979323846/3.0));else card(t,q,x,y,30*s,18*s);}}else dive_particles(pose,t,s,dir);}
 int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
-    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir,foot;
+    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],scale,dir,foot;
     Mat4 w[FALCON_JOINTS]; const Animation*a; DrawTriangle *draws; uint32_t i;
     uint32_t gray=0xff3060c8u; Texture fallback;
     if(!p||!pose||!t||!t->framebuffer||t->width<=0||t->height<=0||t->pitch_pixels<t->width)return 0;
     a=find(p,falcon_presentation_animation(pose->state));if(!a)a=find(p,"Wait");if(!a)return 0;
     for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);}
     {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
-    matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);/* Rebound in the same 88deg view space used below. */{float a=t->yaw_degrees*3.14159265358979323846f/180.f,ca=cosf(a),sa=sinf(a);unsigned k;lo[0]=lo[1]=lo[2]=FLT_MAX;hi[0]=hi[1]=hi[2]=-FLT_MAX;for(i=0;i<p->triangles_n;i++)for(k=0;k<3;k++){float q[3],x,z;point(w[p->triangles[i].joint],p->triangles[i].v[k].p,q);x=q[0]*ca-q[2]*sa;z=q[0]*sa+q[2]*ca;if(x<lo[0])lo[0]=x;if(x>hi[0])hi[0]=x;if(q[1]<lo[1])lo[1]=q[1];if(q[1]>hi[1])hi[1]=q[1];if(z<lo[2])lo[2]=z;if(z>hi[2])hi[2]=z;}}height=hi[1]-lo[1];scale=(t->scale>0?t->scale:1)*32.0f/height;/* Smash authored +LR projects opposite screen X after yaw. */dir=pose->facing_right?-1:1;
+    matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);/* Rebound in the same 88deg view space used below. */{float a=t->yaw_degrees*3.14159265358979323846f/180.f,ca=cosf(a),sa=sinf(a);unsigned k;lo[0]=lo[1]=lo[2]=FLT_MAX;hi[0]=hi[1]=hi[2]=-FLT_MAX;for(i=0;i<p->triangles_n;i++)for(k=0;k<3;k++){float q[3],x,z;point(w[p->triangles[i].joint],p->triangles[i].v[k].p,q);x=q[0]*ca-q[2]*sa;z=q[0]*sa+q[2]*ca;if(x<lo[0])lo[0]=x;if(x>hi[0])hi[0]=x;if(q[1]<lo[1])lo[1]=q[1];if(q[1]>hi[1])hi[1]=q[1];if(z<lo[2])lo[2]=z;if(z>hi[2])hi[2]=z;}}scale=stable_projected_scale(p,t);if(scale<=0)return 0;/* Smash authored +LR projects opposite screen X after yaw. */dir=pose->facing_right?-1:1;
     /* Ground against the projected mesh foot plane, not raw Y bounds.  The
      * camera's Z shear otherwise leaves some poses visibly hovering. */
     foot=-FLT_MAX;

@@ -32,6 +32,16 @@ void smw_falcon_presentation_reanchor_oam_group(uint8_t *entries,
                                                 unsigned count,
                                                 int anchor_x, int anchor_y);
 
+/* Reanchor completed OAM entries already copied into the PPU.  This is the
+ * presentation seam used immediately before rasterization: changing WRAM OAM
+ * here would miss the current frame's completed NMI/DMA transfer.  Only X/Y
+ * position fields of [first, first + count) are changed. */
+void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
+                                                    unsigned first,
+                                                    unsigned count,
+                                                    int anchor_x,
+                                                    int anchor_y);
+
 /* Exposed for focused host-boundary tests. */
 FalconPresentationPose smw_falcon_presentation_pose_for_state(
     int state, unsigned state_frame, float facing);

@@ -46,6 +46,31 @@ static int expect_oam_group_contract(void) {
     return 1;
 }
 
+static int expect_ppu_oam_group_contract(void) {
+    static Ppu ppu;
+    uint8_t ram_before[sizeof(g_ram)];
+    memset(&ppu, 0, sizeof(ppu));
+    ppu.oam[8] = 90u | (112u << 8u); ppu.oam[9] = 0x3120u;
+    ppu.oam[10] = 106u | (128u << 8u); ppu.oam[11] = 0x3121u;
+    ppu.oam[12] = 177u | (199u << 8u); ppu.oam[13] = 0x4472u;
+    ppu.oam[14] = 188u | (201u << 8u); ppu.oam[15] = 0x4473u;
+    /* Preserve each slot's size bit while exercising the distinct ninth-X
+     * bit in PPU high OAM. The selected two-entry group is slots 4/5. */
+    ppu.highOam[1] = 0xaau;
+    memset(g_ram, 0x5a, sizeof(g_ram));
+    memcpy(ram_before, g_ram, sizeof(g_ram));
+    smw_falcon_presentation_reanchor_ppu_oam_group(&ppu, 4, 2, 50, 60);
+    if (ppu.oam[8] != (42u | (52u << 8u)) || ppu.oam[9] != 0x3120u ||
+        ppu.oam[10] != (58u | (68u << 8u)) || ppu.oam[11] != 0x3121u ||
+        ppu.oam[12] != (177u | (199u << 8u)) || ppu.oam[13] != 0x4472u ||
+        ppu.oam[14] != (188u | (201u << 8u)) || ppu.oam[15] != 0x4473u ||
+        ppu.highOam[1] != 0xaau || memcmp(g_ram, ram_before, sizeof(g_ram))) {
+        fputs("FAIL transient PPU carried shell OAM contract\n", stderr);
+        return 0;
+    }
+    return 1;
+}
+
 int main(void) {
     if (!expect(FL_WAIT, FALCON_PRESENT_IDLE, 1) || !expect(FL_WALK_FAST, FALCON_PRESENT_WALK, 0) ||
         !expect(FL_RUN, FALCON_PRESENT_RUN, 1) || !expect(FL_JUMP_F, FALCON_PRESENT_JUMP, 0) ||
@@ -53,7 +78,7 @@ int main(void) {
         !expect(FL_FALCON_KICK_GROUND, FALCON_PRESENT_KICK, 0) ||
         !expect(FL_FALCON_KICK_AIR, FALCON_PRESENT_KICK_AIR, 0) || !expect(FL_FALCON_DIVE_AIR, FALCON_PRESENT_DIVE, 1) ||
         !expect(FL_FALCON_DIVE_CATCH, FALCON_PRESENT_DIVE_CATCH, 0) || !expect(FL_FALCON_DIVE_THROW, FALCON_PRESENT_DIVE_THROW, 1) ||
-        !expect_oam_group_contract()) return 1;
-    puts("falcon_host_runtime: pose mapping and OAM contract PASS");
+        !expect_oam_group_contract() || !expect_ppu_oam_group_contract()) return 1;
+    puts("falcon_host_runtime: pose mapping and OAM contracts PASS");
     return 0;
 }

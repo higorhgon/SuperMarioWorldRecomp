@@ -35,11 +35,24 @@ directions) with:
 _triage/falcon_presentation_harness.exe --feedback-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_feedback_sheet.bmp
 ```
 
+Create the run/kick cadence sheet (bind idle, four Run frames, then five
+grounded Kick frames) with:
+
+```powershell
+_triage/falcon_presentation_harness.exe --motion-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_motion_sheet.bmp
+```
+
+This is the focused review for a stable 32px mushroom-Mario reference scale:
+the action silhouettes may extend or crouch naturally, but their mesh scale is
+not recomputed per pose.
+
 The Kick fire card is anchored to owner joint 23, matching Captain Falcon's
 `efManagerCaptainFalconKickMakeEffect`; the carried shell uses the owner item
 light joint 17.  The completed native carried-shell allocation is exactly two
-OAM entries (`$15EA`, `$15EA+4`) from `StunnedShellDraw`, and the host test
-checks that the next OAM entry remains unchanged.
+OAM entries (`$15EA`, `$15EA+4`) from `StunnedShellDraw`.  At prepare time the
+guest NMI/DMA has already copied that OAM to the PPU, so the host test checks
+the transient PPU pair (and its high-OAM bits), adjacent entries, and untouched
+guest WRAM.
 
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.
