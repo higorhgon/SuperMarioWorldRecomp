@@ -64,6 +64,11 @@ static char s_last_gate[96];
 static char s_validated_audio_dir[1024];
 static int s_audio_pending;
 static int s_audio_attempted;
+static int s_death_latched;
+static unsigned s_death_frame;
+static float s_death_anchor_y;
+
+static int death_active(void) { return s_presentation && misc_game_mode == 0x14 && player_current_state == 9; }
 
 /* Opt-in, path-free activation trace for TCP validation. The caller chooses
  * the external output file; no ROM/cache path or owner data is ever logged. */
@@ -335,7 +340,7 @@ int smw_falcon_presentation_is_active(void) { return controllable(); }
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);
-    if (!controllable()) { s_suppression_active = 0; return; }
+    if (!controllable() && !death_active()) { s_suppression_active = 0; return; }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,
@@ -370,7 +375,7 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     const ForeignState *state;
     FalconPresentationTarget target;
     FalconPresentationPose pose;
-    if (!controllable() || !pixels || pitch % sizeof(uint32_t)) {
+    if ((!controllable() && !death_active()) || !pixels || pitch % sizeof(uint32_t)) {
         s_mesh_draw_active = 0;
         return;
     }
@@ -392,6 +397,12 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     target.yaw_degrees = 88.0f;
     pose = smw_falcon_presentation_pose_for_state(
         state->state, state->state_frame, state->facing);
+    if (death_active()) {
+        if (!s_death_latched) { s_death_latched = 1; s_death_frame = 0; s_death_anchor_y = target.anchor_y; }
+        target.anchor_y = s_death_anchor_y - (.30f * s_death_frame + .018f * s_death_frame * s_death_frame);
+        target.tumble_radians = s_death_frame * (18.0f * 3.14159265358979323846f / 180.0f);
+        pose.state = FALCON_PRESENT_FALL; pose.frame = s_death_frame++ * .5f;
+    } else s_death_latched = 0;
     if (!falcon_presentation_draw(s_presentation, &pose, &target)) {
         s_mesh_draw_active = 0;
         note("mesh compositor rejected the current target or pose");
