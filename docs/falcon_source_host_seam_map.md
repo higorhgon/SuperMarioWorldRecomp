@@ -34,9 +34,18 @@ strictly validated by `tools/falcon_validation.py`:
 {
   "format": "falcon-validation/v1",
   "name": "descriptive-name",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
   "steps": [
-    {"op": "input", "p1": ["right", "b"], "p2": null},
-    {"op": "step", "frames": 30},
+    {"op": "wait_ram", "id": "title-ready", "addr": "0x0100", "len": 1,
+     "equals": "0x07", "timeout_frames": 1200, "step_frames": 4},
+    {"op": "pulse_input_until_ram", "id": "overworld-ready", "p1": ["start"],
+     "addr": "0x0100", "len": 1, "equals": "0x0e", "timeout_frames": 1800,
+     "hold_frames": 1, "release_frames": 8},
     {"op": "capture", "id": "walk-right", "wram": [
       {"name": "player", "addr": "0x007b", "len": 32}
     ]}
@@ -44,11 +53,26 @@ strictly validated by `tools/falcon_validation.py`:
 }
 ```
 
+`mod`, when present, names an exact package/feature/version. Before launch the
+driver atomically stages a minimal `mods/state.toml` next to the executable to
+enable that feature, then restores the pre-existing state (or removes its
+temporary file) after the launched PID exits. This makes the trace self-contained
+without permanently changing a developer's mod selections.
+
+When `mod.resource_id` is declared, the driver requires `--owner-rom` and adds
+only that temporary `[[resource]]` path to the staged state. The path is never
+written to the evidence manifest or source tree. Omit `resource_id` while
+testing a build whose manifest does not yet declare an external owner ROM.
+
 `input` accepts an ordered string list, a server-supported hexadecimal mask, or
-`null` (`none`). `step` requests positive whole frames. `capture.id` is a safe
-file stem. Every WRAM range is checked against the full 128 KiB `$7E/$7F` map.
-The driver stores `evidence.json`, a BMP for each capture, each BMP's SHA-256,
-and the exact bytes plus SHA-256 of every requested WRAM range.
+`null` (`none`). `step` requests positive whole frames. `wait_ram` reads a
+bounded WRAM range and advances in only its declared `step_frames` until its
+little-endian `equals` value appears or its frame budget expires.
+`pulse_input_until_ram` adds deterministic press/release pulses around that
+same wait; it is used only for title/file/overworld navigation. `capture.id` is
+a safe file stem. Every WRAM range is checked against the full 128 KiB
+`$7E/$7F` map. The driver stores `evidence.json`, a BMP for each capture, each
+BMP's SHA-256, and the exact bytes plus SHA-256 of every requested WRAM range.
 
 Run it once a trace Falcon build exists:
 
@@ -56,14 +80,32 @@ Run it once a trace Falcon build exists:
 python tools/falcon_validation.py --exe build-falcon/SuperMarioWorldSNESRecomp.exe --rom smw.sfc --scenario test/falcon_validation/falcon_smoke.json --out _triage/falcon_validation
 ```
 
+For a resource-gated Falcon package, add the owner file explicitly (the path is
+not committed):
+
+```powershell
+python tools/falcon_validation.py --exe build-falcon/SuperMarioWorldSNESRecomp.exe --rom smw.sfc --owner-rom F:/Projects/SmashBrosDecomp/baserom.us.z64 --scenario test/falcon_validation/falcon_smoke.json --out _triage/falcon_validation
+```
+
 The executable is launched as `--paused <absolute-rom>`; once the executable
-exists, a valid `--rom` is mandatory. The only execution operation the driver
-sends is `step N`. It never sends `pause`, a block breakpoint, or an
-instruction step. The runner's `step` endpoint releases just enough frames and
-parks again, so controller changes and captures are boundary-deterministic.
-There is deliberately no process-name kill: the driver terminates only the PID
-it launched. Missing `--exe` prints `SKIP` and exits zero; add `--require-build`
-when a CI job must fail instead.
+exists, a valid `--rom` is mandatory. Screenshot paths are resolved to absolute
+slash-only Windows paths (for example `F:/triage/shot.bmp`) before being sent
+over TCP: raw Windows backslashes are not safe in this line protocol. The only execution operation the driver sends is
+`step N`. It never sends `pause`, a block breakpoint, or an instruction step.
+The runner's `step` endpoint releases just enough frames and parks again, so
+controller changes and captures are boundary-deterministic. There is deliberately
+no process-name kill: the driver terminates only the PID it launched. Missing
+`--exe` prints `SKIP` and exits zero; add `--require-build` when a CI job must
+fail instead.
+
+The checked-in scenario is a real cold-boot trace: it waits for stable title
+mode `$0100=07` (not the black fade-in mode `05`), advances a bounded three-frame render settle before each immediate
+mode screenshot, pulses Start through the front-end until overworld mode `0E`,
+and pulses A until player-controlled level mode `14`. It then captures entry,
+a rightward Falcon walk, and a short-hop input. The settle avoids treating a
+valid WRAM mode transition with an unpresented black framebuffer as visual
+evidence. A failed mode wait is an explicit failure, not a timed sleep or an
+ambiguous screenshot.
 
 ## Milestone shot matrix
 
@@ -73,9 +115,12 @@ become goldens only after the implementation is stable.
 
 | ID | Scripted setup / input | Required evidence | Acceptance target |
 |---|---|---|---|
-| `boot` | launch paused | `$0100`, `$0071`, `$0094..$009B`, BMP | trace build starts and Falcon mod selection is visually identifiable without advancing. |
+| `title` | wait `$0100=07` from paused cold boot | `$0100`, `$0071`, BMP | trace build starts with the staged Falcon feature and reaches the deterministic title boundary. |
+| `overworld` | pulse Start until `$0100=0E` | `$0100`, map-player slice, BMP | title/file flow reaches the map without relying on wall-clock sleeps. |
+| `level_entry` | pulse A until `$0100=14` | `$0100`, `$0071`, `$007B..$009A`, BMP | an ordinary playable level is active before Falcon inputs are exercised. |
 | `idle` | step 1 with no input | player state/position, BMP | stable standing pose; no unwanted horizontal drift. |
-| `walk_right` | hold right 30 frames | `$007B..$009A`, sprite status `$14C8` | visible SMW-grounded movement and deterministic displacement. |
+| `falcon_walk_right` | hold right 30 frames after `level_entry` | `$007B..$009A`, sprite status `$14C8`, BMP | visible SMW-grounded Falcon movement and deterministic displacement. |
+| `falcon_jump` | right+B for 1, release B, advance 12 | `$0071`, `$007B..$009A`, BMP | short-hop path is present in real gameplay, not only in the isolated harness. |
 | `jump_takeoff` | press jump for 1, release, step 1 | `$0071`, vertical speed/position, BMP | Falcon takeoff uses SMW jump/collision semantics. |
 | `jump_apex` | advance to expected apex | player state/position, BMP | aerial visual and gravity remain bounded and repeatable. |
 | `special_ground` | agreed move binding on solid ground | player state, target sprite/status, BMP | startup/active/recovery and native hit/block result. |

@@ -1,17 +1,51 @@
 {
   "format": "falcon-validation/v1",
-  "name": "falcon-first-playable-smoke",
+  "name": "falcon-real-smw-boot-to-gameplay",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
   "steps": [
-    {"op": "capture", "id": "boot", "wram": [
+    {"op": "wait_ram", "id": "title_ready", "addr": "0x0100", "len": 1,
+     "equals": "0x07", "timeout_frames": 1200, "step_frames": 4},
+    {"op": "step", "frames": 3},
+    {"op": "capture", "id": "title", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1},
+      {"name": "player_state", "addr": "0x0071", "len": 1}
+    ]},
+    {"op": "pulse_input_until_ram", "id": "overworld_ready", "p1": ["start"],
+     "addr": "0x0100", "len": 1, "equals": "0x0e", "timeout_frames": 1800,
+     "hold_frames": 1, "release_frames": 8},
+    {"op": "step", "frames": 3},
+    {"op": "capture", "id": "overworld", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1},
+      {"name": "map_player", "addr": "0x1f11", "len": 16}
+    ]},
+    {"op": "pulse_input_until_ram", "id": "gameplay_ready", "p1": ["a"],
+     "addr": "0x0100", "len": 1, "equals": "0x14", "timeout_frames": 1200,
+     "hold_frames": 1, "release_frames": 8},
+    {"op": "step", "frames": 3},
+    {"op": "capture", "id": "level_entry", "wram": [
       {"name": "game_mode", "addr": "0x0100", "len": 1},
       {"name": "player_state", "addr": "0x0071", "len": 1},
-      {"name": "player_xy", "addr": "0x0094", "len": 8}
+      {"name": "player_xy_speed", "addr": "0x007b", "len": 32}
     ]},
     {"op": "input", "p1": ["right"]},
     {"op": "step", "frames": 30},
-    {"op": "capture", "id": "walk_right", "wram": [
+    {"op": "capture", "id": "falcon_walk_right", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1},
       {"name": "player_xy_speed", "addr": "0x007b", "len": 32},
       {"name": "sprite_status", "addr": "0x14c8", "len": 22}
+    ]},
+    {"op": "input", "p1": ["right", "b"]},
+    {"op": "step", "frames": 1},
+    {"op": "input", "p1": ["right"]},
+    {"op": "step", "frames": 12},
+    {"op": "capture", "id": "falcon_jump", "wram": [
+      {"name": "player_state", "addr": "0x0071", "len": 1},
+      {"name": "player_xy_speed", "addr": "0x007b", "len": 32}
     ]},
     {"op": "input", "p1": null},
     {"op": "step", "frames": 1},
