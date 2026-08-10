@@ -56,6 +56,18 @@ static int fail(const char *message)
     return 1;
 }
 
+static uint16_t test_sprite_ypos(unsigned slot)
+{
+    return (uint16_t)((uint16_t)spr_ypos_lo[slot] |
+                      ((uint16_t)spr_ypos_hi[slot] << 8));
+}
+
+static void test_set_sprite_ypos(unsigned slot, uint16_t value)
+{
+    spr_ypos_lo[slot] = (uint8_t)value;
+    spr_ypos_hi[slot] = (uint8_t)(value >> 8);
+}
+
 static int yoshi_persistence_intact(void)
 {
     return players_has_yoshi[0] == 1 &&
@@ -80,7 +92,7 @@ static void model_native_yoshi_mount(unsigned slot)
         spr_table00c2[slot] = 1;
         player_xspeed = 0;
         player_yspeed = 0;
-        player_ypos = (uint16_t)(spr_ypos[slot] - 0x10);
+        player_ypos = (uint16_t)(test_sprite_ypos(slot) - 0x10);
         io_sound_ch1 = 0x2f; /* native Yoshi-drum-on cue, value immaterial */
         io_sound_ch3 = 0x29; /* native Yoshi cue */
     }
@@ -224,9 +236,9 @@ int main(void)
     /* A left press from a right-facing idle starts source Turn, whose authored
      * facing flip is at frame 4.  Do not mistake the first three stationary
      * Turn frames for an X-sign bug.  Once the flip is complete, require the
-     * exact neutral/left/neutral/left D-pad sequence to produce the same
-     * full-stick Dash->Run path as right, but with strictly negative native
-     * X velocity. */
+     * release then repeat that same left D-pad edge inside the documented
+     * window.  The turn-initiating edge is tap one, so the repeated edge must
+     * produce the sourced full-stick Dash->Run path with negative velocity. */
     player_timer_pipe_warping = 1;
     SmwFalconBeforePhysics(NULL); /* also clears the adapter tap bridge */
     player_timer_pipe_warping = 0;
@@ -241,11 +253,7 @@ int main(void)
         return fail("left turn reaches the source frame-4 facing flip");
 
     adapter_frame(0, 0, 0, 0);
-    adapter_frame(0x02, 0x02, 0, 0); /* first left tap: half-stick walk */
-    if (snes_foreign_trace_last(1, &trace) != 1 || trace.stick_x != -0.5f)
-        return fail("first left tap remains a half-stick walk");
-    adapter_frame(0, 0, 0, 0);
-    adapter_frame(0x02, 0x02, 0, 0); /* second left tap: full source stick */
+    adapter_frame(0x02, 0x02, 0, 0); /* repeat left: full source stick */
     if (snes_foreign_trace_last(1, &trace) != 1 || trace.stick_x != -1.0f ||
         trace.state != FL_DASH || (int8_t)player_xspeed >= 0)
         return fail("left double tap enters sourced Dash with negative velocity");
@@ -257,7 +265,8 @@ int main(void)
 
     /* The three Falcon actions are independent physical edges.  Square/Y is
      * special, X is normal, Cross/B is jump, and Circle/A alone remains a
-     * carry-only input that cannot select a Falcon action. */
+     * carry-only input that cannot select a Falcon action.  A neutral Y edge
+     * has the source-proven one-frame directional grace before Falcon Punch. */
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for face-button mapping");
     io_controller_hold1 = io_controller_press1 = 0x40; /* Square / Y */
@@ -266,9 +275,33 @@ int main(void)
     SmwFalconBeforePlayerPhysics(NULL);
     SmwFalconBeforePhysics(NULL);
     if (snes_foreign_trace_last(1, &trace) != 1 ||
-        trace.state != FL_FALCON_PUNCH_GROUND)
-        return fail("Square/Y selects Falcon special, not normal attack");
+        trace.state != FL_WAIT)
+        return fail("neutral Square/Y defers one frame for directional special");
     SmwFalconAfterPhysics(NULL);
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_PUNCH_GROUND)
+        return fail("deferred Square/Y selects Falcon special, not normal attack");
+    SmwFalconAfterPhysics(NULL);
+
+    /* The grace edge is intentionally transient host state.  A save/load
+     * cannot revive a pre-save Square press into a later Up-special. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for grace savestate boundary");
+    io_controller_hold1 = io_controller_press1 = 0x40;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    SmwFalconOnStateLoaded();
+    adapter_frame(0x08, 0, 0, 0); /* Up, but no restored Square edge. */
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state == FL_FALCON_DIVE_GROUND ||
+        trace.state == FL_FALCON_DIVE_AIR)
+        return fail("state load clears deferred Square/Y edge rather than reviving it");
 
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for X normal");
@@ -393,6 +426,47 @@ int main(void)
         trace.state != FL_FALCON_DIVE_GROUND || trace.grounded != 0)
         return fail("Up-B startup resolves as airborne after native collision");
 
+    /* The mature NES input seam gives a directionless special edge one frame
+     * of grace.  This is particularly important on a D-pad: Y then Up must
+     * enter the same grounded Dive as a simultaneous Up+Y edge, rather than
+     * being consumed by neutral Falcon Punch. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for deferred grounded Up-B");
+    player_in_air_flag = 0;
+    io_controller_hold1 = io_controller_press1 = 0x40; /* Square/Y first */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.state != FL_WAIT)
+        return fail("deferred Up-B holds a neutral special edge for one frame");
+    SmwFalconAfterPhysics(NULL);
+    io_controller_hold1 = 0x08; /* Up arrives on the grace frame */
+    io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_DIVE_GROUND || player_in_air_flag == 0)
+        return fail("Y then Up enters grounded Falcon Dive through the normal edge");
+    SmwFalconAfterPhysics(NULL);
+
+    /* Ground and air use the same immediate Up+Y input priority; only the
+     * source-selected state differs.  This keeps the floor handoff from
+     * becoming a ground-only host bypass. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for aerial Up-B parity");
+    player_in_air_flag = 1;
+    io_controller_hold1 = io_controller_press1 = 0x48; /* Up + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_DIVE_AIR || player_in_air_flag == 0)
+        return fail("aerial Up-B shares immediate Square/Y priority");
+    SmwFalconAfterPhysics(NULL);
+
     /* Water remains Falcon-controlled: an aerial X attack still selects the
      * source state, but vertical output is buoyant and capped before SMW sees
      * it. Native cape/fire/spin/Yoshi mechanics are suppressed without
@@ -462,7 +536,7 @@ int main(void)
     spr_table157c[5] = 0;
     player_facing_direction = 0;
     player_ypos = 0x1234;
-    spr_ypos[5] = 0x0200;
+    test_set_sprite_ypos(5, 0x0200);
     yoshi_current_yoshi_color = 2;
     io_sound_ch1 = io_sound_ch3 = 0;
     SmwFalconBeforeYoshi(NULL);

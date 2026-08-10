@@ -26,6 +26,7 @@ static int s_force_airborne_pending;
 static int s_dash_first_dir;
 static int s_dash_prev_dir;
 static int s_dash_full_hold;
+static int s_special_grace_pending;
 static unsigned s_dash_tap_age;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
@@ -48,6 +49,7 @@ static void smw_falcon_reset_dash_taps(void)
     s_dash_first_dir = 0;
     s_dash_prev_dir = 0;
     s_dash_full_hold = 0;
+    s_special_grace_pending = 0;
     s_dash_tap_age = 0;
 }
 
@@ -220,6 +222,7 @@ static ForeignInput smw_falcon_input(void)
                                                 io_controller_hold2;
     const uint8_t press2 = s_foreign_pad.valid ? s_foreign_pad.press2 :
                                                  io_controller_press2;
+    const int special_press = (press1 & 0x40) != 0;
 
     memset(&input, 0, sizeof(input));
     int direction = (hold1 & 0x01) ? 1 : (hold1 & 0x02) ? -1 : 0;
@@ -258,7 +261,21 @@ static ForeignInput smw_falcon_input(void)
     input.jump_held = (hold1 & 0x80) != 0;
     input.down_pressed = (press1 & 0x04) != 0;
     input.attack_pressed = (press2 & 0x40) != 0; /* SNES X: normal */
-    input.special_pressed = (press1 & 0x40) != 0; /* PlayStation Square / SNES Y */
+    /* Port the mature NES bridge's one-frame directional-special grace.
+     * A directionless Square/Y edge waits one frame so Y then Up still
+     * selects Falcon Dive rather than committing Falcon Punch.  Directional
+     * edges remain immediate and source-state priority remains authoritative. */
+    if (special_press) {
+        if (direction != 0 || input.stick_y != 0.0f) {
+            input.special_pressed = 1;
+            s_special_grace_pending = 0;
+        } else {
+            s_special_grace_pending = 1;
+        }
+    } else if (s_special_grace_pending) {
+        input.special_pressed = 1;
+        s_special_grace_pending = 0;
+    }
     input.raw_buttons = (int)hold1 | ((int)hold2 << 8);
     s_foreign_pad.valid = 0;
     return input;
@@ -433,7 +450,8 @@ void SmwFalconOnStateLoaded(void)
 {
     /* Native WRAM carries sprite status $0B and the player carry flags in the
      * outer savestate. The bridge is only a one-frame input translation, so
-     * never revive a pre-save A/Down decision from static host memory. */
+     * never revive a pre-save A/Down decision or deferred Square/Y edge from
+     * static host memory.  The grace latch is intentionally not schema state. */
     s_pending = 0;
     s_force_airborne_pending = 0;
     smw_falcon_reset_dash_taps();

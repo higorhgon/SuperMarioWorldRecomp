@@ -17,19 +17,23 @@ host_launch
 frames 1
 expect_state JUMP_F
 
-# Takeoff velocity is +83.6 units/frame (= 6.7 px at 0.08 px/unit), against
-# SMB1's own -4. Gravity is 3.4/frame, so the apex is ~25 frames up and ~1085
-# units high = 87 px, a little over five NES tiles.
+# The host's ordinary launched handoff uses the same primary-jump adaptation:
+# the full-stick source launch is 58.118 units/frame (= 4.65 px at 0.08
+# px/unit), not SMB1's native -4 px/frame.  At unchanged 3.4 gravity its
+# 526-unit apex is about half the former 1085-unit host-launch height.
+expect_vel_air_y 58.0 58.2
 frames 25
 expect_state JUMP_F
 
-# Past the apex, JUMP_F gives way to FALL, and the fall accelerates to
-# tvel_base = 66 units (5.28 px/frame) -- above SMB1's 4 px/frame cap, which is
-# the whole reason we integrate this ourselves.
-frames 10
+# Past the earlier apex, JUMP_F gives way to FALL.  The lower primary launch
+# reaches the flat test floor sooner; collision and its normal landing handoff
+# remain unchanged.
+frames 4
 expect_state FALL
 
 # The flat floor catches us and the reconciliation turns that into a landing,
 # then back to ground locomotion with the stick still held.
+frames 6
+expect_state LANDING_LIGHT
 frames 60
 expect_state WALK_FAST

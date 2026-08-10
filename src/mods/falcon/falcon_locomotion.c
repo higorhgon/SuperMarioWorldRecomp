@@ -37,6 +37,9 @@
 #define A_JUMP_VEL_X          0.31  /* JP: 0.35 */
 #define A_JUMP_HEIGHT_MUL     1.0
 #define A_JUMP_HEIGHT_BASE   24.0   /* JP: 25.0 */
+/* ADAPTATION: sqrt(1/2) launch produces half the ballistic apex at the
+ * unchanged source gravity.  It applies only to SMW's primary button jump. */
+#define SMW_GROUNDED_JUMP_LAUNCH_SCALE 0.7071067811865476
 #define A_JUMPAERIAL_VEL_X    0.35
 #define A_JUMPAERIAL_HEIGHT   0.9   /* JP: 0.95 */
 #define A_AIR_ACCEL           0.04
@@ -536,6 +539,12 @@ static void enter_jump(FalconFighter *f, const FalconInputRaw *in)
     }
 
     f->vel_air_y = (vel_y * A_JUMP_HEIGHT_MUL) + A_JUMP_HEIGHT_BASE;
+    /* SMW's screen/collision scale made Captain's ordinary source jump use
+     * roughly 70% of a screen.  Keep short/full force selection intact, then
+     * reduce just this primary button launch.  Aerial/double jumps below stay
+     * source-authored, as do all collision and water boundary rules. */
+    if (f->kneebend_input_source == KB_INPUT_BUTTON)
+        f->vel_air_y *= SMW_GROUNDED_JUMP_LAUNCH_SCALE;
     f->vel_air_x = vel_x * A_JUMP_VEL_X;
 
     f->tap_stick_y = C_STICKBUFFER_TICS_MAX;

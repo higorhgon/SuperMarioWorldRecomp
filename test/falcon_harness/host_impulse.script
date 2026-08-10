@@ -30,8 +30,9 @@ frames 4
 expect_state JUMP_F
 jump up
 
-# Well past the apex and falling hard.
-frames 45
+# Well past the lower adapted primary-jump apex and falling hard.  Keep enough
+# room above the flat test floor for the native stomp impulse to be observed.
+frames 35
 expect_state FALL
 
 # SMB1 stores $FC. The adapter converts -(-4)/0.08 = +50.0 source units.
