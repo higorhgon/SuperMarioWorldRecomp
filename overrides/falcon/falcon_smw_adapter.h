@@ -12,6 +12,9 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu);
 void SmwFalconBeforePhysics(struct CpuState *cpu);
 void SmwFalconAfterPhysics(struct CpuState *cpu);
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu);
+/* Called at the native BoostMarioSpeed return after SMW accepted a stomp and
+ * wrote its own bounce velocity. It observes/adopts that result only. */
+void SmwFalconOnNativeStompBounce(struct CpuState *cpu);
 void SmwFalconBeforeYoshi(struct CpuState *cpu);
 int SmwFalconSkipYoshiMount(struct CpuState *cpu);
 void SmwFalconOnStateLoaded(void);

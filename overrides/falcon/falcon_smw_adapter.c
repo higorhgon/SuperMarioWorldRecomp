@@ -4,6 +4,7 @@
 #include "types.h"
 #include "variables.h"
 #include "common_rtl.h"
+#include "src/mods/falcon/falcon_locomotion.h"
 #include "src/mods/falcon/smw_falcon_audio.h"
 #include "src/mods/falcon/smw_falcon_combat_apply.h"
 
@@ -27,7 +28,10 @@ static int s_dash_first_dir;
 static int s_dash_prev_dir;
 static int s_dash_full_hold;
 static int s_special_grace_pending;
+static int s_dash_ignore_until_release;
 static unsigned s_dash_tap_age;
+static int s_stomp_bounce_armed;
+static int s_stomp_contact_guard;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
 static ForeignMoveResult s_last_move;
@@ -50,7 +54,19 @@ static void smw_falcon_reset_dash_taps(void)
     s_dash_prev_dir = 0;
     s_dash_full_hold = 0;
     s_special_grace_pending = 0;
+    s_dash_ignore_until_release = 0;
     s_dash_tap_age = 0;
+}
+
+static void smw_falcon_clear_stomp_contact_guard(void)
+{
+    /* $1497 is SMW's IFrameTimer, checked by the later native/custom-sprite
+     * side-damage path. We write only its one-frame value and remove exactly
+     * that value at the next early player seam. A real native timer update is
+     * never overwritten. */
+    if (s_stomp_contact_guard && timer_player_hurt == 1)
+        timer_player_hurt = 0;
+    s_stomp_contact_guard = 0;
 }
 
 static uint8_t clamp_speed(double source_delta, int y_axis)
@@ -239,18 +255,30 @@ static ForeignInput smw_falcon_input(void)
         else
             s_dash_first_dir = 0;
     }
-    if (direction == 0) {
+    if (s_dash_ignore_until_release) {
+        /* A turn-start press remains held through authored Turn frames. It
+         * must not become a phantom first dash tap when Turn releases into
+         * Wait/Walk; wait for the player's neutral edge. */
+        s_dash_first_dir = 0;
+        s_dash_tap_age = 0;
         s_dash_full_hold = 0;
-    } else if (direction != s_dash_prev_dir) {
-        if (direction == s_dash_first_dir &&
-            s_dash_tap_age <= SMW_FALCON_DASH_DOUBLE_TAP_FRAMES) {
-            s_dash_full_hold = 1;
-            s_dash_first_dir = 0;
-            s_dash_tap_age = 0;
-        } else {
+        if (direction == 0) s_dash_ignore_until_release = 0;
+    } else {
+        if (direction == 0) {
             s_dash_full_hold = 0;
-            s_dash_first_dir = direction;
-            s_dash_tap_age = 0;
+        } else if (direction != s_dash_prev_dir) {
+            if (direction == s_dash_first_dir &&
+                s_dash_tap_age <= SMW_FALCON_DASH_DOUBLE_TAP_FRAMES) {
+                s_dash_full_hold = 1;
+                s_dash_first_dir = 0;
+                s_dash_tap_age = 0;
+            } else {
+                s_dash_full_hold = 0;
+                s_dash_first_dir = direction;
+                s_dash_tap_age = 0;
+            }
+        } else {
+            /* Still holding the same source magnitude. */
         }
     }
     s_dash_prev_dir = direction;
@@ -284,6 +312,7 @@ static ForeignInput smw_falcon_input(void)
 void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
 {
     (void)cpu;
+    smw_falcon_clear_stomp_contact_guard();
     s_foreign_pad.valid = 0;
     s_foreign_pad.carry_valid = 0;
 
@@ -308,6 +337,10 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     ForeignInput input;
     (void)cpu;
 
+    /* BoostMarioSpeed runs later in ProcessNormalSprites. Never let its
+     * previous-frame observation cross a reset, handoff, or next tick. */
+    s_stomp_bounce_armed = 0;
+    s_stomp_contact_guard = 0;
     if (!snes_foreign_active()) return;
     if (!smw_falcon_playable()) {
         if (snes_foreign_ownership() == FOREIGN_OWNERSHIP_FOREIGN)
@@ -344,6 +377,10 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
+    /* An opposite-facing first press starts a source Turn, not a completed
+     * SMW D-pad tap. Suppress it until its eventual neutral release. */
+    if (state->state == FL_TURN || state->state == FL_TURN_RUN)
+        s_dash_ignore_until_release = 1;
     smw_falcon_audio_play_events(&s_last_move.audio);
     smw_falcon_adapt_water_motion(&s_last_move);
 
@@ -390,10 +427,49 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         smw_falcon_combat_apply(cpu, &s_last_move.attack,
                                 state != NULL ? state->facing : 1.0f, &hit);
     }
+    /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the
+     * post-write observer for this one frame so an accepted native stomp can
+     * hand its exact $D0/$A8 bounce back to the controller without changing
+     * any native contact, damage, score, or sound decision. */
+    s_stomp_bounce_armed = 1;
     snes_foreign_resolve(&hit);
     snes_foreign_trace_note_native(player_xpos, player_ypos);
     s_pending = 0;
     s_force_airborne_pending = 0;
+}
+
+void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
+{
+    ForeignCollisionResult bounce;
+    const uint8_t native_speed = player_yspeed;
+    (void)cpu;
+
+    /* SMWDisX $01:AA33 BoostMarioSpeed returns here after a successful native
+     * stomp. It writes precisely $D0 (or $A8 while B is held); reject every
+     * other call path, including climbing's no-write return. The earlier
+     * pad seam normally masks B, but both documented native values remain
+     * valid for exact mod-off-compatible semantics. */
+    if (!s_stomp_bounce_armed || !snes_foreign_active() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        (native_speed != 0xD0 && native_speed != 0xA8)) return;
+
+    s_stomp_bounce_armed = 0;
+    /* The current normal-sprite pass can dispatch later custom/multi-hit
+     * interaction bodies after the native stomp path returns. $1497 is their
+     * own established no-hurt guard. Arm exactly one frame only when it was
+     * clear, preserving any pre-existing native invulnerability untouched. */
+    if (timer_player_hurt == 0) {
+        timer_player_hurt = 1;
+        s_stomp_contact_guard = 1;
+    }
+    memset(&bounce, 0, sizeof(bounce));
+    bounce.grounded = 0;
+    bounce.has_imposed_vy = 1;
+    /* SMW stores downward-positive sixteenth-pixel speed; Falcon uses
+     * upward-positive source units. This is the inverse of clamp_speed(). */
+    bounce.imposed_vy = -(double)signed8(native_speed) /
+                        (FALCON_TO_SMW_PX * SMW_SPEED_PER_PX);
+    snes_foreign_resolve(&bounce);
 }
 
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
@@ -454,6 +530,8 @@ void SmwFalconOnStateLoaded(void)
      * static host memory.  The grace latch is intentionally not schema state. */
     s_pending = 0;
     s_force_airborne_pending = 0;
+    s_stomp_bounce_armed = 0;
+    s_stomp_contact_guard = 0;
     smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;
     smw_falcon_clear_carry_bridge();

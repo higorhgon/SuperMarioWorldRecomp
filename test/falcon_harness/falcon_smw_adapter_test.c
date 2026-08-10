@@ -112,6 +112,14 @@ static void model_native_yoshi_contact_after_movement(unsigned slot, int skip_mo
     if (!skip_mount) model_native_yoshi_mount(slot);
 }
 
+/* The later ordinary/custom side-damage path at $01:A8E6 first returns when
+ * the native IFrameTimer ($1497) is nonzero, otherwise it can reach
+ * HurtMario. Model only that reviewed guard decision here. */
+static void model_native_later_side_damage(void)
+{
+    if (timer_player_hurt == 0) player_current_state = 9;
+}
+
 /* Drive the two ordinary player seams in their guest execution order.  The
  * harness has no native position integrator, intentionally: these directional
  * checks assert the host velocity that would be consumed by $00:DC2D. */
@@ -745,6 +753,41 @@ int main(void)
         timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
         !yoshi_persistence_intact())
         return fail("mounted Falcon save loads as a clean native Yoshi dismount");
+
+    /* Confirmed SMW order: a successful ordinary stomp reaches native
+     * BoostMarioSpeed ($01:AA33), which writes D0 before returning through
+     * $01:AA41. The block seam observes that exact native impulse and arms
+     * only the remainder of this normal-sprite pass against later multi-hit
+     * or custom side damage; it never changes the native stomp decision. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for stomp seam");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_yspeed = 0;
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL); /* arms the future normal-sprite observer */
+    timer_player_hurt = 0;
+    player_in_air_flag = 1;
+    player_yspeed = 0xD0;
+    SmwFalconOnNativeStompBounce(NULL);
+    if (snes_foreign_state() == NULL ||
+        fabs(snes_foreign_state()->vy - 37.5) > 0.001 ||
+        snes_foreign_state()->grounded || timer_player_hurt != 1 ||
+        player_current_state != 0)
+        return fail("native stomp bounce and one-contact immunity are adopted exactly");
+    model_native_later_side_damage();
+    if (player_current_state != 0)
+        return fail("same-pass multi-hit side damage is blocked after native stomp");
+    /* The latch is consumed at the next D5F2, before the next normal-sprite
+     * pass. Do not leave broad native invulnerability behind. */
+    SmwFalconBeforePlayerPhysics(NULL);
+    if (timer_player_hurt != 0 || player_current_state != 0)
+        return fail("stomp immunity latch clears before the next frame");
 
     /* The same hooks must be inert after the trusted Falcon controller is
      * reset/unselected, preserving exact native/mod-off behaviour. */

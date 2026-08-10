@@ -11,6 +11,20 @@ int main(void) {
     CHECK(near(box.left,108) && near(box.top,111.2) && near(box.right,112) && near(box.bottom,114.4));
     box=smw_falcon_attack_world_aabb(&a, 100, 80, -1);
     CHECK(near(box.left,104) && near(box.right,108));
+    /* Falcon Punch's 64px front edge exceeds the old 45.6px envelope and
+     * reaches a target centred 60px ahead (two rendered model widths). */
+    a.offset_x=480; a.offset_y=160; a.width=640; a.height=240;
+    box=smw_falcon_attack_world_aabb(&a,100,80,1);
+    CHECK(near(box.left,120.8) && near(box.right,172.0));
+    CHECK(near(box.top,89.6) && near(box.bottom,108.8));
+    CHECK(near(box.right - 108.0,64.0) && box.right - 108.0 > 45.6);
+    targets[0]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{160,90,176,114}};
+    targets[1]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{160,100,176,124}};
+    CHECK(smw_falcon_choose_target(&a,100,80,1,targets,2)==0);
+    targets[0].bounds=(SmwFalconAabb){160,109,176,133};
+    CHECK(smw_falcon_choose_target(&a,100,80,1,targets,2)==1);
+    /* Restore the compact generic hitbox for target-priority policy checks. */
+    a.offset_x=25; a.offset_y=-10; a.width=50; a.height=40;
     targets[0]=(SmwFalconTarget){SMW_FALCON_TARGET_BOSS,{108,111,112,115}};
     targets[1]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{109,112,111,114}};
     targets[2]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{109,112,111,114}};

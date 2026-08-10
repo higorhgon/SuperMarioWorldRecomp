@@ -1308,7 +1308,11 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
     case FL_FALCON_PUNCH_GROUND:
     case FL_FALCON_PUNCH_AIR: /* active 42..46, damage 24/25/26 */
         if (t >= 42.0 && t < 47.0)
-            set_attack(out, 320.0, 220.0, 500.0, 320.0, 25, 105.0, 55.0, 1);
+            /* Host-space forward edge is 64 pixels from Falcon's centre:
+             * two rendered 32-pixel model widths and materially beyond the
+             * old 45.6px edge, while vertical coverage remains a bounded
+             * torso/arm band rather than a full player-height sweep. */
+            set_attack(out, 480.0, 160.0, 640.0, 240.0, 25, 105.0, 55.0, 1);
         break;
     case FL_FALCON_KICK_GROUND:
     case FL_FALCON_KICK_AIR: /* active 12..31, damage 15 */

@@ -295,6 +295,21 @@ def _ws_despawn_patch(anchor_pc, tbl_lo):
 
 
 BLOCK_PATCHES = [
+    # FALCON-STOMP: BoostMarioSpeed ($01:AA33) is reached only after SMW's
+    # normal-sprite interaction chose the stomp path. At its $01:AA41 return,
+    # native code has already written the exact D0/A8 player bounce speed.
+    # Observe it there so the controller adopts the host impulse without
+    # changing contact eligibility, enemy state, score, or SFX.
+    {
+        "marker": "/*FALCON-STOMP-BOUNCE*/",
+        "func_match": "BoostMarioSpeed",
+        "anchor": "cpu_trace_block(cpu, 0x01AA41)",
+        "snippet": (
+            " /*FALCON-STOMP-BOUNCE*/ {"
+            " extern void SmwFalconOnNativeStompBounce(CpuState *cpu);"
+            " SmwFalconOnNativeStompBounce(cpu); }"
+        ),
+    },
     # FALCON-YOSHI: Spr035_Yoshi arrives at $01:ED38 only after its ordinary
     # off-Yoshi movement, clipping, and CheckForContact have completed. The
     # following blocks are the sole fresh-mount path: on an eligible contact
@@ -589,7 +604,7 @@ BLOCK_PATCHES = [
 ]
 
 # Every marker any injection mode can leave behind (prologues + block patches).
-ALL_MARKERS = (MARKER, HOOK_MARKER, "/*FALCON-YOSHI-MOUNT*/", "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
+ALL_MARKERS = (MARKER, HOOK_MARKER, "/*FALCON-STOMP-BOUNCE*/", "/*FALCON-YOSHI-MOUNT*/", "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
                "/*WS-CHAIN*/", "/*WS-SLOT*/", "/*WS-RELOC*/", "/*WS-WING*/",
                "/*WS-COOP-TILE*/", "/*WS-COOP-ROW*/")
 
