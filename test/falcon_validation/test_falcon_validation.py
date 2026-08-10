@@ -30,6 +30,18 @@ class FalconValidationTests(unittest.TestCase):
         self.assertEqual(scenario["steps"][0]["op"], "wait_ram")
         self.assertTrue(any(step["op"] == "pulse_input_until_ram" for step in scenario["steps"]))
 
+    def test_showcase_keeps_every_gameplay_capture_in_gm14(self) -> None:
+        scenario = falcon.load_scenario(REPO / "test" / "falcon_validation" / "falcon_showcase.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures], [
+            "idle", "normal_y", "falcon_punch_active", "falcon_kick_ground",
+            "falcon_dive", "jump_takeoff", "aerial_y", "aerial_down_y",
+            "aerial_second_jump",
+        ])
+        for capture in captures:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+
     def test_rejects_out_of_range_wram(self) -> None:
         bad = {"format": "falcon-validation/v1", "steps": [
             {"op": "capture", "id": "bad", "wram": [
