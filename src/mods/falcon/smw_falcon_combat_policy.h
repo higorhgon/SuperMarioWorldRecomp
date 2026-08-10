@@ -28,12 +28,13 @@ typedef enum {
 #define SMW_FALCON_SOURCE_TO_WORLD 0.08
 
 SmwFalconAabb smw_falcon_attack_world_aabb(const ForeignAttackHitbox *attack,
-                                           double player_x, double player_y);
+                                           double player_x, double player_y,
+                                           double facing);
 int smw_falcon_aabb_overlaps(SmwFalconAabb a, SmwFalconAabb b);
 int smw_falcon_target_is_eligible(SmwFalconTargetClass target_class);
 /* Returns one eligible contact at most. -1 means no host consequence. */
 int smw_falcon_choose_target(const ForeignAttackHitbox *attack,
-                             double player_x, double player_y,
+                             double player_x, double player_y, double facing,
                              const SmwFalconTarget *targets, int count);
 int smw_falcon_can_break_map16(const ForeignAttackHitbox *attack,
                                SmwFalconMap16Class map16_class);

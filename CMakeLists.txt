@@ -138,6 +138,8 @@ set(SMW_RUNTIME_SOURCES
     src/smw_spc_player.c
     src/mods/falcon/falcon_locomotion.c
     src/mods/falcon/captain_falcon_foreign.c
+    src/mods/falcon/smw_falcon_combat_policy.c
+    src/mods/falcon/smw_falcon_combat_apply.c
     src/mods/falcon/falcon_presentation.c
     src/mods/falcon/smw_falcon_audio.c
     src/mods/falcon/smw_falcon_presentation_runtime.c

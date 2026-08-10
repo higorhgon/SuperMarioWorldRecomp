@@ -1,15 +1,24 @@
 #include "smw_falcon_combat_policy.h"
 
 SmwFalconAabb smw_falcon_attack_world_aabb(const ForeignAttackHitbox *attack,
-                                           double player_x, double player_y)
+                                           double player_x, double player_y,
+                                           double facing)
 {
     SmwFalconAabb out = {0, 0, 0, 0};
+    double center_x, center_y, half_width, half_height;
     if (!attack || !attack->active || attack->width <= 0 || attack->height <= 0)
         return out;
-    out.left = player_x + attack->offset_x * SMW_FALCON_SOURCE_TO_WORLD;
-    out.top = player_y + attack->offset_y * SMW_FALCON_SOURCE_TO_WORLD;
-    out.right = out.left + attack->width * SMW_FALCON_SOURCE_TO_WORLD;
-    out.bottom = out.top + attack->height * SMW_FALCON_SOURCE_TO_WORLD;
+    facing = facing < 0.0 ? -1.0 : 1.0;
+    /* Source offsets are center-relative in +Y-up world coordinates. SMW
+     * supplies player top-left (+Y-down), hence its 8x32 host anchor. */
+    center_x = player_x + 8.0 + facing * attack->offset_x * SMW_FALCON_SOURCE_TO_WORLD;
+    center_y = player_y + 32.0 - attack->offset_y * SMW_FALCON_SOURCE_TO_WORLD;
+    half_width = attack->width * SMW_FALCON_SOURCE_TO_WORLD * 0.5;
+    half_height = attack->height * SMW_FALCON_SOURCE_TO_WORLD * 0.5;
+    out.left = center_x - half_width;
+    out.top = center_y - half_height;
+    out.right = center_x + half_width;
+    out.bottom = center_y + half_height;
     return out;
 }
 
@@ -25,10 +34,11 @@ int smw_falcon_target_is_eligible(SmwFalconTargetClass target_class)
 }
 
 int smw_falcon_choose_target(const ForeignAttackHitbox *attack,
-                             double player_x, double player_y,
+                             double player_x, double player_y, double facing,
                              const SmwFalconTarget *targets, int count)
 {
-    SmwFalconAabb hit = smw_falcon_attack_world_aabb(attack, player_x, player_y);
+    SmwFalconAabb hit = smw_falcon_attack_world_aabb(attack, player_x, player_y,
+                                                      facing);
     if (!attack || !attack->active || !targets || count <= 0) return -1;
     for (int i = 0; i < count; ++i)
         if (smw_falcon_target_is_eligible(targets[i].target_class) &&

@@ -15,6 +15,12 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_audio_dispatches;
 
+/* The adapter harness deliberately has no generated game bodies. These are
+ * the two validated native aliases exercised in detail by falcon_combat_apply
+ * unit tests; adapter calls here use a null CpuState until a full CPU fixture. */
+void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu) { (void)cpu; }
+void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
+
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 {
     (void)events;

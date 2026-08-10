@@ -5,6 +5,7 @@
 #include "variables.h"
 #include "common_rtl.h"
 #include "src/mods/falcon/smw_falcon_audio.h"
+#include "src/mods/falcon/smw_falcon_combat_apply.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -282,8 +283,6 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     ForeignCollisionResult hit;
     const int dx = (int)(int16_t)(player_xpos - s_x_before);
     const int dy = (int)(int16_t)(player_ypos - s_y_before);
-    (void)cpu;
-
     if (!s_pending || snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
     {
         smw_falcon_clear_carry_bridge();
@@ -296,6 +295,11 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     hit.hit_floor = hit.grounded && dy >= 0;
     hit.hit_ceiling = (player_blocked_flags & 0x08) != 0;
     hit.hit_wall = (player_blocked_flags & 0x03) != 0;
+    if (cpu != NULL) {
+        const ForeignState *state = snes_foreign_state();
+        smw_falcon_combat_apply(cpu, &s_last_move.attack,
+                                state != NULL ? state->facing : 1.0f, &hit);
+    }
     snes_foreign_resolve(&hit);
     snes_foreign_trace_note_native(player_xpos, player_ypos);
     s_pending = 0;
