@@ -22,9 +22,7 @@ The adapter has two deliberately separate host seams:
   native abilities; `$00:DC2D` is too late for that purpose.
 - `UpdatePlayerSpritePosition` at `$00:DC2D` remains the later
   velocity/collision seam. It applies Falcon motion and resolves the native
-  collision result, but does not claim to suppress native action branches. A
-  future shell-carry bridge may explicitly expose a translated A input only at
-  an appropriate downstream seam.
+  collision result, but does not claim to suppress native action branches.
 
 Underwater levels remain Falcon-controlled: no native swim input is used, and
 attacks retain the saved raw controller input. At the `$00:DC2D` boundary every
@@ -37,3 +35,26 @@ they continue to supply health, reserve, and progression. Yoshi mounting is
 not supported by this boundary: Falcon is cleanly dismounted and active tongue
 input is disabled, while owned-Yoshi persistence, wings, and the level entity
 remain under native SMW rather than sharing Falcon movement ownership.
+
+## Native shell carry
+
+Falcon uses physical **A** for the one-handed native carry lifecycle. Physical
+**Y** remains exclusively a Falcon normal attack and is never passed through as
+native carry input. The early `$00:D5F2` hook captures and masks both inputs.
+After all player input, physics, climb, pipe, and door decisions, the adapter
+uses the first generated `ProcessNormalSprites` entry at `$01:80D2` (the parent
+routine starts at `$01:808C`) to translate captured A into native Y:
+
+- hold A: native Y held, allowing SMW to pick up or retain an item;
+- release A: no native Y, so the native status-$0B handler throws it;
+- release A while holding Down: native Down only, selecting the handler's
+  native set-down path.
+
+The adapter does not search, move, or change sprites. SMWDisX
+`CheckPlayerToNormalSpriteColl` at `$01:AA42` performs eligibility and only
+promotes supported collisions to sprite status `$0B`; its native `$01:9F9B`
+carried lifecycle owns positioning, throw, and set-down. Unsupported objects
+therefore remain rejected by stock SMW logic. The A/Down translation is
+one-frame host state, cleared on pipe/goal/death handoff and after a savestate
+load; the status-$0B sprite and carry flags live in the normal SMW RAM
+savestate.

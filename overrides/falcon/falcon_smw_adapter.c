@@ -4,6 +4,7 @@
 #include "types.h"
 #include "variables.h"
 #include "common_rtl.h"
+#include "src/mods/falcon/smw_falcon_audio.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -28,7 +29,10 @@ static struct {
     uint8_t press1;
     uint8_t hold2;
     uint8_t press2;
+    uint8_t carry_a;
+    uint8_t carry_down;
     int valid;
+    int carry_valid;
 } s_foreign_pad;
 
 static int signed8(uint8_t value) { return (int)(int8_t)value; }
@@ -92,12 +96,45 @@ static void smw_falcon_capture_and_mask_input(void)
     s_foreign_pad.press1 = io_controller_press1;
     s_foreign_pad.hold2 = io_controller_hold2;
     s_foreign_pad.press2 = io_controller_press2;
+    s_foreign_pad.carry_a = (io_controller_hold2 & 0x80) != 0;
+    s_foreign_pad.carry_down = (io_controller_hold1 & 0x04) != 0;
     s_foreign_pad.valid = 1;
+    s_foreign_pad.carry_valid = 1;
 
     io_controller_hold1 &= (uint8_t)~0xCF;  /* B,Y,U,D,L,R */
     io_controller_press1 &= (uint8_t)~0xCF;
     io_controller_hold2 &= (uint8_t)~0xC0;  /* A reserved, X special */
     io_controller_press2 &= (uint8_t)~0xC0;
+}
+
+static void smw_falcon_clear_carry_bridge(void)
+{
+    s_foreign_pad.carry_a = 0;
+    s_foreign_pad.carry_down = 0;
+    s_foreign_pad.carry_valid = 0;
+
+    /* These bits were emitted only after native player physics. Remove them
+     * when a scripted handoff preempts the normal next-frame input refresh. */
+    io_controller_hold1 &= (uint8_t)~0x44;  /* translated Y and Down */
+    io_controller_press1 &= (uint8_t)~0x40;
+}
+
+static void smw_falcon_emit_carry_input(void)
+{
+    if (!s_foreign_pad.carry_valid) return;
+
+    /* SMWDisX $01:AA42 owns pickup eligibility and changes a valid sprite to
+     * native status $0B. Its $01:9F9B carried lifecycle subsequently reads
+     * Y/Down: A held means Y held; A released means native throw, with Down
+     * retained only for native set-down. Physical Y never enters this bridge. */
+    io_controller_hold1 &= (uint8_t)~0x44;
+    io_controller_press1 &= (uint8_t)~0x40;
+    if (s_foreign_pad.carry_a) {
+        io_controller_hold1 |= 0x40;
+    } else if (player_carrying_something_flag1 != 0 &&
+               s_foreign_pad.carry_down) {
+        io_controller_hold1 |= 0x04;
+    }
 }
 
 static void smw_falcon_adapt_water_motion(ForeignMoveResult *move)
@@ -161,6 +198,7 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
 {
     (void)cpu;
     s_foreign_pad.valid = 0;
+    s_foreign_pad.carry_valid = 0;
 
     /* $00:D5F2 is the action-input seam. Do not move this work to the later
      * $00:DC2D velocity seam: native spin/cape/fire decisions have already
@@ -186,6 +224,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
             snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
         s_pending = 0;
         s_force_airborne_pending = 0;
+        smw_falcon_clear_carry_bridge();
         return;
     }
 
@@ -214,6 +253,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
+    smw_falcon_audio_play_events(&s_last_move.audio);
     smw_falcon_adapt_water_motion(&s_last_move);
 
     s_x_before = player_xpos;
@@ -234,9 +274,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
             player_yspeed = (uint8_t)(int8_t)-16;
     }
 
-    /* $00:DC2D is intentionally velocity/collision ownership only. The
-     * earlier $00:D5F2 hook has already hidden Falcon's pad from native SMW;
-     * a future shell-carry bridge may selectively expose A there instead. */
+    /* $00:DC2D is intentionally velocity/collision ownership only. */
 }
 
 void SmwFalconAfterPhysics(struct CpuState *cpu)
@@ -247,7 +285,10 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     (void)cpu;
 
     if (!s_pending || snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
+    {
+        smw_falcon_clear_carry_bridge();
         return;
+    }
     memset(&hit, 0, sizeof(hit));
     hit.actual_dx = (double)dx * SMW_TO_FALCON;
     hit.actual_dy = -(double)dy * SMW_TO_FALCON; /* SMW down -> Falcon up */
@@ -259,6 +300,34 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     snes_foreign_trace_note_native(player_xpos, player_ypos);
     s_pending = 0;
     s_force_airborne_pending = 0;
+}
+
+void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
+{
+    (void)cpu;
+    /* ProcessNormalSprites begins at $01:808C. Its first generated entry is
+     * $01:80D2, which follows all player input/physics and enters
+     * CheckPlayerToNormalSpriteColl ($01:AA42) plus status-$0B carry handlers.
+     * It is the first safe bridge point: $00:CD36 is earlier than native
+     * climb/door/player interactions, so Down must not be emitted there. */
+    if (!snes_foreign_active() || !smw_falcon_playable() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
+        smw_falcon_clear_carry_bridge();
+        return;
+    }
+    smw_falcon_emit_carry_input();
+}
+
+void SmwFalconOnStateLoaded(void)
+{
+    /* Native WRAM carries sprite status $0B and the player carry flags in the
+     * outer savestate. The bridge is only a one-frame input translation, so
+     * never revive a pre-save A/Down decision from static host memory. */
+    s_pending = 0;
+    s_force_airborne_pending = 0;
+    s_foreign_pad.valid = 0;
+    smw_falcon_clear_carry_bridge();
+    memset(&s_last_move, 0, sizeof(s_last_move));
 }
 
 const ForeignAttackHitbox *smw_falcon_last_attack(void)

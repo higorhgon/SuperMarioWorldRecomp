@@ -2,6 +2,7 @@
 #include "smw_rtl.h"
 #include "foreign_controller.h"
 #include "snes/saveload.h"
+#include "overrides/falcon/falcon_smw_adapter.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -60,6 +61,7 @@ static void SmwOnStateLoaded(uint32 version) {
     snes_foreign_select(NULL);
     snes_foreign_set_ownership(FOREIGN_OWNERSHIP_NATIVE);
   }
+  SmwFalconOnStateLoaded();
   s_smw_foreign_chunk_loaded = 0;
 }
 

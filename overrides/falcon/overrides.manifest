@@ -2,7 +2,10 @@
 # HandlePlayerPhysics ($D5F2) reads native gameplay input before reaching the
 # later UpdatePlayerSpritePosition ($DC2D) velocity seam. The early hook owns
 # pad suppression; DC2D commits velocity, then HandlePlayerLevelCollision
-# ($E92B), then PlayerState00_00CD36 ($CD36) joins ordinary flow. Restrict M1X1.
+# ($E92B), then PlayerState00_00CD36 ($CD36) joins ordinary flow.
+# ProcessNormalSprites begins at $01:808C; its first generated M1X1 entry at
+# $01:80D2 is the later carry bridge seam. Restrict M1X1.
 @hook HandlePlayerPhysics -> SmwFalconBeforePlayerPhysics M1X1
 @hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
 @hook PlayerState00_00CD36 -> SmwFalconAfterPhysics M1X1
+@hook ProcessNormalSprites_GetNormalSpriteOAMIndexAndDecrementTimers -> SmwFalconBeforeNormalSprites M1X1

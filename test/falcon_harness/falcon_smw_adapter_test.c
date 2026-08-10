@@ -13,6 +13,13 @@
 
 uint8 g_ram[0x20000];
 int snes_frame_counter;
+static int s_audio_dispatches;
+
+void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
+{
+    (void)events;
+    ++s_audio_dispatches;
+}
 
 static int fail(const char *message)
 {
@@ -54,6 +61,8 @@ int main(void)
     SmwFalconBeforePhysics(NULL);
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
         return fail("ordinary level grants foreign ownership after the early mask");
+    if (s_audio_dispatches != 1)
+        return fail("controller audio is dispatched exactly once after its tick");
     count = snes_foreign_trace_last(1, &trace);
     if (count != 1 || trace.frame != 1000 || trace.stick_x != 1.0f ||
         trace.stick_y != 0.0f || trace.raw_buttons != 0xC0F1)
@@ -184,6 +193,114 @@ int main(void)
     if (abs((int)(int8_t)player_yspeed) > 25)
         return fail("water terminal speed remains capped after sustained fall");
     flag_underwater_level = 0;
+
+    /* A is the only carry bridge input. $01:AA42 still decides whether the
+     * nearby native sprite is eligible and creates status $0B; this adapter
+     * only exposes a post-physics Y bit for that lifecycle to consume. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for carry seam");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    player_in_air_flag = 0;
+    player_carrying_something_flag1 = 0;
+    g_ram[0x14C8] = 0x08; /* Unsupported/native-owned status sentinel. */
+    io_controller_hold1 = 0x40; /* Physical Y: Falcon attack only. */
+    io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    SmwFalconBeforeNormalSprites(NULL);
+    if ((io_controller_hold1 & 0x44) != 0 || g_ram[0x14C8] != 0x08)
+        return fail("physical Y and unsupported sprites never enter native carry");
+
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = 0x80; /* Physical A: translated after player physics. */
+    io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    /* CD36 collision resolution must not leak synthetic Down to player logic. */
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("carry input remains absent through player interaction seam");
+    SmwFalconBeforeNormalSprites(NULL);
+    if (io_controller_hold1 != 0x40 || g_ram[0x14C8] != 0x08)
+        return fail("A offers native Y without host-owned pickup or relocation");
+
+    /* Model a successful native $01:AA42 pickup: status $0B and the carry
+     * flag are native savestate RAM, not controller-private state. */
+    g_ram[0x14C8] = 0x0B;
+    player_carrying_something_flag1 = 1;
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = 0x80;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    SmwFalconBeforeNormalSprites(NULL);
+    if (io_controller_hold1 != 0x40)
+        return fail("held A keeps native status-0B item carried");
+
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    SmwFalconBeforeNormalSprites(NULL);
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("A release exposes native throw without carry bits");
+
+    io_controller_hold1 = 0x04; /* Down + released A means native set-down. */
+    io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("Down cannot leak into native player interaction logic");
+    SmwFalconBeforeNormalSprites(NULL);
+    if (io_controller_hold1 != 0x04)
+        return fail("Down survives only for native status-0B set-down");
+
+    /* A bridged bit is never retained through a scripted handoff or a loaded
+     * state. Native carry RAM itself belongs to the complete SMW savestate. */
+    io_controller_hold1 = 0;
+    io_controller_hold2 = 0x80;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    SmwFalconBeforeNormalSprites(NULL);
+    if (io_controller_hold1 != 0x40)
+        return fail("carry bridge prepared handoff cleanup case");
+    player_timer_pipe_warping = 1;
+    SmwFalconBeforePhysics(NULL);
+    if ((io_controller_hold1 & 0x44) != 0 ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_SCRIPTED)
+        return fail("pipe handoff clears translated carry input");
+    player_timer_pipe_warping = 0;
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    io_controller_hold1 = 0x44;
+    timer_end_level = 1;
+    SmwFalconBeforePhysics(NULL);
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("goal handoff clears translated carry input");
+    timer_end_level = 0;
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    io_controller_hold1 = 0x44;
+    player_current_state = 9;
+    SmwFalconBeforePhysics(NULL);
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("death handoff clears translated carry input");
+    player_current_state = 0;
+    io_controller_hold1 = 0x40;
+    SmwFalconOnStateLoaded();
+    if ((io_controller_hold1 & 0x44) != 0)
+        return fail("state load clears transient carry translation");
+
     puts("falcon_smw_adapter: pad mapping, seam order, collision feedback PASS");
     return 0;
 }
