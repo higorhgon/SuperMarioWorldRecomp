@@ -1,0 +1,6 @@
+# Side-effect hooks retain generated SMW collision. SMWDisX 3390ee1 bank_00
+# order is CODE_00CCE0/CD24/CD36/CD82: UpdatePlayerSpritePosition ($DC2D)
+# commits velocity to position, then HandlePlayerLevelCollision ($E92B), then
+# PlayerState00_00CD36 ($CD36) joins the ordinary flow. Restrict M1X1.
+@hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
+@hook PlayerState00_00CD36 -> SmwFalconAfterPhysics M1X1

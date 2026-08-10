@@ -10,9 +10,9 @@
  * This module is a faithful port of the locomotion subset mapped in
  * docs/falcon_movement_dependency.md. It works entirely in the SOURCE
  * GAME'S UNITS -- stick range +/-80, velocities in the source's world
- * units per frame -- and knows nothing about SMB1, the NES, or pixels.
- * The single world-scale conversion happens in game_smash64.c, at the
- * host boundary, exactly once.
+ * units per frame -- and knows nothing about SMW, the SNES, or pixels.
+ * The single world-scale/sign conversion happens at the SMW host boundary,
+ * exactly once.
  *
  * Everything the source got from its engine that we cannot reproduce is
  * excluded per the classification in that document, and the three forced
@@ -24,7 +24,8 @@
 #include <stdint.h>
 
 /* Action states. Combat includes the representative normals and signature
- * specials used by the SMB1 port; shields, ordinary grabs, cliffs and items
+ * specials used by the first SMW playable milestone; shields, ordinary grabs,
+ * cliffs and items
  * remain deliberately absent. Falcon Dive's move-owned catch is represented
  * explicitly because it is part of Up-B itself. */
 typedef enum {
@@ -94,7 +95,7 @@ typedef struct {
     /*
      * ADAPTATION. The host imposed its own vertical velocity this frame, in
      * SOURCE units, +y up. Not from the source game: in Smash the fighter owns
-     * its vertical motion outright, but SMB1 launches the player for reasons
+     * its vertical motion outright, but SMW launches the player for reasons
      * the fighter has no model of -- a stomp bounce off a Goomba, a jumpspring,
      * a shattered brick, a ceiling that kills the jump. Those are the host's
      * world acting on the character, which is squarely the host's half of the

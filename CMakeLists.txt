@@ -62,6 +62,8 @@ endif()
 # that do not go through a release wrapper.
 set(SMW_WIDESCREEN_OVERRIDE_STAMP
     ${CMAKE_CURRENT_BINARY_DIR}/smw_widescreen_overrides.stamp)
+set(SMW_FALCON_OVERRIDE_MANIFEST
+    ${CMAKE_SOURCE_DIR}/overrides/falcon/overrides.manifest)
 add_custom_command(
     OUTPUT ${SMW_WIDESCREEN_OVERRIDE_STAMP}
     COMMAND ${Python3_EXECUTABLE}
@@ -69,10 +71,17 @@ add_custom_command(
             --check
             --gen-dir ${CMAKE_SOURCE_DIR}/src/gen
             --manifest ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
+            --check
+            --gen-dir ${CMAKE_SOURCE_DIR}/src/gen
+            --manifest ${SMW_FALCON_OVERRIDE_MANIFEST}
     COMMAND ${CMAKE_COMMAND} -E touch ${SMW_WIDESCREEN_OVERRIDE_STAMP}
     DEPENDS
         ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
         ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
+        ${SMW_FALCON_OVERRIDE_MANIFEST}
+        ${CMAKE_SOURCE_DIR}/overrides/falcon/falcon_smw_adapter.c
         ${SMW_STOCK_GEN_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Applying widescreen object-lifecycle hooks"
@@ -127,6 +136,9 @@ set(SMW_RUNTIME_SOURCES
     src/smw_cpu_infra.c
     src/smw_rtl.c
     src/smw_spc_player.c
+    src/mods/falcon/falcon_locomotion.c
+    src/mods/falcon/captain_falcon_foreign.c
+    src/mods/smw_falcon_plugin.c
     # Trusted static plugin backing the widescreen mod package's activation.
     src/mods/smw_widescreen_plugin.c
     # Trusted static plugin backing the MSU-1 audio mod package's activation.

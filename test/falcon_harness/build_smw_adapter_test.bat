@@ -1,0 +1,7 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul
+cl /nologo /std:c11 /D_CRT_SECURE_NO_WARNINGS /W4 /O2 /I..\..\src /I..\..\snesrecomp\runner\src /Fe:falcon_smw_adapter_test.exe falcon_smw_adapter_test.c ..\..\overrides\falcon\falcon_smw_adapter.c ..\..\src\mods\falcon\falcon_locomotion.c ..\..\src\mods\falcon\captain_falcon_foreign.c ..\..\snesrecomp\runner\src\foreign_controller.c
+if errorlevel 1 exit /b %errorlevel%
+falcon_smw_adapter_test.exe

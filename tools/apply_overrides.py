@@ -30,6 +30,7 @@ import re
 import sys
 
 MARKER = "/*WS-OVERRIDE*/"
+HOOK_MARKER = "/*SMW-HOOK*/"
 
 # --- Block-level widescreen patches (runtime-gated, default-off) ---------
 # Some widescreen behaviour can't be a whole-function override (the recompiled
@@ -566,7 +567,7 @@ BLOCK_PATCHES = [
 ]
 
 # Every marker any injection mode can leave behind (prologues + block patches).
-ALL_MARKERS = (MARKER, "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
+ALL_MARKERS = (MARKER, HOOK_MARKER, "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
                "/*WS-CHAIN*/", "/*WS-SLOT*/", "/*WS-RELOC*/", "/*WS-WING*/",
                "/*WS-COOP-TILE*/", "/*WS-COOP-ROW*/")
 
@@ -637,10 +638,15 @@ DEF_RE = re.compile(
 
 
 def parse_manifest(path):
-    """Return list of (base_name, override_symbol, variant_or_None)."""
-    rules = []
+    """Return full-replacement rules and side-effect hook rules.
+
+    A normal `Base -> Override` entry returns from the generated function.
+    `@hook Base -> Hook` injects `Hook(cpu)` at entry then continues into the
+    original body, for narrow host seams that must retain native behaviour.
+    """
+    rules, hooks = [], []
     if not os.path.isfile(path):
-        return rules
+        return rules, hooks
     with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.split("#", 1)[0].strip()
@@ -653,8 +659,14 @@ def parse_manifest(path):
             parts = rhs.split()
             override = parts[0].strip()
             variant = parts[1].strip() if len(parts) > 1 else None
-            rules.append((base, override, variant))
-    return rules
+            if base.startswith("@hook "):
+                base = base[len("@hook "):].strip()
+                if not base:
+                    sys.exit(f"apply_overrides: malformed hook line: {raw!r}")
+                hooks.append((base, override, variant))
+            else:
+                rules.append((base, override, variant))
+    return rules, hooks
 
 
 def prologue(override_symbol):
@@ -665,11 +677,21 @@ def prologue(override_symbol):
     )
 
 
-def apply_to_text(text, rules):
+def hook_prologue(hook_symbol):
+    return (
+        f" {HOOK_MARKER} {{ extern void {hook_symbol}(CpuState *cpu);"
+        f" {hook_symbol}(cpu); }}"
+    )
+
+
+def apply_to_text(text, rules, hooks):
     """Return (new_text, n_injected). Idempotent."""
     by_base = {}
     for base, override, variant in rules:
         by_base.setdefault(base, []).append((override, variant))
+    hook_by_base = {}
+    for base, hook, variant in hooks:
+        hook_by_base.setdefault(base, []).append((hook, variant))
 
     injected = 0
 
@@ -678,29 +700,39 @@ def apply_to_text(text, rules):
         whole = m.group(0)
         base, suffix = m.group(1), m.group(2)
         cands = by_base.get(base)
-        if not cands:
+        hook_cands = hook_by_base.get(base)
+        if not cands and not hook_cands:
             return whole
         # Pick a rule whose variant matches this definition (or is unscoped).
         chosen = None
-        for override, variant in cands:
+        for override, variant in cands or ():
             if variant is None or variant == suffix[1:]:  # suffix like '_M1X1'
                 chosen = override
                 break
-        if chosen is None:
+        hook = None
+        for candidate, variant in hook_cands or ():
+            if variant is None or variant == suffix[1:]:
+                hook = candidate
+                break
+        if chosen is None and hook is None:
             return whole
         # The prologue is appended immediately after the matched opening brace,
         # so it is not part of `whole`. Check the original text at the match
         # boundary; testing `MARKER in whole` made repeated CMake invocations
         # stack duplicate fireball prologues despite this tool's idempotence
         # contract.
-        after = text[m.end():m.end() + len(MARKER) + 2]
-        if after.lstrip().startswith(MARKER):
-            return whole
-        return whole + prologue(chosen)
+        after = text[m.end():m.end() + len(MARKER) + len(HOOK_MARKER) + 4]
+        injected = whole
+        if chosen is not None and not after.lstrip().startswith(MARKER):
+            injected += prologue(chosen)
+        if hook is not None and HOOK_MARKER not in after:
+            injected += hook_prologue(hook)
+        return injected
 
     new_text = DEF_RE.sub(repl, text)
     # Count injections by counting freshly added markers vs pre-existing.
-    return new_text, new_text.count(MARKER) - text.count(MARKER)
+    return new_text, ((new_text.count(MARKER) - text.count(MARKER)) +
+                      (new_text.count(HOOK_MARKER) - text.count(HOOK_MARKER)))
 
 
 def main():
@@ -742,8 +774,8 @@ def main():
         print(f"apply_overrides: restored pristine gen ({total} injection(s) removed)")
         return 0
 
-    rules = parse_manifest(args.manifest)
-    if not rules and not BLOCK_PATCHES:
+    rules, hooks = parse_manifest(args.manifest)
+    if not rules and not hooks and not BLOCK_PATCHES:
         if args.verbose:
             print("apply_overrides: no active rules — authentic build, no-op")
         return 0
@@ -764,9 +796,9 @@ def main():
             text = f.read()
         # Track which bases exist in this file before substitution.
         for m in DEF_RE.finditer(text):
-            if m.group(1) in {b for b, _, _ in rules}:
+            if m.group(1) in {b for b, _, _ in rules} | {b for b, _, _ in hooks}:
                 matched_bases.add(m.group(1))
-        new_text, n = apply_to_text(text, rules)
+        new_text, n = apply_to_text(text, rules, hooks)
         new_text, nb = apply_block_patches(new_text)
         if n or nb:
             with open(path, "w", encoding="utf-8", newline="") as f:
@@ -776,7 +808,7 @@ def main():
                 print(f"apply_overrides: {name}: injected {n} prologue(s), {nb} block patch(es)")
 
     if args.check:
-        missing = {b for b, _, _ in rules} - matched_bases
+        missing = ({b for b, _, _ in rules} | {b for b, _, _ in hooks}) - matched_bases
         if missing:
             sys.exit(
                 "apply_overrides: manifest bases never matched a definition: "

@@ -264,8 +264,8 @@ static void phys_ground_friction(FalconFighter *f, double friction)
  *
  * ADAPTATION: the source scales traction by
  * dMPCollisionMaterialFrictions[floor_flags & MAP_VERTEX_MAT_MASK], a
- * per-surface material multiplier. SMB1 has no material classes, so the
- * multiplier is 1.0. Recorded as adaptation #1.
+ * per-surface material multiplier. This portable core leaves that choice to
+ * its host boundary; the first SMW milestone uses SMW-native collision.
  */
 static void phys_apply_ground_friction(FalconFighter *f)
 {
@@ -1046,9 +1046,9 @@ static void proc_interrupt(FalconFighter *f, const FalconInputRaw *in)
         break;
 
     /* Air states: ftCommonJumpProcInterrupt / ftCommonFallProcInterrupt only
-     * reach ftCommonJumpAerialCheckInterruptCommon, the double jump. Left out
-     * of M1 deliberately — SMB1 has no double jump and enabling it is a scope
-     * decision (jumps_max is 2). */
+     * reach ftCommonJumpAerialCheckInterruptCommon, the double jump. It is
+     * deliberately disabled for the first SMW playable milestone; the source
+     * value remains jumps_max = 2 for the next, explicitly tested fidelity step. */
     case FL_JUMP_F:
     case FL_JUMP_B:
     case FL_JUMP_AERIAL_F:
@@ -1300,8 +1300,8 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
 /* Audio-command frames from 235_CaptainMainMotion.c:
  *   Falcon Punch: "Falcon" on entry; punch FGM + "Punch" at frame 42.
  *   Falcon Kick:  voice + LightSwingL on entry; SpecialNStart at frame 12.
- * SMB1 has no aerial jump, so the source's JumpAerial effort clip is emitted
- * on the one host-supported jump transition as the deliberate roster adapter.
+ * The first SMW playable milestone deliberately has no aerial jump, so the
+ * source's JumpAerial effort cue is emitted only for the grounded launch.
  */
 static void emit_audio(const FalconFighter *f, FalconMotion *out)
 {
@@ -1434,7 +1434,8 @@ void falcon_tick(FalconFighter *f, const FalconInputRaw *in, FalconMotion *out)
              *     lr * floor_angle.y * vel_ground.x
              * On flat ground floor_angle.y is 1, which leaves the facing
              * multiply -- this is where facing-relative becomes world-space.
-             * ADAPTATION #2: no slope term and no Z axis, SMB1 has neither.
+             * ADAPTATION #2: no source slope term or Z axis. The SMW host
+             * retains ownership of its own slope collision at the boundary.
              */
             out->requested_dx = (double)f->lr * f->vel_ground_x;
             out->requested_dy = 0.0;

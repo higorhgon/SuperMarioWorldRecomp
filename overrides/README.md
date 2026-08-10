@@ -56,3 +56,12 @@ ParseLevelSpriteList_Entry2     -> Override_ParseLevelSpriteList_Entry2
 - `base_function_name` matches every `<base>_M?X?` definition in `src/gen/`.
 - Optional trailing `variant` (e.g. `M1X1`) restricts the rule to one variant.
 - Lines starting with `#` and blank lines are ignored.
+
+For a narrow seam that must retain the generated body, use a side-effect hook:
+
+```
+@hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
+```
+
+It injects `SmwFalconBeforePhysics(cpu)` at entry then continues into the
+original routine. The hook itself must be a no-op when its feature is inactive.
