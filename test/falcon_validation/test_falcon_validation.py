@@ -34,8 +34,8 @@ class FalconValidationTests(unittest.TestCase):
         scenario = falcon.load_scenario(REPO / "test" / "falcon_validation" / "falcon_showcase.json")
         captures = [step for step in scenario["steps"] if step["op"] == "capture"]
         self.assertEqual([step["id"] for step in captures], [
-            "idle", "normal_y", "falcon_punch_active", "falcon_kick_ground",
-            "falcon_dive", "jump_takeoff", "aerial_y", "aerial_down_y",
+            "idle", "normal_x", "falcon_punch_active", "falcon_kick_ground",
+            "falcon_dive", "jump_takeoff", "aerial_x", "aerial_down_x",
             "aerial_second_jump",
         ])
         for capture in captures:

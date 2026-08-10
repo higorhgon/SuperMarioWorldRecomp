@@ -196,7 +196,13 @@ def sha256_file(path: pathlib.Path) -> str:
 
 def tcp_file_path(path: pathlib.Path) -> str:
     """Return an absolute, slash-only path understood by the Windows runner."""
-    value = str(path.resolve()).replace("\\", "/")
+    raw = path.as_posix()
+    # Preserve an already-MSYS-qualified /f/... path before native pathlib
+    # resolves it as F:\f\... and duplicates the drive segment.
+    if len(raw) >= 3 and raw[0] == "/" and raw[1].isalpha() and raw[2] == "/":
+        value = raw[1].upper() + ":" + raw[2:]
+    else:
+        value = str(path.resolve()).replace("\\", "/")
     # MSYS Python renders F:\\... as /f/...; the native runner's fopen needs
     # a drive-qualified path, while its command parser needs slash separators.
     if len(value) >= 3 and value[0] == "/" and value[1].isalpha() and value[2] == "/":
