@@ -28,14 +28,14 @@
      "hold_frames": 1, "release_frames": 8},
     {"op": "step", "frames": 3},
     {"op": "capture", "id": "level_entry", "wram": [
-      {"name": "game_mode", "addr": "0x0100", "len": 1},
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
       {"name": "player_state", "addr": "0x0071", "len": 1},
       {"name": "player_xy_speed", "addr": "0x007b", "len": 32}
     ]},
     {"op": "input", "p1": ["right"]},
-    {"op": "step", "frames": 30},
+    {"op": "step", "frames": 6},
     {"op": "capture", "id": "falcon_walk_right", "wram": [
-      {"name": "game_mode", "addr": "0x0100", "len": 1},
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
       {"name": "player_xy_speed", "addr": "0x007b", "len": 32},
       {"name": "sprite_status", "addr": "0x14c8", "len": 22}
     ]},
@@ -44,6 +44,7 @@
     {"op": "input", "p1": ["right"]},
     {"op": "step", "frames": 12},
     {"op": "capture", "id": "falcon_jump", "wram": [
+      {"name": "game_mode", "addr": "0x0100", "len": 1, "equals": "0x14"},
       {"name": "player_state", "addr": "0x0071", "len": 1},
       {"name": "player_xy_speed", "addr": "0x007b", "len": 32}
     ]},

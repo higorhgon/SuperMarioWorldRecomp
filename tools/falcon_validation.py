@@ -136,6 +136,10 @@ def load_scenario(path: pathlib.Path) -> dict[str, Any]:
                 length = parse_int(region.get("len"), f"{region['name']}.len")
                 if address < 0 or length < 1 or address + length > 0x20000:
                     raise ScenarioError(f"{region['name']} is outside 128 KiB WRAM")
+                if "equals" in region:
+                    expected = parse_int(region["equals"], f"{region['name']}.equals")
+                    if expected < 0 or expected >= (1 << (length * 8)):
+                        raise ScenarioError(f"{region['name']}.equals does not fit in len bytes")
         else:
             raise ScenarioError(f"steps[{index}].op must be input, step, wait_ram, pulse_input_until_ram, or capture")
     return data
@@ -316,6 +320,11 @@ def capture(client: TcpClient, step: dict[str, Any], output: pathlib.Path) -> di
         address = parse_int(region["addr"], f"{ident}.{region['name']}.addr")
         length = parse_int(region["len"], f"{ident}.{region['name']}.len")
         blob, ram_reply = read_wram(client, address, length)
+        if "equals" in region:
+            expected = parse_int(region["equals"], f"{ident}.{region['name']}.equals").to_bytes(length, "little")
+            if blob != expected:
+                raise RuntimeError(
+                    f"capture {ident} expected {region['name']}={expected.hex()}, got {blob.hex()}")
         evidence["wram"].append({
             "name": region["name"], "addr": f"0x{address:05x}", "len": length,
             "sha256": hashlib.sha256(blob).hexdigest(), "hex": blob.hex(), "tcp": ram_reply,
