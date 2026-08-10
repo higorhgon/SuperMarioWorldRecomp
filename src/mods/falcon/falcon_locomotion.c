@@ -542,6 +542,21 @@ static void enter_jump(FalconFighter *f, const FalconInputRaw *in)
     f->jumps_used = 1;
 }
 
+/* ftCommonJumpAerialSetStatus, 0x8013FD74. Captain uses the common
+ * single-aerial-jump path: the stick direction chooses F/B, but its vertical
+ * launch always uses the full controller range (80), not a short-hop force. */
+static void enter_jump_aerial(FalconFighter *f, const FalconInputRaw *in)
+{
+    f->grounded = 0;
+    set_status(f, ((in->stick_x * f->lr) >= C_KNEEBEND_JUMP_F_OR_B)
+                      ? FL_JUMP_AERIAL_F : FL_JUMP_AERIAL_B);
+    f->vel_air_y = (((double)C_STICK_MAX * A_JUMP_HEIGHT_MUL) +
+                    A_JUMP_HEIGHT_BASE) * A_JUMPAERIAL_HEIGHT;
+    f->vel_air_x = (double)in->stick_x * A_JUMPAERIAL_VEL_X;
+    ++f->jumps_used;
+    f->tap_stick_y = C_STICKBUFFER_TICS_MAX;
+}
+
 /* ftCommonFallSetStatus, 0x8013F9E0 */
 static void enter_fall(FalconFighter *f)
 {
@@ -786,6 +801,21 @@ static int check_kneebend(FalconFighter *f, const FalconInputRaw *in,
     int src = kneebend_input_type(f, in, from_run);
     if (src != KB_INPUT_NONE) {
         enter_kneebend(f, in->stick_y, src);
+        return 1;
+    }
+    return 0;
+}
+
+/* ftCommonJumpAerialCheckInterruptCommon uses the same button/up-stick
+ * eligibility as grounded KneeBend, then checks jumps_used against the
+ * fighter attribute. Captain's A_JUMPS_MAX is two, so this grants exactly one
+ * aerial jump after a grounded launch (or after walking off a ledge). */
+static int check_jump_aerial(FalconFighter *f, const FalconInputRaw *in)
+{
+    if (f->jumps_used >= A_JUMPS_MAX) return 0;
+    if ((in->stick_y >= C_KNEEBEND_STICK_MIN &&
+         f->tap_stick_y <= C_KNEEBEND_BUFFER_TICS) || in->jump_pressed) {
+        enter_jump_aerial(f, in);
         return 1;
     }
     return 0;
@@ -1045,10 +1075,8 @@ static void proc_interrupt(FalconFighter *f, const FalconInputRaw *in)
         /* FallSpecial passes FALSE for is_allow_interrupt. */
         break;
 
-    /* Air states: ftCommonJumpProcInterrupt / ftCommonFallProcInterrupt only
-     * reach ftCommonJumpAerialCheckInterruptCommon, the double jump. It is
-     * deliberately disabled for the first SMW playable milestone; the source
-     * value remains jumps_max = 2 for the next, explicitly tested fidelity step. */
+    /* ftCommonJumpProcInterrupt / ftCommonFallProcInterrupt check specials,
+     * aerial attacks, then ftCommonJumpAerialCheckInterruptCommon. */
     case FL_JUMP_F:
     case FL_JUMP_B:
     case FL_JUMP_AERIAL_F:
@@ -1057,6 +1085,7 @@ static void proc_interrupt(FalconFighter *f, const FalconInputRaw *in)
     case FL_FALL_AERIAL:
         if (check_air_special(f, in)) return;
         if (check_air_attack(f, in)) return;
+        if (check_jump_aerial(f, in)) return;
         break;
 
     default:
@@ -1300,8 +1329,7 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
 /* Audio-command frames from 235_CaptainMainMotion.c:
  *   Falcon Punch: "Falcon" on entry; punch FGM + "Punch" at frame 42.
  *   Falcon Kick:  voice + LightSwingL on entry; SpecialNStart at frame 12.
- * The first SMW playable milestone deliberately has no aerial jump, so the
- * source's JumpAerial effort cue is emitted only for the grounded launch.
+ * JumpAerial has the same source effort cue as the grounded launch.
  */
 static void emit_audio(const FalconFighter *f, FalconMotion *out)
 {
@@ -1311,6 +1339,8 @@ static void emit_audio(const FalconFighter *f, FalconMotion *out)
         switch (f->state) {
         case FL_JUMP_F:
         case FL_JUMP_B:
+        case FL_JUMP_AERIAL_F:
+        case FL_JUMP_AERIAL_B:
             out->audio_cues |= FALCON_AUDIO_CUE_BIT(FALCON_AUDIO_JUMP_EFFORT);
             break;
         case FL_FALCON_PUNCH_GROUND:

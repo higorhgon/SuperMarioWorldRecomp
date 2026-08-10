@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 uint8 g_ram[0x20000];
@@ -41,17 +42,23 @@ int main(void)
     io_controller_press2 = 0x80; /* A */
     snes_frame_counter = 1000;
 
-    SmwFalconBeforePhysics(NULL);
-    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
-        return fail("ordinary level grants foreign ownership");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
+    /* Model the actual hook order: $D5F2 captures/masks before native action
+     * branches, and only then $DC2D accepts Falcon's velocity. */
+    SmwFalconBeforePlayerPhysics(NULL);
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_SCRIPTED)
+        return fail("early hook masks the initial scripted handoff frame");
     if (io_controller_hold1 != 0x30 || io_controller_hold2 != 0 ||
         io_controller_press1 != 0 || io_controller_press2 != 0)
         return fail("B/Y/directions/A/X cleared but Start/Select preserved");
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
+        return fail("ordinary level grants foreign ownership after the early mask");
     count = snes_foreign_trace_last(1, &trace);
     if (count != 1 || trace.frame != 1000 || trace.stick_x != 1.0f ||
         trace.stick_y != 0.0f || trace.raw_buttons != 0xC0F1)
         return fail("raw WRAM pad mapping and monotonic frame trace");
-    if (trace.state != FL_IDLE || smw_falcon_last_attack()->active)
+    if (smw_falcon_last_attack()->active)
         return fail("reserved A does not become a Falcon jump or attack");
 
     /* Emulate native position integration and level collision between seams. */
@@ -75,9 +82,14 @@ int main(void)
     player_timer_pipe_warping = 0;
     player_in_air_flag = 0;
     player_blocked_flags = 0;
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL); /* reclaim after the scripted pipe handoff */
     io_controller_hold1 = io_controller_press1 = 0x08; /* Up */
     io_controller_hold2 = io_controller_press2 = 0x40; /* X */
     ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
     SmwFalconBeforePhysics(NULL);
     if (player_in_air_flag == 0 || (int8_t)player_yspeed > -16)
         return fail("grounded Falcon Dive consumes force_airborne upward");
@@ -87,6 +99,91 @@ int main(void)
     if (snes_foreign_trace_last(1, &trace) != 1 ||
         trace.state != FL_FALCON_DIVE_GROUND || trace.grounded != 0)
         return fail("Up-B startup resolves as airborne after native collision");
+
+    /* Water remains Falcon-controlled: an aerial Y attack still selects the
+     * source state, but vertical output is buoyant and capped before SMW sees
+     * it. Native cape/fire/spin/Yoshi mechanics are suppressed without
+     * consuming the SMW power-up or reserve item. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for water seam");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    assert(snes_foreign_state()->state == FL_WAIT);
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
+    flag_about_to_warp_in_pipe = 0;
+    timer_end_level = 0;
+    timer_end_level_via_keyhole = 0;
+    flag_underwater_level = 1;
+    player_in_air_flag = 1;
+    player_yspeed = 0;
+    player_current_power_up = 3;
+    player_current_item_box = 3;
+    player_spin_jump_flag = 1;
+    player_spinjump_fireball_timer = 7;
+    timer_display_player_shoot_fireball_pose = 7;
+    player_cape_image = 1;
+    flag_cape_to_sprite_interaction = 1;
+    timer_active_cape_spin = 7;
+    player_cape_flying_phase = 1;
+    player_riding_yoshi_flag = 1;
+    players_has_yoshi[0] = 1;
+    yoshi_carry_over_levels_flag = 1;
+    yoshi_yoshi_has_wings = 1;
+    timer_yoshi_tongue_is_out = 7;
+    io_controller_hold1 = 0;
+    io_controller_press1 = 0x40; /* Y: Falcon aerial attack, never fireball. */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    /* Native action code would run here. It sees the masked pad/state, while
+     * the downstream Falcon tick consumes the preserved raw Y press. */
+    if (io_controller_hold1 != 0 || io_controller_press1 != 0 ||
+        io_controller_hold2 != 0 || io_controller_press2 != 0 ||
+        player_spin_jump_flag || player_spinjump_fireball_timer ||
+        timer_display_player_shoot_fireball_pose || player_cape_image ||
+        flag_cape_to_sprite_interaction || timer_active_cape_spin ||
+        player_cape_flying_phase || player_riding_yoshi_flag ||
+        timer_yoshi_tongue_is_out)
+        return fail("early seam masks native extensions before SMW action input");
+    if (players_has_yoshi[0] != 1 || yoshi_carry_over_levels_flag != 1 ||
+        yoshi_yoshi_has_wings != 1)
+        return fail("Yoshi ownership and level-entity persistence survive dismount");
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_ATTACK_AIR_N)
+        return fail("underwater frame remains Falcon-owned and accepts attack");
+    if (abs((int)(int8_t)player_yspeed) > 25 ||
+        player_can_jump_out_of_water != 0)
+        return fail("water vertical output is floaty and native swim jump is disabled");
+    if (player_spin_jump_flag || player_spinjump_fireball_timer ||
+        timer_display_player_shoot_fireball_pose || player_cape_image ||
+        flag_cape_to_sprite_interaction || timer_active_cape_spin ||
+        player_cape_flying_phase)
+        return fail("native spin fire and cape actions are suppressed");
+    if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out)
+        return fail("unsupported Yoshi mount is cleanly dismounted");
+    if (players_has_yoshi[0] != 1 || yoshi_carry_over_levels_flag != 1 ||
+        yoshi_yoshi_has_wings != 1)
+        return fail("dismount preserves owned Yoshi and level entity state");
+    if (player_current_power_up != 3 || player_current_item_box != 3)
+        return fail("powerup and reserve progression remain SMW-owned");
+
+    /* Fall long enough to reach the water terminal cap. The source reaches
+     * -66, but the adapter exposes no more than 42 * 0.45 source units. */
+    SmwFalconAfterPhysics(NULL);
+    for (int i = 0; i < 24; ++i) {
+        io_controller_hold1 = io_controller_press1 = 0;
+        ++snes_frame_counter;
+        SmwFalconBeforePlayerPhysics(NULL);
+        SmwFalconBeforePhysics(NULL);
+        SmwFalconAfterPhysics(NULL);
+    }
+    if (abs((int)(int8_t)player_yspeed) > 25)
+        return fail("water terminal speed remains capped after sustained fall");
+    flag_underwater_level = 0;
     puts("falcon_smw_adapter: pad mapping, seam order, collision feedback PASS");
     return 0;
 }

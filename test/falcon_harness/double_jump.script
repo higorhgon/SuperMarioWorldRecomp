@@ -1,0 +1,35 @@
+# Smash 64 Captain Falcon has jumps_max = 2: one grounded launch and exactly
+# one aerial launch.  The aerial form uses its own F/B status and full-range
+# jumpaerial height, then survives a raw fighter save roundtrip.
+stick_x 80
+jump down
+frames 5
+expect_state JUMP_F
+jump up
+frames 2
+
+# A fresh B press in air spends the second jump and takes the forward variant.
+jump down
+frames 1
+expect_state JUMPAERIAL_F
+expect_vel_air_y 90.1 90.3
+roundtrip
+jump up
+frames 7
+expect_state FALL_AERIAL
+
+# No third jump is available until the host reports a landing.
+jump down
+frames 1
+expect_state FALL_AERIAL
+
+# Walking off an edge spends no jump, so the first aerial jump is still usable
+# and a rearward stick selects JumpAerialB.
+reset
+host_fall
+stick_x -80
+jump down
+frames 1
+expect_state JUMPAERIAL_B
+expect_vel_air_y 90.1 90.3
+roundtrip

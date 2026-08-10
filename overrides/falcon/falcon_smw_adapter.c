@@ -12,11 +12,24 @@
 #define SMW_SPEED_PER_PX 16.0
 #define SMW_TO_FALCON (1.0 / FALCON_TO_SMW_PX)
 
+/* ADAPTATION: keep the source controller in water, but map its vertical
+ * output through a deliberately floaty SMW host envelope. This avoids handing
+ * the pad back to native swim while keeping Falcon attacks and air states. */
+#define SMW_FALCON_WATER_VERTICAL_SCALE 0.45
+#define SMW_FALCON_WATER_TERMINAL_FALL 42.0
+
 static int s_pending;
 static int s_force_airborne_pending;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
 static ForeignMoveResult s_last_move;
+static struct {
+    uint8_t hold1;
+    uint8_t press1;
+    uint8_t hold2;
+    uint8_t press2;
+    int valid;
+} s_foreign_pad;
 
 static int signed8(uint8_t value) { return (int)(int8_t)value; }
 
@@ -41,6 +54,69 @@ static int smw_falcon_playable(void)
            timer_end_level_via_keyhole == 0;
 }
 
+static void smw_falcon_disable_native_extensions(void)
+{
+    /* Falcon's health/progression remains SMW-owned: do not change $19 or the
+     * reserve item box. Only suppress native actions that compete with the
+     * foreign controller while it owns the playable frame. */
+    player_spin_jump_flag = 0;
+    player_spinjump_fireball_timer = 0;
+    timer_display_player_shoot_fireball_pose = 0;
+    player_cape_image = 0;
+    flag_cape_to_sprite_interaction = 0;
+    timer_active_cape_spin = 0;
+    timer_cape_flap_animation = 0;
+    timer_wait_before_cape_flight_begins = 0;
+    timer_time_to_float_after_cape_flight = 0;
+    player_cape_flying_phase = 0;
+    player_cape_glide_index = 0;
+    player_furthest_cape_dive_stage = 0;
+
+    /* Yoshi's active rider/tongue state cannot share Falcon's host boundary.
+     * Dismount without touching the persistent owned-Yoshi flags or the level
+     * entity; both remain native SMW progression. */
+    player_riding_yoshi_flag = 0;
+    timer_yoshi_tongue_is_out = 0;
+
+    if (flag_underwater_level)
+        player_can_jump_out_of_water = 0;
+}
+
+static void smw_falcon_capture_and_mask_input(void)
+{
+    /* This runs at HandlePlayerPhysics ($00:D5F2), before SMW reads the
+     * controller for movement, spin, fire, cape, or swimming. Preserve the
+     * physical pad for Falcon's downstream tick, then remove only native
+     * gameplay buttons. Start/Select retain their normal system behaviour. */
+    s_foreign_pad.hold1 = io_controller_hold1;
+    s_foreign_pad.press1 = io_controller_press1;
+    s_foreign_pad.hold2 = io_controller_hold2;
+    s_foreign_pad.press2 = io_controller_press2;
+    s_foreign_pad.valid = 1;
+
+    io_controller_hold1 &= (uint8_t)~0xCF;  /* B,Y,U,D,L,R */
+    io_controller_press1 &= (uint8_t)~0xCF;
+    io_controller_hold2 &= (uint8_t)~0xC0;  /* A reserved, X special */
+    io_controller_press2 &= (uint8_t)~0xC0;
+}
+
+static void smw_falcon_adapt_water_motion(ForeignMoveResult *move)
+{
+    double vertical;
+    if (!flag_underwater_level) return;
+
+    /* Source +Y is up. Clamp only falling speed, then scale every vertical
+     * velocity so its gravity also feels buoyant at the SMW boundary. */
+    vertical = move->requested_dy;
+    if (vertical < -SMW_FALCON_WATER_TERMINAL_FALL)
+        vertical = -SMW_FALCON_WATER_TERMINAL_FALL;
+    move->requested_dy = vertical * SMW_FALCON_WATER_VERTICAL_SCALE;
+    move->vy = move->requested_dy;
+
+    /* Never let SMW's swim-button branch create a separate movement model. */
+    player_can_jump_out_of_water = 0;
+}
+
 static void smw_falcon_reseed(ForeignState *state)
 {
     state->x = (double)player_xpos * SMW_TO_FALCON;
@@ -58,10 +134,14 @@ static void smw_falcon_reseed(ForeignState *state)
 static ForeignInput smw_falcon_input(void)
 {
     ForeignInput input;
-    const uint8_t hold1 = io_controller_hold1;
-    const uint8_t press1 = io_controller_press1;
-    const uint8_t hold2 = io_controller_hold2;
-    const uint8_t press2 = io_controller_press2;
+    const uint8_t hold1 = s_foreign_pad.valid ? s_foreign_pad.hold1 :
+                                                io_controller_hold1;
+    const uint8_t press1 = s_foreign_pad.valid ? s_foreign_pad.press1 :
+                                                 io_controller_press1;
+    const uint8_t hold2 = s_foreign_pad.valid ? s_foreign_pad.hold2 :
+                                                io_controller_hold2;
+    const uint8_t press2 = s_foreign_pad.valid ? s_foreign_pad.press2 :
+                                                 io_controller_press2;
 
     memset(&input, 0, sizeof(input));
     /* $15 is %byetUDLR; $17 is %axlr0000. */
@@ -73,7 +153,25 @@ static ForeignInput smw_falcon_input(void)
     input.attack_pressed = (press1 & 0x40) != 0; /* Y */
     input.special_pressed = (press2 & 0x40) != 0; /* X */
     input.raw_buttons = (int)hold1 | ((int)hold2 << 8);
+    s_foreign_pad.valid = 0;
     return input;
+}
+
+void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
+{
+    (void)cpu;
+    s_foreign_pad.valid = 0;
+
+    /* $00:D5F2 is the action-input seam. Do not move this work to the later
+     * $00:DC2D velocity seam: native spin/cape/fire decisions have already
+     * happened there. */
+    /* Activation enters SCRIPTED and is reclaimed at $00:DC2D. Mask here in
+     * either ownership state so that handoff's first playable frame cannot
+     * leak B/Y/X/A into native SMW before the later controller tick. */
+    if (!snes_foreign_active() || !smw_falcon_playable())
+        return;
+    smw_falcon_capture_and_mask_input();
+    smw_falcon_disable_native_extensions();
 }
 
 void SmwFalconBeforePhysics(struct CpuState *cpu)
@@ -116,6 +214,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
+    smw_falcon_adapt_water_motion(&s_last_move);
 
     s_x_before = player_xpos;
     s_y_before = player_ypos;
@@ -124,7 +223,8 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
     player_sub_xspeed = player_sub_yspeed = 0;
     player_facing_direction = state->facing >= 0.0f;
-    s_force_airborne_pending = s_last_move.force_airborne;
+    s_force_airborne_pending = s_last_move.force_airborne ||
+                              state->jump_phase == FOREIGN_JUMP_LAUNCH;
     if (s_force_airborne_pending) {
         /* Ground Falcon Dive begins with near-zero root motion. Give its
          * departure edge one whole native upward pixel so SMW does not keep
@@ -134,13 +234,9 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
             player_yspeed = (uint8_t)(int8_t)-16;
     }
 
-    /* Falcon owns movement buttons. A is reserved for the future explicit
-     * carry bridge, so it must not leak into SMW's native spin-jump path.
-     * Start/Select retain their stock system behaviour. */
-    io_controller_hold1 &= (uint8_t)~0xCF;  /* B,Y,U,D,L,R */
-    io_controller_press1 &= (uint8_t)~0xCF;
-    io_controller_hold2 &= (uint8_t)~0xC0;  /* A reserved, X special */
-    io_controller_press2 &= (uint8_t)~0xC0;
+    /* $00:DC2D is intentionally velocity/collision ownership only. The
+     * earlier $00:D5F2 hook has already hidden Falcon's pad from native SMW;
+     * a future shell-carry bridge may selectively expose A there instead. */
 }
 
 void SmwFalconAfterPhysics(struct CpuState *cpu)
