@@ -240,6 +240,30 @@ def wait_for_server(process: subprocess.Popen[Any], port: int, timeout: float) -
     raise RuntimeError(f"TCP server 127.0.0.1:{port} did not start within {timeout}s: {last_error}")
 
 
+def wait_for_runtime_ram(client: TcpClient, process: subprocess.Popen[Any],
+                         timeout: float) -> dict[str, Any]:
+    """Wait past the listener-before-WRAM startup window.
+
+    The debug thread can accept a connection just before the main thread has
+    installed its WRAM span.  During that narrow window read_ram reports
+    max=0.  Do not mistake an open socket for a ready gameplay runtime.
+    """
+    deadline = time.monotonic() + timeout
+    last_reply: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"Falcon process exited before WRAM was ready ({process.returncode})")
+        last_reply = client.command("read_ram 100 1")
+        payload = last_reply.get("hex")
+        if isinstance(payload, str) and len(payload) == 2:
+            return last_reply
+        if last_reply.get("error") != "out of range" or last_reply.get("max") != "0x0":
+            raise RuntimeError(f"unexpected runtime-readiness response: {last_reply}")
+        time.sleep(0.05)
+    raise RuntimeError(f"runtime WRAM did not become ready within {timeout}s: {last_reply}")
+
+
 def launch_argv(exe: pathlib.Path, rom: pathlib.Path) -> list[str]:
     """Return the game's established `--paused <absolute-rom>` invocation."""
     if not rom.is_file():
@@ -413,6 +437,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         process = subprocess.Popen(launch_argv(args.exe, args.rom), cwd=str(args.exe.parent))
         client = wait_for_server(process, args.port, args.timeout)
+        wait_for_runtime_ram(client, process, args.timeout)
         manifest["start"] = client.command("frame")
         for index, step in enumerate(scenario["steps"]):
             op = step["op"]

@@ -27,6 +27,31 @@ class FalconValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "already owned"):
                 falcon.require_port_free(port)
 
+    def test_runtime_readiness_waits_past_zero_length_wram(self) -> None:
+        class Process:
+            returncode = None
+
+            @staticmethod
+            def poll() -> None:
+                return None
+
+        class Client:
+            def __init__(self) -> None:
+                self.replies = [
+                    {"error": "out of range", "addr": "0x100", "max": "0x0"},
+                    {"hex": "07"},
+                ]
+                self.commands: list[str] = []
+
+            def command(self, command: str) -> dict[str, object]:
+                self.commands.append(command)
+                return self.replies.pop(0)
+
+        client = Client()
+        self.assertEqual(
+            falcon.wait_for_runtime_ram(client, Process(), 1.0), {"hex": "07"})
+        self.assertEqual(client.commands, ["read_ram 100 1", "read_ram 100 1"])
+
     def test_normalize_buttons(self) -> None:
         self.assertEqual(falcon.normalize_buttons(["right", "b"], "p1"), "right+b")
         self.assertEqual(falcon.normalize_buttons(None, "p1"), "none")
@@ -46,6 +71,34 @@ class FalconValidationTests(unittest.TestCase):
             "idle", "normal_x", "falcon_punch_active", "falcon_kick_ground",
             "falcon_dive", "jump_takeoff", "aerial_x", "aerial_down_x",
             "aerial_second_jump",
+        ])
+        for capture in captures:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+
+    def test_feedback_scenario_covers_reported_move_visuals(self) -> None:
+        names = [
+            "falcon_feedback.json", "falcon_feedback_jump.json",
+            "falcon_feedback_up_special.json",
+            "falcon_feedback_up_special_grace.json",
+            "falcon_feedback_punch.json", "falcon_feedback_air_kick.json",
+        ]
+        captures = []
+        for name in names:
+            scenario = falcon.load_scenario(
+                REPO / "test" / "falcon_validation" / name)
+            self.assertFalse(any(step["op"] in ("save_state", "load_state")
+                                 for step in scenario["steps"]))
+            captures.extend(step for step in scenario["steps"]
+                            if step["op"] == "capture")
+        self.assertEqual([step["id"] for step in captures], [
+            "kick_ground_direct", "jump_takeoff", "jump_near_apex",
+            "ground_up_special_simultaneous_start",
+            "ground_up_special_simultaneous_rise",
+            "ground_up_special_simultaneous",
+            "ground_up_special_grace_start",
+            "ground_up_special_grace_rise", "ground_up_special_grace",
+            "punch_active_reach", "kick_air_downward_foot_fire",
         ])
         for capture in captures:
             self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
