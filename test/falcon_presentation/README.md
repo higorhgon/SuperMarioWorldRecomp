@@ -22,6 +22,12 @@ frame 13, and left-facing Idle) with:
 _triage/falcon_presentation_harness.exe --sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_pose_sheet.bmp
 ```
 
+Create a four-frame host-side death-tumble sheet with:
+
+```powershell
+_triage/falcon_presentation_harness.exe --death-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_death_sheet.bmp
+```
+
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.
 
