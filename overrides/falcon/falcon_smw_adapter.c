@@ -29,10 +29,6 @@ static int s_dash_full_hold;
 static unsigned s_dash_tap_age;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
-static struct {
-    uint8_t yspeed;
-    int valid;
-} s_yoshi_mount_guard;
 static ForeignMoveResult s_last_move;
 static struct {
     uint8_t hold1;
@@ -103,13 +99,6 @@ static void smw_falcon_dismount_yoshi(void)
     /* These are player-owned tongue startup/visibility timers. */
     timer_yoshi_tongue_is_out = 0;
     timer_yoshi_tongue_init = 0;
-}
-
-static void smw_falcon_restore_yoshi_mount_guard(void)
-{
-    if (!s_yoshi_mount_guard.valid) return;
-    player_yspeed = s_yoshi_mount_guard.yspeed;
-    s_yoshi_mount_guard.valid = 0;
 }
 
 static void smw_falcon_disable_native_extensions(void)
@@ -278,10 +267,6 @@ static ForeignInput smw_falcon_input(void)
 void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
 {
     (void)cpu;
-    /* PlayerDraw normally restores this one-pass mount guard. A reset or
-     * transition can skip drawing, so never let its synthetic value survive
-     * into a new player-physics frame. */
-    smw_falcon_restore_yoshi_mount_guard();
     s_foreign_pad.valid = 0;
     s_foreign_pad.carry_valid = 0;
 
@@ -413,28 +398,20 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 void SmwFalconBeforeYoshi(struct CpuState *cpu)
 {
     (void)cpu;
-    /* This is the entry to the native Yoshi routine, before its $01:ECE1
-     * contact branch. That branch mounts only a falling airborne player.
-     * Make its predicate upward for this normal-sprite pass, then restore the
-     * exact velocity at PlayerDraw (which follows the pass). The branch stays
-     * on normal off-Yoshi behaviour: C2 mount state, sound, smoke, bounce,
-     * reposition, colour, facing, and carry-over writes are never reached. */
-    if (smw_falcon_yoshi_lock_active()) {
-        smw_falcon_dismount_yoshi();
-        if (!s_yoshi_mount_guard.valid && player_in_air_flag != 0 &&
-            signed8(player_yspeed) >= 0) {
-            s_yoshi_mount_guard.yspeed = player_yspeed;
-            s_yoshi_mount_guard.valid = 1;
-            player_yspeed = (uint8_t)(int8_t)-1;
-        }
-    }
+    /* Clear restored C2=1 before Yoshi's earlier mounted fast path. Fresh
+     * mount contact is skipped at its precise $01:ECE1 block seam below. */
+    if (smw_falcon_yoshi_lock_active()) smw_falcon_dismount_yoshi();
 }
 
-void SmwFalconBeforePlayerDraw(struct CpuState *cpu)
+int SmwFalconSkipYoshiMount(struct CpuState *cpu)
 {
     (void)cpu;
-    /* PlayerDraw follows ProcessNormalSprites and precedes PlayerGFX. */
-    smw_falcon_restore_yoshi_mount_guard();
+    /* $01:ED38 is after native Yoshi movement and a successful contact test,
+     * but before the fresh-mount eligibility/latch path. The generated block
+     * patch jumps to $01:ED70, whose C2 check returns because
+     * SmwFalconBeforeYoshi cleared C2=1. No player velocity/register/scratch
+     * state is changed, so later sprite slots retain exact Falcon movement. */
+    return smw_falcon_yoshi_lock_active();
 }
 
 void SmwFalconOnStateLoaded(void)
@@ -447,7 +424,6 @@ void SmwFalconOnStateLoaded(void)
     smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;
     smw_falcon_clear_carry_bridge();
-    s_yoshi_mount_guard.valid = 0;
     memset(&s_last_move, 0, sizeof(s_last_move));
     /* A save can resume a transition before GM14 is reinstated. */
     if (snes_foreign_active() != NULL)

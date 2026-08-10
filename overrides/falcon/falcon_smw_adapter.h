@@ -13,7 +13,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu);
 void SmwFalconAfterPhysics(struct CpuState *cpu);
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu);
 void SmwFalconBeforeYoshi(struct CpuState *cpu);
-void SmwFalconBeforePlayerDraw(struct CpuState *cpu);
+int SmwFalconSkipYoshiMount(struct CpuState *cpu);
 void SmwFalconOnStateLoaded(void);
 
 /* Later combat owns how this intent affects sprites/blocks. The first

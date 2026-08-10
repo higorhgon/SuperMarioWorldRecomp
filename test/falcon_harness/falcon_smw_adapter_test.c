@@ -68,10 +68,11 @@ static int yoshi_persistence_intact(void)
 
 /* Relevant native path, transcribed from SMWDisX bank_01:
  * $01:ECE1/$01:ED70 accepts a falling airborne contact and writes C2, then
- * PlayerDraw -> $01:EA70 -> $01:EA8F/$01:EB82 turns C2 into the rider and
+ * $01:ED38 is reached only after movement/clipping/real contact. PlayerDraw
+ * -> $01:EA70 -> $01:EA8F/$01:EB82 then turns C2 into the rider and
  * progression/presentation side effects. This small model is deliberately
  * only the mount path; it lets the isolated host-seam harness prove that the
- * pre-contact guard prevents all of those writes. */
+ * precise pre-contact block skip prevents all of those writes. */
 static void model_native_yoshi_mount(unsigned slot)
 {
     if (player_in_air_flag != 0 && player_riding_yoshi_flag == 0 &&
@@ -89,6 +90,14 @@ static void model_native_yoshi_mount(unsigned slot)
         yoshi_current_yoshi_color = spr_table15f6[slot];
         player_facing_direction = (uint8_t)(spr_table157c[slot] ^ 1);
     }
+}
+
+/* Models the generated block placement: native Yoshi movement and clipping
+ * already ran, CheckForContact succeeded, and the seam either takes native
+ * $01:ED70 or continues into the fresh-mount eligibility/latch sequence. */
+static void model_native_yoshi_contact_after_movement(unsigned slot, int skip_mount)
+{
+    if (!skip_mount) model_native_yoshi_mount(slot);
 }
 
 int main(void)
@@ -374,21 +383,24 @@ int main(void)
     yoshi_current_yoshi_color = 2;
     io_sound_ch1 = io_sound_ch3 = 0;
     SmwFalconBeforeYoshi(NULL);
-    if (player_yspeed != 0xFF)
-        return fail("Yoshi pre-contact guard makes a falling Falcon ineligible");
-    model_native_yoshi_mount(5);
+    if (player_yspeed != 0x20)
+        return fail("Yoshi block seam leaves Falcon velocity unchanged");
+    const int skip_mount = SmwFalconSkipYoshiMount(NULL);
+    if (!skip_mount)
+        return fail("Yoshi block seam takes the native contact-return path");
+    /* The generated $01:ED38 seam takes its jump instead of executing this
+     * native mount model. Keep it in the test to make the excluded writes
+     * concrete and detectable. */
+    model_native_yoshi_contact_after_movement(5, skip_mount);
     /* These are the actual $01:ED70/$01:EB82 side-effect fields. The model
-     * stays on its no-contact path because the hook changed only the guarded
-     * predicate, so the real generated code takes the same branch. */
+     * stays on its no-contact path because the hook jumps after native contact
+     * confirmation but before the mount eligibility/latch writes. */
     if (spr_table00c2[5] != 0 || player_riding_yoshi_flag ||
         yoshi_current_yoshi_color != 2 || player_facing_direction != 0 ||
         player_ypos != 0x1234 || io_sound_ch1 || io_sound_ch3)
         return fail("Yoshi mount contact reaches none of its native side effects");
     if (!yoshi_persistence_intact())
         return fail("mount guard preserves Yoshi entity and progression");
-    SmwFalconBeforePlayerDraw(NULL);
-    if (player_yspeed != 0x20)
-        return fail("Yoshi mount guard restores exact Falcon velocity before draw");
     SmwFalconBeforePhysics(NULL);
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         snes_foreign_trace_last(1, &trace) != 1 ||
@@ -543,7 +555,6 @@ int main(void)
         timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
         !yoshi_persistence_intact())
         return fail("pipe handoff dismounts without corrupting Yoshi persistence");
-    SmwFalconBeforePlayerDraw(NULL);
     player_timer_pipe_warping = 0;
 
     player_riding_yoshi_flag = 1;
@@ -555,7 +566,6 @@ int main(void)
         timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
         !yoshi_persistence_intact())
         return fail("goal handoff dismounts without corrupting Yoshi persistence");
-    SmwFalconBeforePlayerDraw(NULL);
     timer_end_level = 0;
 
     player_riding_yoshi_flag = 1;
@@ -567,7 +577,6 @@ int main(void)
         timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
         !yoshi_persistence_intact())
         return fail("death handoff dismounts without corrupting Yoshi persistence");
-    SmwFalconBeforePlayerDraw(NULL);
     player_current_state = 0;
 
     player_riding_yoshi_flag = 1;

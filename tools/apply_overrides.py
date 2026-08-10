@@ -295,6 +295,28 @@ def _ws_despawn_patch(anchor_pc, tbl_lo):
 
 
 BLOCK_PATCHES = [
+    # FALCON-YOSHI: Spr035_Yoshi arrives at $01:ED38 only after its ordinary
+    # off-Yoshi movement, clipping, and CheckForContact have completed. The
+    # following blocks are the sole fresh-mount path: on an eligible contact
+    # they write C2=1, then PlayerDraw turns that into rider/carry-over/
+    # colour/facing and emits the associated sound/bounce/position effects.
+    # A function-entry hook clears a restored C2=1 before the earlier mounted
+    # fast-path; this narrow successful-contact jump then bypasses only the
+    # fresh-mount portion to the native $01:ED70 return. Unlike the former
+    # temporary player-Y-speed guard, no player state is visible to later
+    # normal-sprite slots.
+    {
+        "marker": "/*FALCON-YOSHI-MOUNT*/",
+        # This code is emitted in the generated $01:EC61 helper called by
+        # Spr035_Yoshi, rather than in Spr035_Yoshi itself.
+        "func_match": "auto_01EC61",
+        "anchor": "cpu_trace_block(cpu, 0x01ED38)",
+        "snippet": (
+            " /*FALCON-YOSHI-MOUNT*/ {"
+            " extern int SmwFalconSkipYoshiMount(CpuState *cpu);"
+            " if (SmwFalconSkipYoshiMount(cpu)) goto L_ED70_M1X1; }"
+        ),
+    },
     {
         "marker": "/*WS-COOP-TILE*/",
         "func_match": "bank_1F_B206_M0X0",
@@ -567,7 +589,7 @@ BLOCK_PATCHES = [
 ]
 
 # Every marker any injection mode can leave behind (prologues + block patches).
-ALL_MARKERS = (MARKER, HOOK_MARKER, "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
+ALL_MARKERS = (MARKER, HOOK_MARKER, "/*FALCON-YOSHI-MOUNT*/", "/*WS-FLAG*/", "/*WS-DESPAWN*/", "/*WS-SPAWN*/",
                "/*WS-CHAIN*/", "/*WS-SLOT*/", "/*WS-RELOC*/", "/*WS-WING*/",
                "/*WS-COOP-TILE*/", "/*WS-COOP-ROW*/")
 

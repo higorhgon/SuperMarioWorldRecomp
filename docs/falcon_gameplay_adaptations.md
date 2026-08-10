@@ -35,22 +35,37 @@ they continue to supply health, reserve, and progression. Yoshi mounting is
 hard-disabled for an active Falcon level. The early input seam releases an
 already-mounted state (`$187A` and Yoshi-only `$00C2=1`) and tongue timers.
 More importantly, the `Spr035_Yoshi` entry (`$01:EBCA`) precedes the native
-`$01:ECE1` mount-contact branch. For a falling Falcon it temporarily makes
-that branch's Y-speed predicate upward, then restores the exact velocity at
-`PlayerDraw`, immediately after normal-sprite processing. The native contact
-therefore stays on ordinary off-Yoshi behavior before it can write the rider,
-mounted C2 state, carry-over, colour/facing, sound, smoke, bounce, or player
-position. State restoration also releases the transient mounted state whenever
-the Falcon controller is enabled, including a saved transition frame. It never
-changes Yoshi sprite status/position, the selected slot/entity, owned-Yoshi
-flags, colour, wings, or transition metadata: those remain native SMW
-progression. The title/attract demo and mod-off path are unmodified.
+`$01:ED38` branch reached only after ordinary Yoshi movement, clipping, and a
+successful contact test. Its precise generated-block seam skips only the
+fresh-mount path to native `$01:ED70`; the rider, mounted C2 state, carry-over,
+colour/facing, sound, smoke, bounce, and player-position writes have not run.
+No player velocity or other state is temporarily changed, so later
+normal-sprite slots retain exact Falcon movement. State restoration also
+releases the transient mounted state whenever the Falcon controller is enabled,
+including a saved transition frame. It never changes Yoshi sprite
+status/position, the selected slot/entity, owned-Yoshi flags, colour, wings,
+or transition metadata: those remain native SMW progression. The title/attract
+demo and mod-off path are unmodified.
 
-The focused seam test models the confirmed `$01:ECE1` eligibility inputs and
-asserts that every observed pre-`$01:EB82` side-effect field remains unchanged.
-TCP validation must use a real stock Yoshi encounter; a WRAM-only mounted-bit
-fixture cannot establish the contact ordering and is intentionally not claimed
-as visual proof.
+The focused seam test models the confirmed `$01:ED38` successful-contact path
+and asserts that every observed pre-`$01:EB82` side-effect field remains
+unchanged. TCP validation must use a real stock Yoshi encounter; a WRAM-only
+mounted-bit fixture cannot establish the contact ordering and is intentionally
+not claimed as visual proof.
+
+### TCP validation route
+
+The reviewed stock encounter is Yoshi's Island 2 (level `$106`): the SMWDisX
+level and sprite pointer tables name `YI2Level106` and `YI2Sprites106`. A
+fresh save reaches Yoshi's Island 1 first (level `$105`), so a controller-only
+fresh-boot route cannot yet assert the `$106` encounter without completing the
+intervening level. The debug-server v2 `invoke_recomp` command is deliberately
+disabled; its remaining memory-write endpoint is not a game-owned native spawn
+or collision fixture. Consequently this branch contains no raw-WRAM seeding
+scenario and makes no TCP no-mount claim. A later live scenario must start from
+a reviewed, controller-created save with `$106` unlocked, record its save
+artifact/hash, and demonstrate an actual Yoshi-contact frame while Falcon is
+active.
 
 ## Native shell carry
 
