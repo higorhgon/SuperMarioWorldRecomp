@@ -407,6 +407,7 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
         if (!s_death_latched) { s_death_latched = 1; s_death_frame = 0; s_death_anchor_y = target.anchor_y; }
         target.anchor_y = s_death_anchor_y - (.30f * s_death_frame + .018f * s_death_frame * s_death_frame);
         target.tumble_radians = s_death_frame * (18.0f * 3.14159265358979323846f / 180.0f);
+        target.tumble_center_y = -16.0f; /* NES render_death_vertex torso midpoint. */
         pose.state = FALCON_PRESENT_FALL; pose.frame = s_death_frame++ * .5f;
     } else s_death_latched = 0;
     if (!falcon_presentation_draw(s_presentation, &pose, &target)) {

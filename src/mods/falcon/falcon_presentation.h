@@ -48,6 +48,7 @@ typedef struct FalconPresentationTarget {
     float scale;
     float yaw_degrees;
     float tumble_radians;
+    float tumble_center_y;
 } FalconPresentationTarget;
 
 /* Parses only the owner-generated FLCN64B v4 binary. The bytes are copied;

@@ -188,7 +188,7 @@ int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentation
     for(i=0;i<p->triangles_n;i++){
         const Triangle*q=&p->triangles[i]; DrawTriangle *d=&draws[i]; uint32_t j;
         d->texture=q->texture==FALCON_ROOT?&fallback:&p->textures[q->texture]; d->depth=0;
-        for(j=0;j<3;j++){float z,x,y,pt[3],a,ca,sa,px,py,rx,ry;point(w[q->joint],q->v[j].p,pt);a=t->yaw_degrees*3.14159265358979323846f/180.f;ca=cosf(a);sa=sinf(a);px=pt[0]*ca+pt[2]*sa;z=-pt[0]*sa+pt[2]*ca;x=(px-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];py=(-y-z*.08f-foot)*scale;rx=x*scale+z*scale*.18f;ry=py;a=t->tumble_radians;ca=cosf(a);sa=sinf(a);d->v[j].x=t->anchor_x+rx*ca-ry*sa;d->v[j].y=t->anchor_y+rx*sa+ry*ca;d->v[j].z=z;d->v[j].u=q->v[j].uv[0];d->v[j].v=q->v[j].uv[1];d->depth+=z;}
+        for(j=0;j<3;j++){float z,x,y,pt[3],a,ca,sa,px,py,rx,ry,cy;point(w[q->joint],q->v[j].p,pt);a=t->yaw_degrees*3.14159265358979323846f/180.f;ca=cosf(a);sa=sinf(a);px=pt[0]*ca+pt[2]*sa;z=-pt[0]*sa+pt[2]*ca;x=(px-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];py=(-y-z*.08f-foot)*scale;rx=x*scale+z*scale*.18f;ry=py;cy=t->tumble_center_y;a=t->tumble_radians;ca=cosf(a);sa=sinf(a);d->v[j].x=t->anchor_x+rx*ca-(ry-cy)*sa;d->v[j].y=t->anchor_y+cy+rx*sa+(ry-cy)*ca;d->v[j].z=z;d->v[j].u=q->v[j].uv[0];d->v[j].v=q->v[j].uv[1];d->depth+=z;}
         d->depth/=3.0f;
     }
     /* Painter's order: positive camera-space z is farther away.  Insertion
