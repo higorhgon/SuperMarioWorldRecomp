@@ -87,7 +87,7 @@ static int parse(const void *data, size_t size, FalconPresentation **out) {
     for(i=0;i<FALCON_JOINTS;i++){Joint*q=&p->joints[i];q->parent=(int32_t)u32(&r);for(j=0;j<3;j++)q->t[j]=f32(&r);for(j=0;j<3;j++)q->r[j]=f32(&r);for(j=0;j<3;j++)q->s[j]=f32(&r);q->first=u32(&r);q->count=u32(&r);if(q->parent < -1 || q->parent >= (int)i || !range_ok(q->first,q->count,p->triangles_n))r.ok=0;}
     for(i=0;i<p->triangles_n;i++){Triangle*q=&p->triangles[i];q->joint=u16(&r);q->texture=u16(&r);for(j=0;j<3;j++){unsigned k;for(k=0;k<3;k++)q->v[j].p[k]=f32(&r);for(k=0;k<2;k++)q->v[j].uv[k]=f32(&r);}if(q->joint>=FALCON_JOINTS || (q->texture!=FALCON_ROOT && q->texture>=p->textures_n))r.ok=0;}
     for(i=0;i<p->textures_n;i++){Texture*q=&p->textures[i];uint32_t n;uint64_t want; q->w=u16(&r);q->h=u16(&r);n=u32(&r);want=(uint64_t)q->w*q->h*4u; if(!q->w||!q->h||q->w>4096||q->h>4096||want!=n||n>MAX_BLOB_BYTES||n>r.n-r.at)goto bad;q->pixels=(uint32_t*)malloc(n);if(!q->pixels||!bytes(&r,q->pixels,n))goto bad;}
-    for(i=0;i<p->anims_n;i++){Animation*q=&p->anims[i];bytes(&r,q->name,32);q->name[31]=0;q->duration=f32(&r);q->loop=u32(&r);q->first=u32(&r);q->count=u32(&r);if(!name_ok(q->name)||q->duration<0||q->loop>1||!range_ok(q->first,q->count,p->tracks_n))r.ok=0;for(j=0;j<i;j++)if(!strcmp(q->name,p->anims[j].name))r.ok=0;}
+    for(i=0;i<p->anims_n;i++){Animation*q=&p->anims[i];bytes(&r,q->name,32);if(!memchr(q->name,0,sizeof(q->name)))r.ok=0;q->name[31]=0;q->duration=f32(&r);q->loop=u32(&r);q->first=u32(&r);q->count=u32(&r);if(!name_ok(q->name)||q->duration<0||q->loop>1||!range_ok(q->first,q->count,p->tracks_n))r.ok=0;for(j=0;j<i;j++)if(!strcmp(q->name,p->anims[j].name))r.ok=0;}
     for(i=0;i<p->tracks_n;i++){Track*q=&p->tracks[i];q->joint=u16(&r);q->kind=u16(&r);q->first=u32(&r);q->count=u32(&r);if((q->joint>=FALCON_JOINTS&&q->joint!=FALCON_ROOT)||q->kind>8||!q->count||!range_ok(q->first,q->count,p->segments_n))r.ok=0;}
     for(i=0;i<p->segments_n;i++){Segment*q=&p->segments[i];q->frame=f32(&r);q->duration=f32(&r);q->base=f32(&r);q->target=f32(&r);q->rate0=f32(&r);q->rate1=f32(&r);q->kind=u32(&r);if(q->frame<0||q->duration<0||q->kind>3)r.ok=0;}
     for(i=0;i<p->tracks_n;i++)for(j=1;j<p->tracks[i].count;j++)if(p->segments[p->tracks[i].first+j].frame<p->segments[p->tracks[i].first+j-1].frame)r.ok=0;
@@ -107,12 +107,89 @@ int falcon_presentation_root_delta(const FalconPresentation*p,const char*name,fl
 
 static uint32_t over(uint32_t d,uint32_t s){unsigned a=s>>24,ia=255-a;unsigned r=(((s>>16)&255)*a+((d>>16)&255)*ia+127)/255,g=(((s>>8)&255)*a+((d>>8)&255)*ia+127)/255,b=((s&255)*a+(d&255)*ia+127)/255;return 0xff000000u|(r<<16)|(g<<8)|b;}
 typedef struct {float x,y,z,u,v;} PV;
+typedef struct { PV v[3]; const Texture *texture; float depth; } DrawTriangle;
 static float edge(PV a,PV b,float x,float y){return(x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);}
 static void tri(const FalconPresentationTarget*t,const Texture*tex,PV a,PV b,PV c){float area=edge(a,b,c.x,c.y);int x0,x1,y0,y1,x,y;if(fabsf(area)<.0001f)return;x0=(int)floorf(fminf(a.x,fminf(b.x,c.x)));x1=(int)ceilf(fmaxf(a.x,fmaxf(b.x,c.x)));y0=(int)floorf(fminf(a.y,fminf(b.y,c.y)));y1=(int)ceilf(fmaxf(a.y,fmaxf(b.y,c.y)));if(x0<0)x0=0;if(y0<0)y0=0;if(x1>=t->width)x1=t->width-1;if(y1>=t->height)y1=t->height-1;for(y=y0;y<=y1;y++)for(x=x0;x<=x1;x++){float w0=edge(b,c,x+.5f,y+.5f)/area,w1=edge(c,a,x+.5f,y+.5f)/area,w2=1-w0-w1,u,v;int tx,ty;if(w0<0||w1<0||w2<0)continue;u=w0*a.u+w1*b.u+w2*c.u;v=w0*a.v+w1*b.v+w2*c.v;tx=(int)floorf(u);ty=(int)floorf(v);if(tx<0)tx=0;if(ty<0)ty=0;if(tx>=tex->w)tx=tex->w-1;if(ty>=tex->h)ty=tex->h-1;{uint32_t q=tex->pixels[ty*tex->w+tx];if(q>>24)t->framebuffer[y*t->pitch_pixels+x]=over(t->framebuffer[y*t->pitch_pixels+x],q);}}}
 static void card(const FalconPresentationTarget*t,const Texture*tex,float cx,float cy,float w,float h){PV a={cx-w*.5f,cy-h,0,0,0},b={cx+w*.5f,cy-h,0,(float)tex->w-.01f,0},c={cx+w*.5f,cy,0,(float)tex->w-.01f,(float)tex->h-.01f},d={cx-w*.5f,cy,0,0,(float)tex->h-.01f};tri(t,tex,a,b,c);tri(t,tex,a,c,d);}
-static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1;if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];card(t,q,t->anchor_x+dir*18*s,t->anchor_y-19*s,24*s,24*s);}else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];card(t,q,t->anchor_x+dir*17*s,t->anchor_y-12*s,30*s,18*s);}else if(pose->state==FALCON_PRESENT_DIVE||pose->state==FALCON_PRESENT_DIVE_CATCH||pose->state==FALCON_PRESENT_DIVE_THROW){Texture q;uint32_t pix=(pose->state==FALCON_PRESENT_DIVE)?0xc0ffd848u:0xc0ffffffu;q.w=q.h=1;q.pixels=&pix;card(t,&q,t->anchor_x+dir*12*s,t->anchor_y-15*s,18*s,7*s);}}
-int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir;Mat4 w[FALCON_JOINTS];const Animation*a;uint32_t i;if(!p||!pose||!t||!t->framebuffer||t->width<=0||t->height<=0||t->pitch_pixels<t->width)return 0;a=find(p,falcon_presentation_animation(pose->state));if(!a)a=find(p,"Wait");if(!a)return 0;for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);} {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
+static void particle(const FalconPresentationTarget *t, uint32_t color,
+                     float x, float y, float width, float height)
+{
+    Texture q;
+    q.w = q.h = 1;
+    q.pixels = &color;
+    card(t, &q, x, y, width, height);
+}
+
+/* A compact host recreation of the NES renderer's f0 ImpactWave, f13
+ * DustDashSmall + two-frame spark cadence, and Catch/Throw white impacts.
+ * It intentionally uses generated ARGB colors rather than unrelated owner
+ * particle assets. */
+static void dive_particles(const FalconPresentationPose *pose,
+                           const FalconPresentationTarget *t, float s, float dir)
+{
+    unsigned frame = pose->frame > 0.0f ? (unsigned)pose->frame : 0u;
+    float ground = t->anchor_y;
+    float middle = ground - 16.0f * s;
+    if (pose->state == FALCON_PRESENT_DIVE) {
+        if (frame < 6u)
+            particle(t, (0xa0u - frame * 16u) << 24 | 0x00ffffffu,
+                     t->anchor_x, ground - 1.0f*s,
+                     (5.0f + frame) * s, 0.8f*s);
+        if (frame >= 13u && frame < 45u) {
+            unsigned phase = frame - 13u;
+            if (phase < 6u)
+                particle(t, (0xb8u - phase * 16u) << 24 | 0x00c07838u,
+                         t->anchor_x - dir * (3.0f + phase) * s,
+                         ground - 1.0f*s, (2.0f + .25f*phase)*s, .9f*s);
+            if (phase < 20u) {
+                float step = (float)(phase / 2u);
+                float side = (phase & 2u) ? -1.0f : 1.0f;
+                particle(t, 0xd8ffd848u,
+                         t->anchor_x + dir*(4.0f + fmodf(step,3.0f))*s,
+                         middle + side*(3.0f + fmodf(step,4.0f))*s,
+                         (1.4f + .2f*fmodf(step,3.0f))*s,
+                         (1.4f + .2f*fmodf(step,3.0f))*s);
+                particle(t, 0xc0ffffffu,
+                         t->anchor_x - dir*(2.0f + fmodf(step,2.0f))*s,
+                         middle - side*5.0f*s, .9f*s, .9f*s);
+            }
+        }
+        if (frame >= 45u && frame < 49u)
+            particle(t, (0xd0u - (frame-45u)*32u) << 24 | 0x00ffffffu,
+                     t->anchor_x + dir*5.0f*s, middle, (2.0f-(frame-45u)*.25f)*s,
+                     (2.0f-(frame-45u)*.25f)*s);
+    } else if (pose->state == FALCON_PRESENT_DIVE_CATCH && frame < 6u) {
+        particle(t, (0xe0u-frame*20u) << 24 | 0x00ffd848u,
+                 t->anchor_x+dir*5.0f*s,middle,(2.0f+.15f*frame)*s,(2.0f+.15f*frame)*s);
+        particle(t, 0xb0ffffffu,t->anchor_x+dir*8.0f*s,middle-1.5f*s,.8f*s,.8f*s);
+    } else if (pose->state == FALCON_PRESENT_DIVE_THROW && frame < 10u) {
+        particle(t, (0xe8u-frame*18u) << 24 | 0x00ffffffu,
+                 t->anchor_x+dir*6.0f*s,middle,(2.0f+.15f*frame)*s,(2.0f+.15f*frame)*s);
+        particle(t, 0xb0ffd848u,t->anchor_x-dir*2.5f*s,middle-4.0f*s,.9f*s,.9f*s);
+    }
+}
+
+static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1;if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];card(t,q,t->anchor_x+dir*18*s,t->anchor_y-19*s,24*s,24*s);}else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];card(t,q,t->anchor_x+dir*17*s,t->anchor_y-12*s,30*s,18*s);}else dive_particles(pose,t,s,dir);}
+int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
+    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir;
+    Mat4 w[FALCON_JOINTS]; const Animation*a; DrawTriangle *draws; uint32_t i;
+    uint32_t gray=0xff3060c8u; Texture fallback;
+    if(!p||!pose||!t||!t->framebuffer||t->width<=0||t->height<=0||t->pitch_pixels<t->width)return 0;
+    a=find(p,falcon_presentation_animation(pose->state));if(!a)a=find(p,"Wait");if(!a)return 0;
+    for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);}
+    {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
     matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);height=p->bind_max[1]-p->bind_min[1];scale=(t->scale>0?t->scale:1)*32.0f/height;dir=pose->facing_right?1:-1;
-    for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];Texture fallback;const Texture*tex;PV v[3];uint32_t j;uint32_t gray=0xff3060c8u;if(q->texture==FALCON_ROOT){fallback.w=fallback.h=1;fallback.pixels=&gray;tex=&fallback;}else tex=&p->textures[q->texture];for(j=0;j<3;j++){float z,x,y,pt[3];point(w[q->joint],q->v[j].p,pt);x=(pt[0]-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];z=(pt[2]-(lo[2]+hi[2])*.5f)*dir;v[j].x=t->anchor_x+x*scale+z*scale*.18f;v[j].y=t->anchor_y-y*scale-z*scale*.08f;v[j].z=z;v[j].u=q->v[j].uv[0];v[j].v=q->v[j].uv[1];}tri(t,tex,v[0],v[1],v[2]);}
-    effect(p,pose,t);return 1;
+    draws=(DrawTriangle*)malloc((size_t)p->triangles_n*sizeof(*draws)); if(!draws)return 0;
+    fallback.w=fallback.h=1;fallback.pixels=&gray;
+    for(i=0;i<p->triangles_n;i++){
+        const Triangle*q=&p->triangles[i]; DrawTriangle *d=&draws[i]; uint32_t j;
+        d->texture=q->texture==FALCON_ROOT?&fallback:&p->textures[q->texture]; d->depth=0;
+        for(j=0;j<3;j++){float z,x,y,pt[3];point(w[q->joint],q->v[j].p,pt);x=(pt[0]-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];z=(pt[2]-(lo[2]+hi[2])*.5f)*dir;d->v[j].x=t->anchor_x+x*scale+z*scale*.18f;d->v[j].y=t->anchor_y-y*scale-z*scale*.08f;d->v[j].z=z;d->v[j].u=q->v[j].uv[0];d->v[j].v=q->v[j].uv[1];d->depth+=z;}
+        d->depth/=3.0f;
+    }
+    /* Painter's order: positive camera-space z is farther away.  Insertion
+     * sort is deliberately stable, retaining blob order for equal-depth faces. */
+    for(i=1;i<p->triangles_n;i++){DrawTriangle key=draws[i];uint32_t j=i;while(j>0&&draws[j-1].depth<key.depth){draws[j]=draws[j-1];j--;}draws[j]=key;}
+    for(i=0;i<p->triangles_n;i++)tri(t,draws[i].texture,draws[i].v[0],draws[i].v[1],draws[i].v[2]);
+    free(draws); effect(p,pose,t);return 1;
 }

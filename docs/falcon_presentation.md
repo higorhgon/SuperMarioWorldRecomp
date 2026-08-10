@@ -25,7 +25,8 @@ Only the external cache may supply proprietary model, texture, animation, and
 effect bytes. The parser accepts exactly `FLCN64B\0` version 4 and rejects
 truncation, unknown versions, invalid hierarchy/ranges/counts, non-finite
 values, malformed texture sizes, duplicate/bad animation names, invalid track
-references, descending track segments, and trailing data.
+references, descending track segments, trailing data, and animation names that
+fill all 32 bytes without a NUL terminator.
 
 ## Host API
 
@@ -46,16 +47,24 @@ falcon_presentation_draw(p, &pose, &target);
 tightly packed rows. `falcon_presentation_root_delta()` samples named animation
 root tracks without modifying the pose or game state. Punch and Kick use the
 owner-generated effect textures only inside their source windows; Dive uses
-generated host color cards, so no unrelated owner effect assets are required.
+compact generated dust, spark, and white impact cards timed after the proven
+NES `draw_falcon_dive_effect` windows, so no unrelated owner effect assets are
+required. Model faces are emitted in a stable far-to-near average camera-z
+order before alpha blending; equal-depth faces retain their blob order.
 
 ## Evidence
 
-The isolated C harness validates malformed rejection, root sampling, and a
-fixed synthetic framebuffer hash. With the verified external cache supplied by
-the user, it also produced this ignored evidence file:
+The isolated C harness validates malformed rejection (including unterminated
+names), depth ordering, root sampling, and a fixed synthetic framebuffer hash
+(`700fe30a06e7965b`). With the verified external cache supplied by the user,
+it also produced these ignored evidence files:
 
-`_triage/falcon_owner_dive.bmp` — FNV-1a-64 framebuffer hash
-`e1cfd28a51052034`.
+`_triage/falcon_owner_dive_particles.bmp` - Dive frame 13 with compact
+particles; FNV-1a-64 `17c981d1bcc6af93`.
 
-The evidence image is deliberately untracked. It is not an asset source or a
-golden committed to Git.
+`_triage/falcon_owner_pose_sheet.bmp` - Idle, Run, Punch active, Kick active,
+Dive frame 13, and left-facing Idle at readable scale; FNV-1a-64
+`9d52c668584c47ba`.
+
+The evidence images are deliberately untracked. They are not asset sources or
+goldens committed to Git.
