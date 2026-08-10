@@ -20,7 +20,7 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         self.assertIn("execv(helper, argv)", source)
         self.assertIn("k_audio_sha256[11][32]", source)
         self.assertIn("join_path(audio_dir, audio_dir_size, cache, \"audio\")", source)
-        self.assertIn("smw_falcon_audio_activate(audio_dir)", source)
+        self.assertIn("smw_falcon_audio_activate(s_validated_audio_dir)", source)
         self.assertIn("approved owner cache audio disabled", source)
         self.assertIn("smw_falcon_audio_reset();", source)
         self.assertIn("smw_falcon_presentation_foot_anchor_y", source)
