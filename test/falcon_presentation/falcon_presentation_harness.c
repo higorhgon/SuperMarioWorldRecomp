@@ -43,7 +43,7 @@ static int bmp(const char *path, const uint32_t *pixels, int width, int height, 
 }
 
 static int synthetic(void) {
-    Blob b=make_blob(); FalconPresentation *p; uint32_t frame[64*70]; FalconPresentationTarget t; FalconPresentationPose pose; float y,z; uint64_t actual; unsigned i;
+    Blob b=make_blob(); FalconPresentation *p; uint32_t frame[64*70]; FalconPresentationTarget t; FalconPresentationPose pose; float y,z; uint64_t actual; unsigned i,purple=0;
     for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     if(falcon_presentation_load_memory(b.data,b.n-1)!=NULL){fprintf(stderr,"FAIL truncated blob accepted\n");return 1;}
     b.data[0]='X';if(falcon_presentation_load_memory(b.data,b.n)!=NULL){fprintf(stderr,"FAIL magic accepted\n");return 1;}b.data[0]='F';
@@ -56,8 +56,12 @@ static int synthetic(void) {
     memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=64;t.height=64;t.pitch_pixels=70;t.anchor_x=32;t.anchor_y=54;t.scale=1;
     pose.state=FALCON_PRESENT_PUNCH;pose.frame=42;pose.facing_right=1;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL draw\n");falcon_presentation_destroy(p);return 1;}
     actual=hash(frame,64*70);printf("synthetic framebuffer fnv64=%016llx\n",(unsigned long long)actual);
-    if(frame[54*70+32]!=0xffa060ffu){fprintf(stderr,"FAIL depth sort foreground=%08x\n",frame[54*70+32]);falcon_presentation_destroy(p);return 1;}
-    if(actual!=0x700fe30a06e7965bULL){fprintf(stderr,"FAIL framebuffer hash drift\n");falcon_presentation_destroy(p);return 1;}
+    /* Projected-foot grounding deliberately moved the old anchor-edge sample.
+     * Require the near purple face to survive the far-to-near sort anywhere
+     * in the raster, while the full hash pins its exact grounded projection. */
+    for(i=0;i<64*70;i++)if(frame[i]==0xffa060ffu)++purple;
+    if(!purple){fprintf(stderr,"FAIL depth sort removed near face\n");falcon_presentation_destroy(p);return 1;}
+    if(actual!=0xfa082ec9e322041bULL){fprintf(stderr,"FAIL framebuffer hash drift\n");falcon_presentation_destroy(p);return 1;}
     falcon_presentation_destroy(p);return 0;
 }
 
