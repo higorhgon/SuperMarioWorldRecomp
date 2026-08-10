@@ -1656,6 +1656,9 @@ error_reading:;
 
   g_audio_mutex = SDL_CreateMutex();
   if (!g_audio_mutex) Die("No mutex");
+  /* Trusted owner-cache audio may have been verified during mod activation,
+   * but registration takes RtlApuLock and is unsafe until this mutex exists. */
+  smw_falcon_presentation_audio_ready();
 
   if (!g_spc_player)
     g_spc_player = SmwSpcPlayer_Create();
