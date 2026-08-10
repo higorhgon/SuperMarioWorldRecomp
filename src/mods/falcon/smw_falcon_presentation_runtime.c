@@ -266,8 +266,12 @@ FalconPresentationPose smw_falcon_presentation_pose_for_state(
     case FL_JUMP_AERIAL_F: case FL_JUMP_AERIAL_B: pose.state = FALCON_PRESENT_JUMP; break;
     case FL_FALL: case FL_FALL_AERIAL: case FL_LANDING_LIGHT: case FL_LANDING_HEAVY: pose.state = FALCON_PRESENT_FALL; break;
     case FL_FALCON_PUNCH_GROUND: case FL_FALCON_PUNCH_AIR: pose.state = FALCON_PRESENT_PUNCH; break;
-    case FL_FALCON_KICK_GROUND: case FL_FALCON_KICK_GROUND_AIR: case FL_FALCON_KICK_LANDING:
-    case FL_FALCON_KICK_AIR: case FL_FALCON_KICK_BOUND: pose.state = FALCON_PRESENT_KICK; break;
+    case FL_FALCON_KICK_GROUND: case FL_FALCON_KICK_GROUND_AIR:
+    case FL_FALCON_KICK_LANDING: pose.state = FALCON_PRESENT_KICK; break;
+    /* The direct aerial special owns DownSpecialAir, whose kick/fire joint is
+     * deliberately pitched down-forward in the source effect manager. */
+    case FL_FALCON_KICK_AIR: case FL_FALCON_KICK_BOUND:
+        pose.state = FALCON_PRESENT_KICK_AIR; break;
     case FL_FALCON_DIVE_CATCH: pose.state = FALCON_PRESENT_DIVE_CATCH; break;
     case FL_FALCON_DIVE_THROW: pose.state = FALCON_PRESENT_DIVE_THROW; break;
     case FL_FALCON_DIVE_GROUND: case FL_FALCON_DIVE_AIR: case FL_FALCON_DIVE_FALL:
@@ -279,6 +283,70 @@ FalconPresentationPose smw_falcon_presentation_pose_for_state(
 
 float smw_falcon_presentation_foot_anchor_y(int player_screen_y) {
     return (float)(player_screen_y + 32);
+}
+
+void smw_falcon_presentation_reanchor_oam_group(uint8_t *entries,
+                                                unsigned count,
+                                                int anchor_x, int anchor_y) {
+    unsigned i;
+    int min_x = 256, max_x = -1, min_y = 256, max_y = -1;
+    if (!entries || !count) return;
+    for (i = 0; i < count; ++i) {
+        const OamEnt *entry = (const OamEnt *)(entries + i * sizeof(OamEnt));
+        if (entry->ypos >= 224u) continue;
+        if (entry->xpos < min_x) min_x = entry->xpos;
+        if (entry->xpos > max_x) max_x = entry->xpos;
+        if (entry->ypos < min_y) min_y = entry->ypos;
+        if (entry->ypos > max_y) max_y = entry->ypos;
+    }
+    if (max_x < min_x || max_y < min_y) return;
+    for (i = 0; i < count; ++i) {
+        OamEnt *entry = (OamEnt *)(entries + i * sizeof(OamEnt));
+        if (entry->ypos >= 224u) continue;
+        entry->xpos = (uint8_t)(entry->xpos + anchor_x - (min_x + max_x) / 2);
+        entry->ypos = (uint8_t)(entry->ypos + anchor_y - (min_y + max_y) / 2);
+    }
+}
+
+/* `$15EA` is a completed normal-sprite OAM allocation.  By this point the
+ * status-$0B routine has already updated native sprite positions, throw
+ * state, collisions and despawn.  Touching just these finished OAM entries
+ * therefore moves the visible carried shell/card without changing its SMW
+ * lifecycle.  Stock StunnedShellDraw ($01:9806) writes two 16x16 OAM entries
+ * at `$15EA` and `$15EA+4`, then FinishOAMWrite closes that two-entry group.
+ * Do not infer a wider group: its next entry can belong to another sprite. */
+static void relocate_carried_oam(const FalconPresentationPose *pose) {
+    FalconPresentationTarget target;
+    float hand_x, hand_y;
+    unsigned slot;
+    memset(&target, 0, sizeof(target));
+    target.width = kPpuBufWidth;
+    target.height = 240;
+    target.anchor_x = (float)((kPpuBufWidth - 256) / 2 +
+                              (int16_t)player_on_screen_pos_x + 8);
+    target.anchor_y = smw_falcon_presentation_foot_anchor_y(
+        (int16_t)player_on_screen_pos_y);
+    target.scale = 1.0f;
+    target.yaw_degrees = 88.0f;
+    if (!falcon_presentation_joint_screen_position(
+            s_presentation, pose, &target, FALCON_PRESENT_JOINT_ITEM_LIGHT,
+            &hand_x, &hand_y)) return;
+    /* OAM is still in native 256-wide coordinates; the renderer adds the
+     * centred widescreen margin. */
+    hand_x -= (float)((kPpuBufWidth - 256) / 2);
+    for (slot = 0; slot != 12; ++slot) {
+        unsigned first;
+        /* Shell IDs $04-$07 take the proven StunnedShellDraw two-entry path.
+         * Other carried sprites have their own renderer/OAM contracts and are
+         * intentionally left entirely native until individually audited. */
+        if (spr_current_status[slot] != 0x0b || spr_spriteid[slot] < 0x04u ||
+            spr_spriteid[slot] > 0x07u) continue;
+        first = spr_oamindex[slot] / sizeof(*oam_buf);
+        if (first > 126u) continue;
+        smw_falcon_presentation_reanchor_oam_group(
+            (uint8_t *)&oam_buf[first], 2u, (int)(hand_x + .5f),
+            (int)(hand_y + .5f));
+    }
 }
 
 static const char *controllable_reason(void) {
@@ -352,9 +420,17 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
 }
 
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
+    const ForeignState *state;
+    FalconPresentationPose pose;
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);
     if (!controllable() && !death_active()) { s_suppression_active = 0; return; }
+    state = snes_foreign_state();
+    if (controllable() && state) {
+        pose = smw_falcon_presentation_pose_for_state(
+            state->state, state->state_frame, state->facing);
+        relocate_carried_oam(&pose);
+    }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,

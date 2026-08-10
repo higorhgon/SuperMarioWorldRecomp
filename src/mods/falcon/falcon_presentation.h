@@ -20,6 +20,7 @@ typedef enum FalconPresentationState {
     FALCON_PRESENT_FALL,
     FALCON_PRESENT_PUNCH,
     FALCON_PRESENT_KICK,
+    FALCON_PRESENT_KICK_AIR,
     FALCON_PRESENT_DIVE,
     FALCON_PRESENT_DIVE_CATCH,
     FALCON_PRESENT_DIVE_THROW,
@@ -51,6 +52,18 @@ typedef struct FalconPresentationTarget {
     float tumble_center_y;
 } FalconPresentationTarget;
 
+/* These indices are part of the approved Captain skeleton contract, not
+ * screen offsets.  BattleShip's Captain data names 17/29 as the light/heavy
+ * item hold joints and its Falcon Kick effect is explicitly parented to 23;
+ * its foot metadata identifies 19/24 as left/right feet. */
+enum {
+    FALCON_PRESENT_JOINT_ITEM_LIGHT = 17,
+    FALCON_PRESENT_JOINT_FOOT_LEFT = 19,
+    FALCON_PRESENT_JOINT_KICK_EFFECT = 23,
+    FALCON_PRESENT_JOINT_FOOT_RIGHT = 24,
+    FALCON_PRESENT_JOINT_ITEM_HEAVY = 29
+};
+
 /* Parses only the owner-generated FLCN64B v4 binary. The bytes are copied;
  * the caller may free its input immediately. Returns NULL on malformed input. */
 FalconPresentation *falcon_presentation_load_memory(const void *data, size_t size);
@@ -68,6 +81,14 @@ int falcon_presentation_draw(const FalconPresentation *presentation,
 int falcon_presentation_root_delta(const FalconPresentation *presentation,
                                    const char *animation_name, float frame,
                                    float *delta_y, float *delta_z);
+
+/* Project an animated owner-skeleton joint through the exact pose transform
+ * used by falcon_presentation_draw.  This is the only attachment seam for
+ * carried native OAM and Falcon Kick cards. */
+int falcon_presentation_joint_screen_position(
+    const FalconPresentation *presentation, const FalconPresentationPose *pose,
+    const FalconPresentationTarget *target, unsigned joint,
+    float *screen_x, float *screen_y);
 
 /* Returns the v4 animation chosen for a high-level presentation state. */
 const char *falcon_presentation_animation(FalconPresentationState state);

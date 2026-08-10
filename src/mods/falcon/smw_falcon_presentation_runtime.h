@@ -25,6 +25,13 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
 /* Convert SMW PlayerGFXRt's screen origin ($80) to its 32px foot contact. */
 float smw_falcon_presentation_foot_anchor_y(int player_screen_y);
 
+/* Reanchor exactly one completed native OAM group.  The caller owns the
+ * selection and count; this helper changes only the X/Y bytes, never guest
+ * sprite state or adjacent OAM entries.  It is public for the host seam test. */
+void smw_falcon_presentation_reanchor_oam_group(uint8_t *entries,
+                                                unsigned count,
+                                                int anchor_x, int anchor_y);
+
 /* Exposed for focused host-boundary tests. */
 FalconPresentationPose smw_falcon_presentation_pose_for_state(
     int state, unsigned state_frame, float facing);

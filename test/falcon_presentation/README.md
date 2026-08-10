@@ -28,6 +28,19 @@ Create a four-frame host-side death-tumble sheet with:
 _triage/falcon_presentation_harness.exe --death-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_death_sheet.bmp
 ```
 
+Create the feedback sheet (ground Kick and `DownSpecialAir`, each facing both
+directions) with:
+
+```powershell
+_triage/falcon_presentation_harness.exe --feedback-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_feedback_sheet.bmp
+```
+
+The Kick fire card is anchored to owner joint 23, matching Captain Falcon's
+`efManagerCaptainFalconKickMakeEffect`; the carried shell uses the owner item
+light joint 17.  The completed native carried-shell allocation is exactly two
+OAM entries (`$15EA`, `$15EA+4`) from `StunnedShellDraw`, and the host test
+checks that the next OAM entry remains unchanged.
+
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.
 
