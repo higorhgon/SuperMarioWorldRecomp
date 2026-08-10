@@ -18,6 +18,8 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu);
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
                                      int width, int height);
 int smw_falcon_presentation_is_active(void);
+/* Convert SMW PlayerGFXRt's screen origin ($80) to its 32px foot contact. */
+float smw_falcon_presentation_foot_anchor_y(int player_screen_y);
 
 /* Exposed for focused host-boundary tests. */
 FalconPresentationPose smw_falcon_presentation_pose_for_state(

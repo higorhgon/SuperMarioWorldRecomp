@@ -270,6 +270,10 @@ FalconPresentationPose smw_falcon_presentation_pose_for_state(
     return pose;
 }
 
+float smw_falcon_presentation_foot_anchor_y(int player_screen_y) {
+    return (float)(player_screen_y + 32);
+}
+
 static const char *controllable_reason(void) {
     const ForeignController *controller = snes_foreign_active();
     if (!s_presentation) return "cache unavailable";
@@ -378,9 +382,10 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     target.height = height;
     target.pitch_pixels = (int)(pitch / sizeof(uint32_t));
     target.anchor_x = (float)((width - 256) / 2 + (int16_t)player_on_screen_pos_x + 8);
-    /* Projected mesh-foot calibration supplies the final visual contact; $80
-     * remains the established SMW player screen anchor. */
-    target.anchor_y = (float)((int16_t)player_on_screen_pos_y + 24);
+    /* $80 is PlayerGFXRt's 32px sprite origin. The projected mesh foot plane
+     * contacts the terrain at its native $80 + 32 foot baseline. */
+    target.anchor_y = smw_falcon_presentation_foot_anchor_y(
+        (int16_t)player_on_screen_pos_y);
     target.scale = 1.0f;
     pose = smw_falcon_presentation_pose_for_state(
         state->state, state->state_frame, state->facing);
