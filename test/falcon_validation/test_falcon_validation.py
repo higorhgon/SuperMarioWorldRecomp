@@ -46,9 +46,22 @@ class FalconValidationTests(unittest.TestCase):
             args = type("Args", (), {
                 "scenario": REPO / "test" / "falcon_validation" / "falcon_smoke.json",
                 "exe": root / "missing.exe", "out": root / "out", "port": 49999,
-                "timeout": 0.1, "require_build": False,
+                "rom": root / "also-missing.sfc", "timeout": 0.1, "require_build": False,
             })()
             self.assertEqual(falcon.run(args), 0)
+
+    def test_launch_argv_requires_an_existing_rom_and_makes_it_absolute(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            exe = root / "Falcon.exe"
+            rom = root / "smw.sfc"
+            rom.write_bytes(b"test-rom")
+            self.assertEqual(
+                falcon.launch_argv(exe, rom),
+                [str(exe), "--paused", str(rom.resolve())],
+            )
+            with self.assertRaisesRegex(RuntimeError, "SMW ROM not found"):
+                falcon.launch_argv(exe, root / "missing.sfc")
 
 
 if __name__ == "__main__":

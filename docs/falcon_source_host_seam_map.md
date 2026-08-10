@@ -53,11 +53,12 @@ and the exact bytes plus SHA-256 of every requested WRAM range.
 Run it once a trace Falcon build exists:
 
 ```powershell
-python tools/falcon_validation.py --exe build-falcon/SuperMarioWorldSNESRecomp.exe --scenario test/falcon_validation/falcon_smoke.json --out _triage/falcon_validation
+python tools/falcon_validation.py --exe build-falcon/SuperMarioWorldSNESRecomp.exe --rom smw.sfc --scenario test/falcon_validation/falcon_smoke.json --out _triage/falcon_validation
 ```
 
-The executable is launched with `--paused`; the only execution operation the
-driver sends is `step N`. It never sends `pause`, a block breakpoint, or an
+The executable is launched as `--paused <absolute-rom>`; once the executable
+exists, a valid `--rom` is mandatory. The only execution operation the driver
+sends is `step N`. It never sends `pause`, a block breakpoint, or an
 instruction step. The runner's `step` endpoint releases just enough frames and
 parks again, so controller changes and captures are boundary-deterministic.
 There is deliberately no process-name kill: the driver terminates only the PID

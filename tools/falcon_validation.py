@@ -27,6 +27,7 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_EXE = REPO / "build-falcon" / "SuperMarioWorldSNESRecomp.exe"
+DEFAULT_ROM = REPO / "smw.sfc"
 DEFAULT_SCENARIO = REPO / "test" / "falcon_validation" / "falcon_smoke.json"
 
 
@@ -175,6 +176,13 @@ def wait_for_server(process: subprocess.Popen[Any], port: int, timeout: float) -
     raise RuntimeError(f"TCP server 127.0.0.1:{port} did not start within {timeout}s: {last_error}")
 
 
+def launch_argv(exe: pathlib.Path, rom: pathlib.Path) -> list[str]:
+    """Return the game's established `--paused <absolute-rom>` invocation."""
+    if not rom.is_file():
+        raise RuntimeError(f"SMW ROM not found: {rom}")
+    return [str(exe), "--paused", str(rom.resolve())]
+
+
 def capture(client: TcpClient, step: dict[str, Any], output: pathlib.Path) -> dict[str, Any]:
     ident = step["id"]
     shot = output / f"{ident}.bmp"
@@ -209,7 +217,7 @@ def run(args: argparse.Namespace) -> int:
         print(message)
         return 2 if args.require_build else 0
     args.out.mkdir(parents=True, exist_ok=True)
-    process = subprocess.Popen([str(args.exe), "--paused"], cwd=str(args.exe.parent))
+    process = subprocess.Popen(launch_argv(args.exe, args.rom), cwd=str(args.exe.parent))
     client: TcpClient | None = None
     manifest: dict[str, Any] = {
         "format": "falcon-validation-evidence/v1",
@@ -254,6 +262,8 @@ def run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=pathlib.Path, default=DEFAULT_EXE)
+    parser.add_argument("--rom", type=pathlib.Path, default=DEFAULT_ROM,
+                        help="SMW ROM; required once --exe exists")
     parser.add_argument("--scenario", type=pathlib.Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--out", type=pathlib.Path, default=REPO / "_triage" / "falcon_validation")
     parser.add_argument("--port", type=int, default=4377)
