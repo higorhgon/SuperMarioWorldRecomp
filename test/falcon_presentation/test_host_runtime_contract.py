@@ -18,6 +18,11 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         self.assertIn('(char *)result, NULL', source)
         self.assertIn("_spawnv(_P_WAIT, helper", source)
         self.assertIn("execv(helper, argv)", source)
+        self.assertIn("k_audio_sha256[11][32]", source)
+        self.assertIn("join_path(audio_dir, audio_dir_size, cache, \"audio\")", source)
+        self.assertIn("smw_falcon_audio_activate(audio_dir)", source)
+        self.assertIn("approved owner cache audio disabled", source)
+        self.assertIn("smw_falcon_audio_reset();", source)
         # Every shell metacharacter is valid inside a path argument because the
         # argv launcher never parses it as shell source.
         hostile = r"C:\owner&cache|<bad>^%!$`;space"

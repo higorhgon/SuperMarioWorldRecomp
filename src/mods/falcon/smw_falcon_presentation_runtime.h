@@ -11,7 +11,7 @@ void smw_falcon_presentation_activate(const char *owner_rom_path);
 void smw_falcon_presentation_reset(void);
 
 /* Configure the narrow player OBJ suppression before PPU draw, then composite
- * the approved owner cache after RtlWidescreenPresent. */
+ * the approved owner cache into the PPU-owned frame before presentation. */
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu);
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
                                      int width, int height);
