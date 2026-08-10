@@ -19,9 +19,14 @@
  * the pad back to native swim while keeping Falcon attacks and air states. */
 #define SMW_FALCON_WATER_VERTICAL_SCALE 0.45
 #define SMW_FALCON_WATER_TERMINAL_FALL 42.0
+#define SMW_FALCON_DASH_DOUBLE_TAP_FRAMES 15
 
 static int s_pending;
 static int s_force_airborne_pending;
+static int s_dash_first_dir;
+static int s_dash_prev_dir;
+static int s_dash_full_hold;
+static unsigned s_dash_tap_age;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
 static ForeignMoveResult s_last_move;
@@ -37,6 +42,14 @@ static struct {
 } s_foreign_pad;
 
 static int signed8(uint8_t value) { return (int)(int8_t)value; }
+
+static void smw_falcon_reset_dash_taps(void)
+{
+    s_dash_first_dir = 0;
+    s_dash_prev_dir = 0;
+    s_dash_full_hold = 0;
+    s_dash_tap_age = 0;
+}
 
 static uint8_t clamp_speed(double source_delta, int y_axis)
 {
@@ -104,7 +117,7 @@ static void smw_falcon_capture_and_mask_input(void)
 
     io_controller_hold1 &= (uint8_t)~0xCF;  /* B,Y,U,D,L,R */
     io_controller_press1 &= (uint8_t)~0xCF;
-    io_controller_hold2 &= (uint8_t)~0xC0;  /* A reserved, X special */
+    io_controller_hold2 &= (uint8_t)~0xC0;  /* A carry, X normal */
     io_controller_press2 &= (uint8_t)~0xC0;
 }
 
@@ -182,14 +195,43 @@ static ForeignInput smw_falcon_input(void)
                                                  io_controller_press2;
 
     memset(&input, 0, sizeof(input));
-    /* $15 is %byetUDLR; $17 is %axlr0000. */
-    input.stick_x = (hold1 & 0x01) ? 1.0f : (hold1 & 0x02) ? -1.0f : 0.0f;
+    int direction = (hold1 & 0x01) ? 1 : (hold1 & 0x02) ? -1 : 0;
+
+    /* $15 is %byetUDLR; $17 is %axlr0000.
+     *
+     * Smash's analogue tap buffer treats one 0->full stick edge as dash. A
+     * D-pad has no walk magnitude, so expose a 0.5 walk on the first tap and
+     * a full source stick only for the second same-direction tap within 15
+     * frames.  The source Dash->Run transition is otherwise untouched. */
+    if (s_dash_first_dir != 0) {
+        if (s_dash_tap_age < SMW_FALCON_DASH_DOUBLE_TAP_FRAMES)
+            ++s_dash_tap_age;
+        else
+            s_dash_first_dir = 0;
+    }
+    if (direction == 0) {
+        s_dash_full_hold = 0;
+    } else if (direction != s_dash_prev_dir) {
+        if (direction == s_dash_first_dir &&
+            s_dash_tap_age <= SMW_FALCON_DASH_DOUBLE_TAP_FRAMES) {
+            s_dash_full_hold = 1;
+            s_dash_first_dir = 0;
+            s_dash_tap_age = 0;
+        } else {
+            s_dash_full_hold = 0;
+            s_dash_first_dir = direction;
+            s_dash_tap_age = 0;
+        }
+    }
+    s_dash_prev_dir = direction;
+    input.stick_x = direction == 0 ? 0.0f :
+                    direction * (s_dash_full_hold ? 1.0f : 0.5f);
     input.stick_y = (hold1 & 0x08) ? 1.0f : (hold1 & 0x04) ? -1.0f : 0.0f;
-    input.jump_pressed = (press1 & 0x80) != 0; /* B */
-    input.jump_held = (hold1 & 0x80) != 0;     /* B */
+    input.jump_pressed = (press1 & 0x80) != 0; /* PlayStation Cross / SNES B */
+    input.jump_held = (hold1 & 0x80) != 0;
     input.down_pressed = (press1 & 0x04) != 0;
-    input.attack_pressed = (press1 & 0x40) != 0; /* Y */
-    input.special_pressed = (press2 & 0x40) != 0; /* X */
+    input.attack_pressed = (press2 & 0x40) != 0; /* SNES X: normal */
+    input.special_pressed = (press1 & 0x40) != 0; /* PlayStation Square / SNES Y */
     input.raw_buttons = (int)hold1 | ((int)hold2 << 8);
     s_foreign_pad.valid = 0;
     return input;
@@ -208,7 +250,10 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
      * either ownership state so that handoff's first playable frame cannot
      * leak B/Y/X/A into native SMW before the later controller tick. */
     if (!snes_foreign_active() || !smw_falcon_playable())
+    {
+        smw_falcon_reset_dash_taps();
         return;
+    }
     smw_falcon_capture_and_mask_input();
     smw_falcon_disable_native_extensions();
 }
@@ -225,6 +270,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
             snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
         s_pending = 0;
         s_force_airborne_pending = 0;
+        smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
         return;
     }
@@ -329,6 +375,7 @@ void SmwFalconOnStateLoaded(void)
      * never revive a pre-save A/Down decision from static host memory. */
     s_pending = 0;
     s_force_airborne_pending = 0;
+    smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;
     smw_falcon_clear_carry_bridge();
     memset(&s_last_move, 0, sizeof(s_last_move));

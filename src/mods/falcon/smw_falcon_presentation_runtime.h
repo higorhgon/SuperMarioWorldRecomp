@@ -18,6 +18,10 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu);
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
                                      int width, int height);
 int smw_falcon_presentation_is_active(void);
+/* Samples owner-cache TransN motion for the controller.  The cache remains
+ * external; 0 means it is unavailable or does not contain this animation. */
+int smw_falcon_presentation_root_delta(const char *animation, float frame,
+                                       float *delta_y, float *delta_z);
 /* Convert SMW PlayerGFXRt's screen origin ($80) to its 32px foot contact. */
 float smw_falcon_presentation_foot_anchor_y(int player_screen_y);
 

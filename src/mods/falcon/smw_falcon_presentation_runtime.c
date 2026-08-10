@@ -340,6 +340,15 @@ void smw_falcon_presentation_activate(const char *owner_rom_path) {
 
 int smw_falcon_presentation_is_active(void) { return controllable(); }
 
+int smw_falcon_presentation_root_delta(const char *animation, float frame,
+                                       float *delta_y, float *delta_z) {
+    if (delta_y != NULL) *delta_y = 0.0f;
+    if (delta_z != NULL) *delta_z = 0.0f;
+    if (s_presentation == NULL || animation == NULL) return 0;
+    return falcon_presentation_root_delta(s_presentation, animation, frame,
+                                          delta_y, delta_z);
+}
+
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);

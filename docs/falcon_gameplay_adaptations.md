@@ -39,8 +39,10 @@ remain under native SMW rather than sharing Falcon movement ownership.
 ## Native shell carry
 
 Falcon uses physical **A** for the one-handed native carry lifecycle. Physical
-**Y** remains exclusively a Falcon normal attack and is never passed through as
-native carry input. The early `$00:D5F2` hook captures and masks both inputs.
+**Y** (position-true PlayStation Square) remains exclusively a Falcon special,
+while physical **X** is the Falcon normal-attack edge; neither is ever passed
+through as native carry input. The early `$00:D5F2` hook captures and masks
+all three inputs.
 After all player input, physics, climb, pipe, and door decisions, the adapter
 uses the first generated `ProcessNormalSprites` entry at `$01:80D2` (the parent
 routine starts at `$01:808C`) to translate captured A into native Y:

@@ -2,11 +2,40 @@
 
 #include "falcon_locomotion.h"
 #include "foreign_controller.h"
+#include "smw_falcon_presentation_runtime.h"
 
 #include <limits.h>
 #include <string.h>
 
 static FalconFighter s_fighter;
+
+/* These are the exact owner-cache motion names used by the mature NES bridge.
+ * The associated TransN track is the source of Falcon Kick's horizontal and
+ * air-diagonal travel; no velocity is guessed when the cache is absent. */
+static const char *cf_root_motion_animation(void)
+{
+    switch (s_fighter.state) {
+    case FL_FALCON_KICK_GROUND:
+        return "DownSpecial";
+    case FL_FALCON_KICK_GROUND_AIR:
+        return (s_fighter.grounded || s_fighter.state_frame < 16.0)
+                   ? "VelocityXDownSpecialAir" : NULL;
+    case FL_FALCON_KICK_LANDING:
+        return "LandingDownSpecial";
+    case FL_FALCON_KICK_AIR:
+        return "DownSpecialAir";
+    case FL_FALCON_KICK_BOUND:
+        return "FalconDiveEnd1";
+    case FL_FALCON_DIVE_GROUND:
+        return "FalconDive";
+    case FL_FALCON_DIVE_AIR:
+        return "FalconDiveEnd2";
+    case FL_FALCON_DIVE_THROW:
+        return "FalconDiveEnd1";
+    default:
+        return NULL;
+    }
+}
 
 static void cf_reset(ForeignState *state)
 {
@@ -35,6 +64,30 @@ static void cf_tick(ForeignState *state, const ForeignInput *input,
     s_fighter.host_air_cause = (int)state->air_cause;
 
     falcon_tick(&s_fighter, &raw, &motion);
+    {
+        const char *animation = cf_root_motion_animation();
+        float delta_y, delta_z;
+
+        if (animation != NULL && smw_falcon_presentation_root_delta(
+                                     animation, (float)s_fighter.state_frame,
+                                     &delta_y, &delta_z)) {
+            if (!s_fighter.grounded) {
+                const int dive_launch =
+                    s_fighter.state == FL_FALCON_DIVE_GROUND ||
+                    s_fighter.state == FL_FALCON_DIVE_AIR;
+                s_fighter.vel_air_x = (double)delta_z * (double)s_fighter.lr +
+                    (dive_launch ? s_fighter.specialhi_vel_x : 0.0);
+                s_fighter.vel_air_y = (double)delta_y +
+                    (dive_launch ? s_fighter.specialhi_vel_y : 0.0);
+                motion.requested_dx = s_fighter.vel_air_x;
+                motion.requested_dy = s_fighter.vel_air_y;
+            } else {
+                s_fighter.vel_ground_x = (double)delta_z;
+                motion.requested_dx = (double)delta_z * (double)s_fighter.lr;
+                motion.requested_dy = 0.0;
+            }
+        }
+    }
     memset(out, 0, sizeof(*out));
     out->requested_dx = motion.requested_dx;
     out->requested_dy = motion.requested_dy;

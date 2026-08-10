@@ -28,6 +28,28 @@ void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
     ++s_audio_dispatches;
 }
 
+/* The controller test has no owner cache.  Give TransN-bearing moves a
+ * deterministic source-unit sample so the host seam can assert that it
+ * applies a real root delta rather than an invented Kick velocity. */
+int smw_falcon_presentation_root_delta(const char *animation, float frame,
+                                       float *delta_y, float *delta_z)
+{
+    (void)frame;
+    if (delta_y != NULL) *delta_y = 0.0f;
+    if (delta_z != NULL) *delta_z = 0.0f;
+    if (animation == NULL) return 0;
+    if (strcmp(animation, "DownSpecial") == 0) {
+        *delta_z = 64.0f;
+        return 1;
+    }
+    if (strcmp(animation, "DownSpecialAir") == 0) {
+        *delta_y = -48.0f;
+        *delta_z = 40.0f;
+        return 1;
+    }
+    return 0;
+}
+
 static int fail(const char *message)
 {
     fprintf(stderr, "FAIL: %s\n", message);
@@ -48,8 +70,8 @@ int main(void)
     player_xpos = 100;
     player_ypos = 200;
     player_in_air_flag = 0;
-    /* $15=%byetUDLR, $17=%axlr0000. B/Y/X are Falcon-owned; A is reserved
-     * rather than accidentally becoming SMW's native spin-jump. */
+    /* $15=%byetUDLR, $17=%axlr0000. B/Y/X are Falcon-owned; A is the delayed
+     * carry bridge rather than an accidental native spin-jump. */
     io_controller_hold1 = 0xF1;  /* B,Y,Select,Start,Right */
     io_controller_press1 = 0x01; /* Right */
     io_controller_hold2 = 0xC0;  /* A,X */
@@ -71,9 +93,9 @@ int main(void)
     if (s_audio_dispatches != 1)
         return fail("controller audio is dispatched exactly once after its tick");
     count = snes_foreign_trace_last(1, &trace);
-    if (count != 1 || trace.frame != 1000 || trace.stick_x != 1.0f ||
+    if (count != 1 || trace.frame != 1000 || trace.stick_x != 0.5f ||
         trace.stick_y != 0.0f || trace.raw_buttons != 0xC0F1)
-        return fail("raw WRAM pad mapping and monotonic frame trace");
+        return fail("first directional tap is a half-stick walk trace");
     if (smw_falcon_last_attack()->active)
         return fail("reserved A does not become a Falcon jump or attack");
 
@@ -87,6 +109,134 @@ int main(void)
         fabs(trace.resolved_dy + 25.0) > 0.001 ||
         !trace.hit_wall || !trace.hit_ceiling || !trace.hit_floor)
         return fail("native delta and collision flags resolve with Y inversion");
+
+    /* A D-pad first tap walks. Release then repeat the same direction inside
+     * the documented window: only that second edge reaches the source's
+     * full-stick Dash gate. */
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    io_controller_hold1 = io_controller_press1 = 0x01; /* Right */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.stick_x != 1.0f ||
+        trace.state != FL_DASH || (int8_t)player_xspeed <= 0)
+        return fail("same-direction double tap enters sourced Dash with right velocity");
+    SmwFalconAfterPhysics(NULL);
+
+    /* The three Falcon actions are independent physical edges.  Square/Y is
+     * special, X is normal, Cross/B is jump, and Circle/A alone remains a
+     * carry-only input that cannot select a Falcon action. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for face-button mapping");
+    io_controller_hold1 = io_controller_press1 = 0x40; /* Square / Y */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_PUNCH_GROUND)
+        return fail("Square/Y selects Falcon special, not normal attack");
+    SmwFalconAfterPhysics(NULL);
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for X normal");
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0x40; /* X */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.state != FL_JAB)
+        return fail("X selects Falcon normal, not special");
+    SmwFalconAfterPhysics(NULL);
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Cross jump");
+    io_controller_hold1 = io_controller_press1 = 0x80; /* Cross / B */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.state != FL_KNEEBEND)
+        return fail("Cross/B selects only the Falcon jump path");
+    SmwFalconAfterPhysics(NULL);
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Circle carry");
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0x80; /* Circle / A */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 || trace.state != FL_WAIT)
+        return fail("Circle/A cannot select a Falcon attack or jump");
+    SmwFalconAfterPhysics(NULL);
+
+    /* Stubbed cache TransN samples prove Kick is not stationary: Down+Square
+     * travels horizontally on ground, and direct aerial Kick travels down and
+     * forward with facing applied once. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for grounded Kick");
+    player_in_air_flag = 0;
+    io_controller_hold1 = io_controller_press1 = 0x44; /* Down + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_KICK_GROUND || (int8_t)player_xspeed != 82 ||
+        player_yspeed != 0)
+        return fail("grounded Kick consumes horizontal DownSpecial TransN");
+    SmwFalconAfterPhysics(NULL);
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for aerial Kick");
+    player_in_air_flag = 1;
+    player_yspeed = 0;
+    io_controller_hold1 = io_controller_press1 = 0x44; /* Down + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_KICK_AIR || (int8_t)player_xspeed != 51 ||
+        (int8_t)player_yspeed != 61)
+        return fail("aerial Kick consumes down-forward DownSpecialAir TransN");
+    SmwFalconAfterPhysics(NULL);
+    player_in_air_flag = 0;
+
+    /* Neutral Square/Y turns into an opposite-facing Falcon Punch in the
+     * source.  Let that finish, then prove the next Down+Square Kick mirrors
+     * the same TransN delta rather than assigning a right-only host speed. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for left-facing Kick");
+    io_controller_hold1 = io_controller_press1 = 0x42; /* Left + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(NULL);
+    for (int frame = 0; frame < 90; ++frame) {
+        io_controller_hold1 = io_controller_press1 = 0;
+        ++snes_frame_counter;
+        SmwFalconBeforePlayerPhysics(NULL);
+        SmwFalconBeforePhysics(NULL);
+        SmwFalconAfterPhysics(NULL);
+    }
+    io_controller_hold1 = io_controller_press1 = 0x46; /* Left, Down, Y */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_FALCON_KICK_GROUND ||
+        snes_foreign_state()->facing != -1.0f ||
+        (int8_t)player_xspeed != -82)
+        return fail("left-facing Kick mirrors grounded TransN velocity once");
+    SmwFalconAfterPhysics(NULL);
 
     player_timer_pipe_warping = 1;
     SmwFalconBeforePhysics(NULL);
@@ -102,8 +252,8 @@ int main(void)
     io_controller_hold2 = io_controller_press2 = 0;
     ++snes_frame_counter;
     SmwFalconBeforePhysics(NULL); /* reclaim after the scripted pipe handoff */
-    io_controller_hold1 = io_controller_press1 = 0x08; /* Up */
-    io_controller_hold2 = io_controller_press2 = 0x40; /* X */
+    io_controller_hold1 = io_controller_press1 = 0x48; /* Up + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0;
     ++snes_frame_counter;
     SmwFalconBeforePlayerPhysics(NULL);
     SmwFalconBeforePhysics(NULL);
@@ -116,7 +266,7 @@ int main(void)
         trace.state != FL_FALCON_DIVE_GROUND || trace.grounded != 0)
         return fail("Up-B startup resolves as airborne after native collision");
 
-    /* Water remains Falcon-controlled: an aerial Y attack still selects the
+    /* Water remains Falcon-controlled: an aerial X attack still selects the
      * source state, but vertical output is buoyant and capped before SMW sees
      * it. Native cape/fire/spin/Yoshi mechanics are suppressed without
      * consuming the SMW power-up or reserve item. */
@@ -149,8 +299,8 @@ int main(void)
     yoshi_yoshi_has_wings = 1;
     timer_yoshi_tongue_is_out = 7;
     io_controller_hold1 = 0;
-    io_controller_press1 = 0x40; /* Y: Falcon aerial attack, never fireball. */
-    io_controller_hold2 = io_controller_press2 = 0;
+    io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0x40; /* X: normal attack. */
     ++snes_frame_counter;
     SmwFalconBeforePlayerPhysics(NULL);
     /* Native action code would run here. It sees the masked pad/state, while
@@ -210,7 +360,7 @@ int main(void)
     player_in_air_flag = 0;
     player_carrying_something_flag1 = 0;
     g_ram[0x14C8] = 0x08; /* Unsupported/native-owned status sentinel. */
-    io_controller_hold1 = 0x40; /* Physical Y: Falcon attack only. */
+    io_controller_hold1 = 0x40; /* Physical Square/Y: Falcon special only. */
     io_controller_press1 = 0;
     io_controller_hold2 = io_controller_press2 = 0;
     ++snes_frame_counter;
@@ -219,7 +369,7 @@ int main(void)
     SmwFalconAfterPhysics(NULL);
     SmwFalconBeforeNormalSprites(NULL);
     if ((io_controller_hold1 & 0x44) != 0 || g_ram[0x14C8] != 0x08)
-        return fail("physical Y and unsupported sprites never enter native carry");
+        return fail("physical Square/Y and unsupported sprites never enter native carry");
 
     io_controller_hold1 = io_controller_press1 = 0;
     io_controller_hold2 = 0x80; /* Physical A: translated after player physics. */
