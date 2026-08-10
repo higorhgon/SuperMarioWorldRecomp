@@ -4,6 +4,7 @@
 #include "../../src/mods/falcon/captain_falcon_foreign.h"
 #include "../../src/mods/falcon/falcon_locomotion.h"
 #include "types.h"
+#include "cpu_state.h"
 #include "../../src/variables.h"
 
 #include <math.h>

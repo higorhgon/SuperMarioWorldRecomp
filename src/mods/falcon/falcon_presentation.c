@@ -171,7 +171,7 @@ static void dive_particles(const FalconPresentationPose *pose,
 
 static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1;if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];card(t,q,t->anchor_x+dir*18*s,t->anchor_y-19*s,24*s,24*s);}else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];card(t,q,t->anchor_x+dir*17*s,t->anchor_y-12*s,30*s,18*s);}else dive_particles(pose,t,s,dir);}
 int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
-    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir;
+    float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],height,scale,dir,foot;
     Mat4 w[FALCON_JOINTS]; const Animation*a; DrawTriangle *draws; uint32_t i;
     uint32_t gray=0xff3060c8u; Texture fallback;
     if(!p||!pose||!t||!t->framebuffer||t->width<=0||t->height<=0||t->pitch_pixels<t->width)return 0;
@@ -179,12 +179,16 @@ int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentation
     for(i=0;i<FALCON_JOINTS;i++){memcpy(tr[i],p->joints[i].t,12);memcpy(ro[i],p->joints[i].r,12);memcpy(sc[i],p->joints[i].s,12);}
     {float frame=pose->frame;if(a->loop&&a->duration>0)frame=fmodf(frame,a->duration);else if(frame>a->duration)frame=a->duration;for(i=0;i<a->count;i++){const Track*q=&p->tracks[a->first+i];float v=sample(p,q,frame);if(q->joint==FALCON_ROOT)continue;if(q->kind<3)ro[q->joint][q->kind]=v;else if(q->kind<6)tr[q->joint][q->kind-3]=v;else sc[q->joint][q->kind-6]=v;}}
     matrices(p,tr,ro,sc,w);bounds(p,w,lo,hi);height=p->bind_max[1]-p->bind_min[1];scale=(t->scale>0?t->scale:1)*32.0f/height;dir=pose->facing_right?1:-1;
+    /* Ground against the projected mesh foot plane, not raw Y bounds.  The
+     * camera's Z shear otherwise leaves some poses visibly hovering. */
+    foot=-FLT_MAX;
+    for(i=0;i<p->triangles_n;i++){const Triangle*q=&p->triangles[i];uint32_t j;for(j=0;j<3;j++){float pt[3],v;point(w[q->joint],q->v[j].p,pt);v=-(pt[1]-lo[1])-pt[2]*.08f;if(v>foot)foot=v;}}
     draws=(DrawTriangle*)malloc((size_t)p->triangles_n*sizeof(*draws)); if(!draws)return 0;
     fallback.w=fallback.h=1;fallback.pixels=&gray;
     for(i=0;i<p->triangles_n;i++){
         const Triangle*q=&p->triangles[i]; DrawTriangle *d=&draws[i]; uint32_t j;
         d->texture=q->texture==FALCON_ROOT?&fallback:&p->textures[q->texture]; d->depth=0;
-        for(j=0;j<3;j++){float z,x,y,pt[3];point(w[q->joint],q->v[j].p,pt);x=(pt[0]-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];z=(pt[2]-(lo[2]+hi[2])*.5f)*dir;d->v[j].x=t->anchor_x+x*scale+z*scale*.18f;d->v[j].y=t->anchor_y-y*scale-z*scale*.08f;d->v[j].z=z;d->v[j].u=q->v[j].uv[0];d->v[j].v=q->v[j].uv[1];d->depth+=z;}
+        for(j=0;j<3;j++){float z,x,y,pt[3];point(w[q->joint],q->v[j].p,pt);x=(pt[0]-(lo[0]+hi[0])*.5f)*dir;y=pt[1]-lo[1];z=(pt[2]-(lo[2]+hi[2])*.5f)*dir;d->v[j].x=t->anchor_x+x*scale+z*scale*.18f;d->v[j].y=t->anchor_y+(-y-z*.08f-foot)*scale;d->v[j].z=z;d->v[j].u=q->v[j].uv[0];d->v[j].v=q->v[j].uv[1];d->depth+=z;}
         d->depth/=3.0f;
     }
     /* Painter's order: positive camera-space z is farther away.  Insertion
