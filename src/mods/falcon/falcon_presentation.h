@@ -46,6 +46,8 @@ typedef struct FalconPresentationTarget {
     float anchor_y;
     /* <= 0 uses the native 32-pixel presentation height. */
     float scale;
+    float yaw_degrees;
+    float tumble_radians;
 } FalconPresentationTarget;
 
 /* Parses only the owner-generated FLCN64B v4 binary. The bytes are copied;

@@ -387,6 +387,9 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     target.anchor_y = smw_falcon_presentation_foot_anchor_y(
         (int16_t)player_on_screen_pos_y);
     target.scale = 1.0f;
+    /* Mature NES port convention: Captain's authored front/back axis must be
+     * yawed 88 degrees into the 2D host plane for readable left/right profile. */
+    target.yaw_degrees = 88.0f;
     pose = smw_falcon_presentation_pose_for_state(
         state->state, state->state_frame, state->facing);
     if (!falcon_presentation_draw(s_presentation, &pose, &target)) {
