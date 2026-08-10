@@ -140,8 +140,10 @@ def load_scenario(path: pathlib.Path) -> dict[str, Any]:
                     expected = parse_int(region["equals"], f"{region['name']}.equals")
                     if expected < 0 or expected >= (1 << (length * 8)):
                         raise ScenarioError(f"{region['name']}.equals does not fit in len bytes")
+        elif op in ("save_state", "load_state"):
+            safe_identifier(step.get("id"), f"steps[{index}].id")
         else:
-            raise ScenarioError(f"steps[{index}].op must be input, step, wait_ram, pulse_input_until_ram, or capture")
+            raise ScenarioError(f"steps[{index}].op must be input, step, wait_ram, pulse_input_until_ram, capture, save_state, or load_state")
     return data
 
 
@@ -411,6 +413,9 @@ def run(args: argparse.Namespace) -> int:
                 record.update(wait_ram(client, step))
             elif op == "pulse_input_until_ram":
                 record.update(wait_ram(client, step, pulse=True))
+            elif op in ("save_state", "load_state"):
+                snapshot = args.out / f"{safe_identifier(step['id'], 'state id')}.l3snap"
+                record["tcp"] = client.command(f"{op} {tcp_file_path(snapshot)}")
             else:
                 record.update(capture(client, step, args.out))
             manifest["steps"].append(record)
