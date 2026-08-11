@@ -21,6 +21,7 @@
 #define SMW_FALCON_WATER_VERTICAL_SCALE 0.45
 #define SMW_FALCON_WATER_TERMINAL_FALL 42.0
 #define SMW_FALCON_DASH_DOUBLE_TAP_FRAMES 15
+#define SMW_FALCON_DIVE_IFRAME_GRACE_FRAMES 8u
 /* Approved owner cache FalconDive TransN is subpixel through source frame 13
  * and first produces an upward SMW speed at frame 14.  The source resolver
  * itself preserves grounded-Dive air kinetics through frame 15. */
@@ -42,6 +43,9 @@ static uint16_t s_kick_contact_slots;
 static int s_kick_slot_guard;
 static uint16_t s_dive_catch_slots;
 static int s_dive_catch_slot_guard;
+static unsigned s_dive_iframe_grace_frames;
+static int s_dive_iframes_active;
+static int s_dive_iframe_timer_guard;
 /* $01:80D2 executes once per normal-sprite slot.  A move consequence is
  * global to the frame, not to each slot, so remember the one pass which
  * committed it. */
@@ -116,6 +120,62 @@ static void smw_falcon_clear_stomp_contact_guard(void)
     if (s_stomp_contact_guard && timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_stomp_contact_guard = 0;
+}
+
+static int smw_falcon_dive_iframe_state(int state)
+{
+    return state == FL_FALCON_DIVE_GROUND ||
+           state == FL_FALCON_DIVE_AIR ||
+           state == FL_FALCON_DIVE_CATCH ||
+           state == FL_FALCON_DIVE_THROW;
+}
+
+static int smw_falcon_dive_iframe_recovery_state(int state)
+{
+    return state == FL_FALL || state == FL_FALL_AERIAL ||
+           state == FL_FALCON_DIVE_FALL ||
+           state == FL_LANDING_LIGHT || state == FL_LANDING_HEAVY ||
+           state == FL_FALCON_DIVE_LANDING || state == FL_WAIT;
+}
+
+static void smw_falcon_clear_dive_iframe_timer_guard(void)
+{
+    /* This bridge owns only the exact one-frame value it installed. Native
+     * power-up/star/hurt timers (>1) remain authoritative and untouched. */
+    if (s_dive_iframe_timer_guard && timer_player_hurt == 1)
+        timer_player_hurt = 0;
+    s_dive_iframe_timer_guard = 0;
+}
+
+static void smw_falcon_forget_dive_iframes(void)
+{
+    s_dive_iframe_grace_frames = 0;
+    s_dive_iframes_active = 0;
+    s_dive_iframe_timer_guard = 0;
+}
+
+static void smw_falcon_reset_dive_iframes(void)
+{
+    smw_falcon_clear_dive_iframe_timer_guard();
+    smw_falcon_forget_dive_iframes();
+}
+
+static void smw_falcon_advance_dive_iframes(int state)
+{
+    if (smw_falcon_dive_iframe_state(state)) {
+        s_dive_iframes_active = 1;
+        s_dive_iframe_grace_frames = SMW_FALCON_DIVE_IFRAME_GRACE_FRAMES;
+    } else if (s_dive_iframe_grace_frames != 0 &&
+               smw_falcon_dive_iframe_recovery_state(state)) {
+        /* The first eight generic fall/idle frames after Up-B remain safe. */
+        s_dive_iframes_active = 1;
+        --s_dive_iframe_grace_frames;
+    } else {
+        /* Starting another move consumes the old Up-B grace immediately;
+         * Punch/Kick must retain their narrower contact contracts. */
+        s_dive_iframe_grace_frames = 0;
+        s_dive_iframes_active = 0;
+    }
 }
 
 static int smw_falcon_active_kick_state(int state)
@@ -389,6 +449,7 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
 {
     (void)cpu;
     smw_falcon_clear_stomp_contact_guard();
+    smw_falcon_clear_dive_iframe_timer_guard();
     /* ProcessNormalSprites is wholly within the preceding player frame. A
      * missing/aborted pass must never carry a pending Kick slot into the next
      * one, and the old exact guard value is safe to remove at D5F2. */
@@ -410,6 +471,7 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
      * leak B/Y/X/A into native SMW before the later controller tick. */
     if (!snes_foreign_active() || !smw_falcon_playable())
     {
+        smw_falcon_reset_dive_iframes();
         smw_falcon_clear_step_wall_latch();
         smw_falcon_reset_dash_taps();
         return;
@@ -436,6 +498,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
         s_dive_catch_slots = 0;
         s_dive_catch_slot_guard = 0;
+        smw_falcon_reset_dive_iframes();
         smw_falcon_clear_step_wall_latch();
         return;
     }
@@ -449,6 +512,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         smw_falcon_clear_step_wall_latch();
         smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
+        smw_falcon_reset_dive_iframes();
         return;
     }
 
@@ -458,6 +522,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         /* Script/death/pipe/goal handoffs leave native WRAM authoritative.
          * Re-select resets transient move state before controllable play. */
         const char *id = snes_foreign_active()->id;
+        smw_falcon_reset_dive_iframes();
         smw_falcon_clear_step_wall_latch();
         if (!snes_foreign_select(id)) return;
         state = snes_foreign_state();
@@ -498,8 +563,14 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         }
     }
     memset(&s_last_move, 0, sizeof(s_last_move));
-    if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
+    if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move)) {
+        smw_falcon_reset_dive_iframes();
         return;
+    }
+    /* ADAPTATION: Smash's capture immunity does not protect against SMW's
+     * overlapping side-damage path. Up-B therefore owns native no-hurt from
+     * startup through Catch/Throw plus eight bounded recovery frames. */
+    smw_falcon_advance_dive_iframes(s_last_move.state);
     smw_falcon_combat_ledger_update(&s_combat_ledger, s_last_move.state,
                                     s_last_move.attack.active);
     /* An opposite-facing first press starts a source Turn, not a completed
@@ -802,7 +873,8 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * has the unmodified current slot and is before that slot's hurt test.
      * Clear only our prior-slot exact value, then guard only a newly accepted
      * Kick slot. An untouched/behind slot receives $1497==0. */
-    if ((s_kick_slot_guard || s_dive_catch_slot_guard) &&
+    if (!s_dive_iframes_active &&
+        (s_kick_slot_guard || s_dive_catch_slot_guard) &&
         timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_kick_slot_guard = 0;
@@ -820,7 +892,15 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
     } else if (cpu != NULL && cpu->x_flag == 1) {
         slot = cpu->X & 0xffu;
     }
-    if (slot < 12u &&
+    if (s_dive_iframes_active) {
+        /* Unlike Kick's exact connected-slot guard, the requested Up-B
+         * protection covers every normal-sprite contact: startup, missed
+         * targets, the latched target, Throw, and the short exit grace. */
+        if (timer_player_hurt == 0) {
+            timer_player_hurt = 1;
+            s_dive_iframe_timer_guard = 1;
+        }
+    } else if (slot < 12u &&
         ((s_kick_contact_slots | s_dive_catch_slots) &
          (uint16_t)(1u << slot)) != 0 &&
         timer_player_hurt == 0) {
@@ -890,6 +970,9 @@ void SmwFalconOnStateLoaded(void)
     s_kick_slot_guard = 0;
     s_dive_catch_slots = 0;
     s_dive_catch_slot_guard = 0;
+    /* Host latches belong to the abandoned timeline, while $1497 has just
+     * been restored from the save. Forget ownership without writing WRAM. */
+    smw_falcon_forget_dive_iframes();
     s_combat_apply_frame = -1;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;

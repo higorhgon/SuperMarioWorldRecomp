@@ -1324,21 +1324,21 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
          * an enemy. Keep an intentionally host-only 42..55 contact linger
          * after the authored impact so a normal platformer approach is not a
          * five-frame timing test, but never damage before the visible fist /
-         * fire impact. The arm-aligned host union reaches 112px ahead from
+         * fire impact. The arm-aligned host union reaches 56px ahead from
          * Falcon's centre and includes the shell-height band in front of his
          * hand; it deliberately does not extend behind him. The adapter
          * records each native target once per move, so a close line can be
          * hit without repeating one target across the linger frames. */
         if (t >= 42.0 && t < 56.0)
-            set_attack(out, 700.0, 100.0, 1400.0, 650.0, 25, 105.0, 55.0, 1);
+            set_attack(out, 350.0, 100.0, 700.0, 650.0, 25, 105.0, 55.0, 1);
         break;
     case FL_FALCON_KICK_GROUND:
     case FL_FALCON_KICK_AIR: /* active 12..31, damage 15 */
         if (t >= 12.0 && t < 32.0)
-            /* Rendered foot/fire travels low and forward. This generous
-             * 72px front-foot union covers platformer-sized enemy groups,
+            /* Rendered foot/fire travels low and forward. This 52px
+             * front-foot union covers a compact platformer enemy group,
              * while retaining no rear-facing contact. */
-            set_attack(out, 480.0, 40.0, 900.0, 600.0, 15, 82.0, 25.0, 1);
+            set_attack(out, 336.0, 40.0, 630.0, 600.0, 15, 82.0, 25.0, 1);
         break;
     case FL_FALCON_KICK_LANDING: /* source one-frame landing impact */
         if (t <= 1.0)

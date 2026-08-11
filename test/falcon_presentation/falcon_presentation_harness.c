@@ -23,7 +23,7 @@ static Blob make_blob(void) {
     Blob b; unsigned i,j; uint32_t colors[7]={0xff3060c8u,0xc0ff8030u,0xc0ffb030u,0xc0fff020u,0xc030c0ffu,0xffa060ffu,0xffa060ffu};
     memset(&b,0,sizeof(b)); memcpy(b.data,"FLCN64B\0",8);b.n=8;
     u32(&b,4);u32(&b,26);u32(&b,2);u32(&b,7);u32(&b,2);u32(&b,1);u32(&b,1);u32(&b,1);u32(&b,3);
-    for(i=0;i<26;i++){float x=0,y=0;u32(&b,i?0:0xffffffffu);if(i==FALCON_PRESENT_JOINT_CARRY_HAND){x=1;y=2;}else if(i==FALCON_PRESENT_JOINT_PUNCH_HAND){x=3;y=4;}else if(i==FALCON_PRESENT_JOINT_GROUND_KICK_FOOT){x=2;y=1;}else if(i==FALCON_PRESENT_JOINT_AIR_KICK_FOOT){x=-2;y=3;}for(j=0;j<3;j++)f32(&b,j==0?x:(j==1?y:0));for(j=0;j<3;j++)f32(&b,0);for(j=0;j<3;j++)f32(&b,1);u32(&b,0);u32(&b,i?0:1);}
+    for(i=0;i<26;i++){float x=0,y=0;u32(&b,i?0:0xffffffffu);if(i==FALCON_PRESENT_JOINT_CARRY_HAND){x=1;y=2;}else if(i==FALCON_PRESENT_JOINT_PUNCH_HAND){x=3;y=4;}else if(i==FALCON_PRESENT_JOINT_KICK_EFFECT){x=2;y=1;}for(j=0;j<3;j++)f32(&b,j==0?x:(j==1?y:0));for(j=0;j<3;j++)f32(&b,0);for(j=0;j<3;j++)f32(&b,1);u32(&b,0);u32(&b,i?0:1);}
     /* Near purple is intentionally stored before far blue: without the
      * stable far-to-near sort the far face would overwrite the nearer face. */
     triangle(&b,6,-1);triangle(&b,0,1);
@@ -77,13 +77,13 @@ static int synthetic(void) {
     if(!falcon_presentation_root_delta(p,"Dive",1,&y,&z)||y!=10.5f||z!=0){fprintf(stderr,"FAIL root sample %f %f\n",y,z);falcon_presentation_destroy(p);return 1;}
     memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=64;t.height=64;t.pitch_pixels=70;t.anchor_x=32;t.anchor_y=54;t.scale=1;
     pose.state=FALCON_PRESENT_KICK_AIR;pose.frame=12;pose.facing_right=1;
-    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&jx,&jy)||jx==t.anchor_x||jy==t.anchor_y){fprintf(stderr,"FAIL animated kick joint projection\n");falcon_presentation_destroy(p);return 1;}
+    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_KICK_EFFECT,&jx,&jy)||jx==t.anchor_x||jy==t.anchor_y){fprintf(stderr,"FAIL animated kick joint projection\n");falcon_presentation_destroy(p);return 1;}
     jright=jx;pose.facing_right=0;
-    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&jleft,&jy)||!(jright<t.anchor_x&&jleft>t.anchor_x)){fprintf(stderr,"FAIL authored-to-screen joint mirror\n");falcon_presentation_destroy(p);return 1;}
+    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_KICK_EFFECT,&jleft,&jy)||!(jright<t.anchor_x&&jleft>t.anchor_x)){fprintf(stderr,"FAIL authored-to-screen joint mirror\n");falcon_presentation_destroy(p);return 1;}
     pose.state=FALCON_PRESENT_IDLE;pose.facing_right=1;
     if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_CARRY_HAND,&cx,&cy)||
        !falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_PUNCH_HAND,&px,&py)||
-       !falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_AIR_KICK_FOOT,&ax,&ay)||
+       !falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_KICK_EFFECT,&ax,&ay)||
        (cx==px&&cy==py)||(cx==ax&&cy==ay)||(px==ax&&py==ay)){fprintf(stderr,"FAIL calibrated attachment anchors\n");falcon_presentation_destroy(p);return 1;}
     for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     pose.state=FALCON_PRESENT_PUNCH;pose.frame=42;pose.facing_right=1;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL draw\n");falcon_presentation_destroy(p);return 1;}
@@ -109,11 +109,11 @@ static int synthetic(void) {
     for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     pose.state=FALCON_PRESENT_KICK_AIR;pose.frame=12;pose.facing_right=1;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL air kick draw\n");falcon_presentation_destroy(p);return 1;}
     actual=hash(frame,64*70);printf("synthetic air-kick framebuffer fnv64=%016llx\n",(unsigned long long)actual);
-    if(actual!=0x10271a05c018f8bcULL){fprintf(stderr,"FAIL air-kick attachment pixels drift\n");falcon_presentation_destroy(p);return 1;}
+    if(actual!=0x6d3e732e023907f2ULL){fprintf(stderr,"FAIL air-kick attachment pixels drift\n");falcon_presentation_destroy(p);return 1;}
     for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     pose.facing_right=0;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL left air kick draw\n");falcon_presentation_destroy(p);return 1;}
     actual=hash(frame,64*70);printf("synthetic left-air-kick framebuffer fnv64=%016llx\n",(unsigned long long)actual);
-    if(actual!=0x0482e9ccb6d36885ULL){fprintf(stderr,"FAIL left air-kick orientation drift\n");falcon_presentation_destroy(p);return 1;}
+    if(actual!=0xfe10527f0d890218ULL){fprintf(stderr,"FAIL left air-kick orientation drift\n");falcon_presentation_destroy(p);return 1;}
     falcon_presentation_destroy(p);return 0;
 }
 

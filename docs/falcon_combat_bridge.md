@@ -18,8 +18,8 @@ The attack is source-center-relative (+Y-up): its SMW center is
 `player + (8,32) + (facing*offset_x, -offset_y)*0.08`, with width/height as
 full extents. Falcon Punch remains visually authored at frame 42, but its SMW
 contact window is frame `42..<56`, through the visible fire effect. Its
-arm-aligned host union reaches 112px ahead and covers the shell-height band;
-Kick uses a low forward foot union reaching 72px. The per-move ledger lets one
+arm-aligned host union reaches 56px ahead and covers the shell-height band;
+Kick uses a low forward foot union reaching 52px. The per-move ledger lets one
 move contact a group of distinct targets once each while preventing repeated
 native consequences during linger. An aerial Punch landing retains this same
 ledger and frame timeline (impact 42, end 56) as it changes to ground physics.
@@ -49,6 +49,11 @@ the block route also restores `$98-$9C`. It makes only proven generated calls:
   frame zero. The release revalidates both slot ID and status, so a dead or
   reused slot cannot be struck. Loose shells are not capture targets, and all
   latch state is cleared on handoff, load, or move termination.
+  As an explicit SMW adaptation, native `$1497` no-hurt protection covers all
+  enemy contacts throughout Dive startup, launch, Catch, and Throw, then for
+  eight generic recovery frames. The bridge owns only an exact timer value of
+  `1`; pre-existing native invulnerability remains untouched, and transient
+  grace is cleared on handoff, state load, or the start of another action.
 - `$02:8752` `SpawnBounceSprite`, only when the attack overlaps the current
   `$00:E92B` collision block and native action `$04=7` proves brick, or current
   Map16 byte `$1693=$1E` proves turn block. It owns native Map16 mutation,

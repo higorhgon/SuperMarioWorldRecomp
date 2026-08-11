@@ -16,6 +16,21 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_audio_dispatches;
 
+void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
+{
+    if (cpu != NULL && cpu->ram != NULL && (bank == 0 || bank == 1))
+        cpu->ram[addr] = value;
+}
+
+static int consume_native_frame(CpuState *cpu, uint8 frame_size,
+                                uint8 expected_pb)
+{
+    if (cpu == NULL || cpu->host_return_valid != frame_size ||
+        cpu->PB != expected_pb) return 0;
+    cpu->S = (uint16)(cpu->S + frame_size);
+    return 1;
+}
+
 /* The adapter harness deliberately has no generated game bodies.  These
  * stubs retain the source spin-jump post-contact contract; detailed status
  * and star routing remains in falcon_combat_apply_test. */
@@ -24,17 +39,30 @@ void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
         cpu->DB != 1 || cpu->D != 0 ||
-        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
+        cpu->ram[0x15E9] != (cpu->X & 0xffu) ||
+        !consume_native_frame(cpu, 2, 1)) return;
     ++s_native_attack_contacts;
     cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 4;
     cpu->ram[0x1540u + (cpu->X & 0xffu)] = 31;
 }
-void SpawnSpinJumpStars(CpuState *cpu) { (void)cpu; }
+void SpawnSpinJumpStars(CpuState *cpu)
+{
+    (void)consume_native_frame(cpu, 3, 7);
+}
 void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
 {
-    if (cpu != NULL) ++cpu->ram[0x1DFC];
+    if (consume_native_frame(cpu, 2, 1)) ++cpu->ram[0x1DFC];
 }
-void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
+void SpawnBounceSprite(CpuState *cpu)
+{
+    (void)consume_native_frame(cpu, 3, 2);
+}
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
+{
+    const unsigned slot = cpu != NULL ? cpu->X & 0xffu : 12u;
+    if (!consume_native_frame(cpu, 2, 2) || slot >= 12u) return;
+    cpu->ram[0x14C8u + slot] = 2;
+}
 
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 {

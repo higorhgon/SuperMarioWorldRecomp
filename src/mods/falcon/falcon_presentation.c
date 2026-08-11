@@ -225,15 +225,16 @@ static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,
             card_facing(t,q,x+dir*8*s,y+8*s,24*s,24*s,flip_x);
     }else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){
         const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
-        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&x,&y))
+        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_KICK_EFFECT,&x,&y))
             card_rotated_facing(t,q,x+dir*5*s,y,30*s,18*s,0.f,flip_x);
     }else if(pose->state==FALCON_PRESENT_KICK_AIR&&pose->frame>=12&&pose->frame<32){
         const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
-        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_AIR_KICK_FOOT,&x,&y))
-            /* CaptainSpecial2 rolls -LR*60 degrees.  Screen Y grows down,
-             * just as it does in the NES compositor, so retain that sign. */
+        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_KICK_EFFECT,&x,&y))
+            /* The compact X/Y card has already mirrored U for left-facing.
+             * Its boot-side edge therefore needs the projected opposite of
+             * the source Y/Z card's raw -LR roll to point down-forward. */
             card_rotated_facing(t,q,x+dir*4*s,y,30*s,18*s,
-                         -dir*(float)(3.14159265358979323846/3.0),flip_x);
+                          dir*(float)(3.14159265358979323846/3.0),flip_x);
     }else dive_particles(pose,t,s,dir);
 }
 int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){

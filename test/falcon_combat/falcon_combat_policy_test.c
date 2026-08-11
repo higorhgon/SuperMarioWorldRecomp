@@ -11,19 +11,22 @@ int main(void) {
     CHECK(near(box.left,108) && near(box.top,111.2) && near(box.right,112) && near(box.bottom,114.4));
     box=smw_falcon_attack_world_aabb(&a, 100, 80, -1);
     CHECK(near(box.left,104) && near(box.right,108));
-    /* Falcon Punch's host contact window reaches two broad body widths ahead
-     * of Falcon and covers a normal SMW enemy's full torso.  The authored
-     * visual impact is still emitted by the controller at frame 42. */
-    a.offset_x=560; a.offset_y=160; a.width=900; a.height=400;
+    /* Production Punch is a 56px no-rear union after the playtest range
+     * reduction; its vertical torso/shell band remains unchanged. */
+    a.offset_x=350; a.offset_y=100; a.width=700; a.height=650;
     box=smw_falcon_attack_world_aabb(&a,100,80,1);
-    CHECK(near(box.left,116.8) && near(box.right,188.8));
-    CHECK(near(box.top,83.2) && near(box.bottom,115.2));
-    CHECK(near(box.right - 108.0,80.8) && box.right - 108.0 > 64.0);
-    targets[0]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{184,90,200,114}};
-    targets[1]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{184,100,200,124}};
+    CHECK(near(box.left,108.0) && near(box.right,164.0));
+    CHECK(near(box.top,78.0) && near(box.bottom,130.0));
+    targets[0]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{156,90,172,114}};
+    targets[1]=(SmwFalconTarget){SMW_FALCON_TARGET_ORDINARY,{165,100,181,124}};
     CHECK(smw_falcon_choose_target(&a,100,80,1,targets,2)==0);
-    targets[0].bounds=(SmwFalconAabb){184,116,200,140};
-    CHECK(smw_falcon_choose_target(&a,100,80,1,targets,2)==1);
+    targets[0].bounds=(SmwFalconAabb){165,90,181,114};
+    CHECK(smw_falcon_choose_target(&a,100,80,1,targets,2)==-1);
+    /* Production Kick is 70% of its former horizontal reach: 52.08px. */
+    a.offset_x=336; a.offset_y=40; a.width=630; a.height=600;
+    box=smw_falcon_attack_world_aabb(&a,100,80,1);
+    CHECK(near(box.left,109.68) && near(box.right,160.08));
+    CHECK(near(box.top,84.8) && near(box.bottom,132.8));
     /* Restore the compact generic hitbox for target-priority policy checks. */
     a.offset_x=25; a.offset_y=-10; a.width=50; a.height=40;
     targets[0]=(SmwFalconTarget){SMW_FALCON_TARGET_BOSS,{108,111,112,115}};

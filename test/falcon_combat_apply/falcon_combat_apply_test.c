@@ -8,6 +8,12 @@ static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_dive_throw_calls, s_block_calls;
 
+void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
+{
+    if (cpu != NULL && cpu->ram != NULL && (bank == 0 || bank == 1))
+        cpu->ram[addr] = value;
+}
+
 static int consume_native_frame(CpuState *cpu, uint8_t frame_size,
                                 uint8_t expected_pb, const char *name)
 {
@@ -95,12 +101,12 @@ static CpuState fresh(void) {
 }
 static ForeignAttackHitbox punch(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
-    a.offset_x=700; a.offset_y=100; a.width=1400; a.height=650;
+    a.offset_x=350; a.offset_y=100; a.width=700; a.height=650;
     a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
 }
 static ForeignAttackHitbox kick(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
-    a.offset_x=480; a.offset_y=40; a.width=900; a.height=600;
+    a.offset_x=336; a.offset_y=40; a.width=630; a.height=600;
     a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
 }
 static ForeignAttackHitbox dive(void) {
@@ -130,20 +136,20 @@ int main(void) {
      * both ID $05. Status $0A is the same admitted loose-shell lifecycle.
      * All three use the $01:9ACB -> $07:FC3B -> $01:AB46 spin-jump sequence;
      * only carried $0B is Falcon-owned and excluded. */
-    install_sprite(8,8,0x05,184,126); install_sprite(9,9,0x05,202,126);
-    install_sprite(10,10,0x05,210,126);
+    install_sprite(8,8,0x05,148,126); install_sprite(9,9,0x05,156,126);
+    install_sprite(10,10,0x05,164,126);
     install_sprite(7,11,0x04,188,126); begin(&ledger,FL_FALCON_PUNCH_GROUND);
     memset(s_ram,0x5a,16); memcpy(scratch,s_ram,16); memset(&hit,0,sizeof(hit));
-    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==3);
-    CHECK(s_sprite_calls==3 && s_spin_kill_calls==3 && s_spin_star_calls==3 &&
-          s_spin_score_calls==3 && s_ram[0x14d0]==4 && s_ram[0x14d1]==4 &&
-          s_ram[0x14d2]==4 && s_ram[0x1548]==31 && s_ram[0x1549]==31 &&
-          s_ram[0x154a]==31 && s_ram[0x170b]==16 && s_ram[0x176f]==23 &&
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2);
+    CHECK(s_sprite_calls==2 && s_spin_kill_calls==2 && s_spin_star_calls==2 &&
+          s_spin_score_calls==2 && s_ram[0x14d0]==4 && s_ram[0x14d1]==4 &&
+          s_ram[0x14d2]==10 && s_ram[0x1548]==31 && s_ram[0x1549]==31 &&
+          s_ram[0x154a]==0 && s_ram[0x170b]==16 && s_ram[0x176f]==23 &&
           s_ram[0x14cf]==11 &&
-          hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)|(1u<<10)) &&
-          ledger.new_hit_slots==((1u<<8)|(1u<<9)|(1u<<10)));
+          hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)) &&
+          ledger.new_hit_slots==((1u<<8)|(1u<<9)));
     CHECK(memcmp(s_ram,scratch,16)==0 && s_ram[0x15e9]==0 &&
-          s_ram[0x1697]==3 && s_ram[0x1df9]==8 && cpu.DB==1 && cpu.A==0);
+          s_ram[0x1697]==2 && s_ram[0x1df9]==8 && cpu.DB==1 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */
     calls=s_sprite_calls; memset(&hit,0,sizeof(hit));
@@ -155,7 +161,7 @@ int main(void) {
      * move identity. The air->ground continuation must not replay the native
      * spin-kill transaction on its already-resolved slot. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
-    install_sprite(4,8,0x0f,184,120);
+    install_sprite(4,8,0x0f,150,120);
     begin(&ledger,FL_FALCON_PUNCH_AIR); CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1);
     calls=s_sprite_calls; begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 && s_sprite_calls==calls);
@@ -165,7 +171,7 @@ int main(void) {
      * assumption—prevents repeated contacts. The target behind Falcon is
      * untouched and therefore stays dangerous. */
     cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
-    install_sprite(1,8,0x0f,170,120); install_sprite(3,8,0x0f,178,120);
+    install_sprite(1,8,0x0f,148,120); install_sprite(3,8,0x0f,156,120);
     install_sprite(6,8,0x0f,80,120);
     begin(&ledger,FL_FALCON_KICK_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2 && hit.attack_connected);

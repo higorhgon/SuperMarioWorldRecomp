@@ -16,11 +16,27 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_native_contacts;
 
+void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
+{
+    if (cpu != NULL && cpu->ram != NULL && (bank == 0 || bank == 1))
+        cpu->ram[addr] = value;
+}
+
+static int consume_native_frame(CpuState *cpu, uint8 frame_size,
+                                uint8 expected_pb)
+{
+    if (cpu == NULL || cpu->host_return_valid != frame_size ||
+        cpu->PB != expected_pb) return 0;
+    cpu->S = (uint16)(cpu->S + frame_size);
+    return 1;
+}
+
 void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
         cpu->DB != 1 || cpu->D != 0 ||
-        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
+        cpu->ram[0x15E9] != (cpu->X & 0xffu) ||
+        !consume_native_frame(cpu, 2, 1)) return;
     ++s_native_contacts;
     cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 4;
     cpu->ram[0x1540u + (cpu->X & 0xffu)] = 31;
@@ -29,18 +45,30 @@ void SpawnSpinJumpStars(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
         cpu->DB != 1 || cpu->D != 0 ||
-        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
+        cpu->ram[0x15E9] != (cpu->X & 0xffu) ||
+        !consume_native_frame(cpu, 3, 7)) return;
     cpu->ram[0x170B] = 16;
 }
 void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
         cpu->DB != 1 || cpu->D != 0 ||
-        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
+        cpu->ram[0x15E9] != (cpu->X & 0xffu) ||
+        !consume_native_frame(cpu, 2, 1)) return;
     ++cpu->ram[0x1DFC];
 }
 
-void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
+void SpawnBounceSprite(CpuState *cpu)
+{
+    (void)consume_native_frame(cpu, 3, 2);
+}
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
+{
+    const unsigned slot = cpu != NULL ? cpu->X & 0xffu : 12u;
+    if (!consume_native_frame(cpu, 2, 2) || slot >= 12u) return;
+    ++s_native_contacts;
+    cpu->ram[0x14C8u + slot] = 2;
+}
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 {
     (void)events;
@@ -77,6 +105,14 @@ static void model_later_side_damage(void)
     if (timer_player_hurt == 0) player_current_state = 9;
 }
 
+static int dive_protected_state(int state)
+{
+    return state == FL_FALCON_DIVE_GROUND ||
+           state == FL_FALCON_DIVE_AIR ||
+           state == FL_FALCON_DIVE_CATCH ||
+           state == FL_FALCON_DIVE_THROW;
+}
+
 int main(void)
 {
     CpuState cpu;
@@ -94,11 +130,11 @@ int main(void)
      * both are immediately ahead, mirroring save1's native lifecycle mix. */
     spr_current_status[8] = 8;
     spr_spriteid[8] = 0x05;
-    spr_xpos_lo[8] = 170;
+    spr_xpos_lo[8] = 148;
     spr_ypos_lo[8] = 220;
     spr_current_status[9] = 9;
     spr_spriteid[9] = 0x05;
-    spr_xpos_lo[9] = 176;
+    spr_xpos_lo[9] = 156;
     spr_ypos_lo[9] = 220;
 
     memset(&cpu, 0, sizeof(cpu));
@@ -174,6 +210,157 @@ int main(void)
     if (snes_foreign_state()->state != FL_WAIT ||
         snes_foreign_state()->grounded == 0 || smw_falcon_last_attack()->active)
         return fail("skipped-CD36 direct Air Kick lands as immediate idle");
+
+    /* Up-B intentionally differs from Kick's exact-slot guard. Protect every
+     * normal-sprite contact from startup through the source Catch/Throw, then
+     * for exactly eight generic recovery frames. Drive a real controller
+     * launch into an eligible target so this covers the complete lifecycle. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Up-B guard");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_blocked_flags = 4;
+    player_xpos = 100;
+    player_ypos = 200;
+    memset(spr_current_status, 0, 12);
+    spr_current_status[4] = 8;
+    spr_spriteid[4] = 0x0f;
+    spr_xpos_lo[4] = 126;
+    spr_ypos_lo[4] = 200;
+    timer_player_hurt = 5;
+    frame(0x48, 0x48, &cpu); /* Up + Square/Y, startup frame zero. */
+    cpu.DB = 1;
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (!dive_protected_state(snes_foreign_state()->state) ||
+        timer_player_hurt != 5)
+        return fail("Up-B preserves a pre-existing native hurt timer");
+    timer_player_hurt = 0;
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 1)
+        return fail("Up-B protects an unlatched startup contact");
+    cpu.X = 2;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 1)
+        return fail("Up-B protection spans every slot in one native pass");
+    model_later_side_damage();
+    if (player_current_state != 0)
+        return fail("Up-B startup prevents native side damage");
+
+    {
+        int saw_catch = 0;
+        int saw_throw = 0;
+        int exited = 0;
+        int i;
+        for (i = 0; i != 180; ++i) {
+            frame(0, 0, &cpu);
+            cpu.DB = 1;
+            cpu.X = 2;
+            SmwFalconBeforeNormalSprites(&cpu);
+            if (snes_foreign_state()->state == FL_FALCON_DIVE_CATCH)
+                saw_catch = 1;
+            if (snes_foreign_state()->state == FL_FALCON_DIVE_THROW)
+                saw_throw = 1;
+            if (dive_protected_state(snes_foreign_state()->state)) {
+                if (timer_player_hurt != 1)
+                    return fail("Up-B launch/Catch/Throw keeps global guard");
+            } else if (saw_throw) {
+                exited = 1;
+                break;
+            }
+        }
+        if (!saw_catch || !saw_throw || !exited)
+            return fail("controller-driven Up-B reaches Catch, Throw, and exit");
+
+        /* The loop's exit frame is grace frame one. Seven more remain safe;
+         * the ninth post-exit frame must restore ordinary native danger. */
+        if (timer_player_hurt != 1)
+            return fail("Up-B first recovery grace frame is protected");
+        for (i = 1; i != 8; ++i) {
+            frame(0, 0, &cpu);
+            cpu.DB = 1;
+            cpu.X = 2;
+            SmwFalconBeforeNormalSprites(&cpu);
+            if (timer_player_hurt != 1)
+                return fail("Up-B eight-frame recovery grace is exact");
+        }
+        frame(0, 0, &cpu);
+        cpu.DB = 1;
+        cpu.X = 2;
+        SmwFalconBeforeNormalSprites(&cpu);
+        if (timer_player_hurt != 0)
+            return fail("Up-B grace expires before recovery frame nine");
+        model_later_side_damage();
+        if (player_current_state != 9)
+            return fail("ordinary contact is dangerous after Up-B grace");
+    }
+
+    /* A new attack consumes residual Up-B grace. Drive a second natural
+     * Catch/Throw, then start direct aerial Kick on recovery frame two; an
+     * unhit slot must see Kick's normal timer==0 contract, not global armor. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for post-Up-B attack");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_blocked_flags = 4;
+    player_xpos = 100;
+    player_ypos = 200;
+    memset(spr_current_status, 0, 12);
+    spr_current_status[4] = 8;
+    spr_spriteid[4] = 0x0f;
+    spr_xpos_lo[4] = 126;
+    spr_ypos_lo[4] = 200;
+    frame(0x48, 0x48, &cpu);
+    {
+        int saw_throw = 0;
+        int i;
+        for (i = 0; i != 180; ++i) {
+            frame(0, 0, &cpu);
+            cpu.DB = 1;
+            cpu.X = 2;
+            SmwFalconBeforeNormalSprites(&cpu);
+            if (snes_foreign_state()->state == FL_FALCON_DIVE_THROW)
+                saw_throw = 1;
+            if (saw_throw && !dive_protected_state(snes_foreign_state()->state))
+                break;
+        }
+        if (!saw_throw || i == 180 || timer_player_hurt != 1)
+            return fail("second Up-B reaches protected recovery");
+    }
+    frame(0x44, 0x44, &cpu); /* Down + Square/Y starts direct Air Kick. */
+    cpu.DB = 1;
+    cpu.X = 2;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (snes_foreign_state()->state != FL_FALCON_KICK_AIR ||
+        timer_player_hurt != 0)
+        return fail("new Kick consumes old Up-B global grace");
+
+    /* Loading replaces WRAM but not adapter statics. A stale owned-guard bit
+     * must never erase a restored native timer whose saved value is also 1. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for load timer ownership");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_blocked_flags = 4;
+    frame(0x48, 0x48, &cpu);
+    timer_player_hurt = 0;
+    cpu.DB = 1;
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 1)
+        return fail("arm Dive-owned timer before state load");
+    /* Model a snapshot restoring a native one-frame value at the same byte. */
+    timer_player_hurt = 1;
+    SmwFalconOnStateLoaded();
+    if (timer_player_hurt != 1)
+        return fail("state load preserves restored native timer value one");
     puts("falcon_kick_guard_test: PASS");
     return 0;
 }

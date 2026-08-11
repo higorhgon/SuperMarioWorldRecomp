@@ -59,8 +59,7 @@ typedef struct FalconPresentationTarget {
 enum {
     FALCON_PRESENT_JOINT_CARRY_HAND = 6,
     FALCON_PRESENT_JOINT_PUNCH_HAND = 13,
-    FALCON_PRESENT_JOINT_GROUND_KICK_FOOT = 19,
-    FALCON_PRESENT_JOINT_AIR_KICK_FOOT = 24
+    FALCON_PRESENT_JOINT_KICK_EFFECT = 19
 };
 
 /* Parses only the owner-generated FLCN64B v4 binary. The bytes are copied;
