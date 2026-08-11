@@ -1210,9 +1210,9 @@ int main(int argc, char** argv) {
       gi.msu1_note = NULL;
 #else
       gi.msu1_supported = 1;
-      gi.msu1_note = "Uses the audio-only \"SMW MSU-1\" patch (zeldix t1436). "
-                     "PCM packs must be built for THIS patch - packs for "
-                     "SMW MSU+ or Plus Ultra will not line up.";
+      gi.msu1_note = "Use the Mods menu to enable MSU-1 Audio. "
+                     "PCM packs must match the classic SMW MSU-1 track map; "
+                     "packs for SMW MSU+ or Plus Ultra will not line up.";
 #endif
       gi.config_path = config_file;  /* hotkey editor targets the live config */
 #if defined(RECOMP_LAUNCHER) && defined(SMW_COOP_BUILD)
@@ -1291,9 +1291,6 @@ int main(int argc, char** argv) {
 #endif
         g_config.msu1_enabled = ls.msu1_enabled != 0;
         snprintf(g_config.msu1_dir, sizeof(g_config.msu1_dir), "%s", ls.msu1_dir);
-        if (g_config.msu1_enabled && g_config.msu1_dir[0]) {
-          SetEnvVar("SNESRECOMP_MSU1", g_config.msu1_dir);
-        }
         /* Persist the launcher's choices so they're remembered next boot. */
         WriteConfigFile(config_file);
         /* The launcher's Hotkeys editor writes [KeyMap] straight into the
@@ -1406,19 +1403,6 @@ int main(int argc, char** argv) {
   argv = resolved_argv;
   argc = 1;
 
-  /* Honor the persisted MSU-1 choice on every boot path — launcher, SkipLauncher,
-   * positional ROM, SNESRECOMP_NO_LAUNCHER. The launcher exports this when it runs;
-   * doing it here too means a launcher-skipping boot still streams MSU-1 if the
-   * user enabled it. An existing env value (set by the launcher or the shell) wins. */
-  if (g_config.msu1_enabled && g_config.msu1_dir[0] && !getenv("SNESRECOMP_MSU1")) {
-    SetEnvVar("SNESRECOMP_MSU1", g_config.msu1_dir);
-  }
-
-  /* Let MSU-1 derive its pack base from the ROM name when SNESRECOMP_MSU1=auto
-   * (the launcher normally passes the pack folder explicitly, which msu1.c also
-   * resolves). Harmless when MSU-1 is disabled. */
-  { extern void msu1_set_rom_path(const char *); msu1_set_rom_path(runtime_rom_path); }
-
   // Initialize debug server. Production builds (SNESRECOMP_TRACE = 0) get
   // debug_server.h's static-inline no-op stubs and never compile
   // debug_server.c, so nothing is listening — but the stub returns 0 for
@@ -1439,11 +1423,10 @@ int main(int argc, char** argv) {
   }
 
 #if SNESRECOMP_ENABLE_MODS
-  /* ROM path is final here. Activation runs the reset callback first, so a
-   * disabled feature restores stock 4:3 regardless of what config.ini says,
-   * then applies the enabled package options. Must land BEFORE the width is
-   * derived below (g_ws_extra / g_snes_width) and before window creation.
-   * The SNESRECOMP_WIDESCREEN env knob still overrides afterwards. */
+  /* ROM path is final here. Activation runs reset callbacks first, so disabled
+   * features restore stock behavior regardless of legacy config.ini flags, then
+   * active packages apply their options. Must land before width derivation,
+   * window creation, and MSU-1 initialization in RtlRegisterGame. */
   if (mods_ready) {
     if (!snes_mod_runtime_commit_c(runtime_rom_path)) {
       fprintf(stderr, "SNES mod plan rejected: %s\n",
@@ -1452,7 +1435,16 @@ int main(int argc, char** argv) {
     }
     snes_mod_runtime_activate_plugins_c();
   }
+  if (!mods_ready)
+    g_config.msu1_enabled = false;
 #endif
+
+  /* MSU-1 is now selected by the Mods package. The legacy config field is
+   * retained only as the existing PCM pack path store until Mods has a native
+   * directory option; the plugin reset/activation above owns effective enable. */
+  if (g_config.msu1_enabled && g_config.msu1_dir[0] && !getenv("SNESRECOMP_MSU1")) {
+    SetEnvVar("SNESRECOMP_MSU1", g_config.msu1_dir);
+  }
 
   g_gamepad[0].joystick_id = g_gamepad[1].joystick_id = -1;
   g_snes_width = 256;
@@ -1593,6 +1585,9 @@ session_reboot:
 
   extern const RtlGameInfo kSmwGameInfo;
   RtlRegisterGame(&kSmwGameInfo);
+  /* RtlRegisterGame arms MSU-1 from the environment; now it can derive a pack
+   * base from the ROM path when SNESRECOMP_MSU1=auto. */
+  { extern void msu1_set_rom_path(const char *); msu1_set_rom_path(runtime_rom_path); }
   Snes *snes = SnesInit(kRom, kRom_SIZE);
   host_report_breadcrumb("SnesInit: %s", snes ? "ok" : "FAILED");
   if (snes == NULL) {

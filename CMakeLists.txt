@@ -129,6 +129,8 @@ set(SMW_RUNTIME_SOURCES
     src/smw_spc_player.c
     # Trusted static plugin backing the widescreen mod package's activation.
     src/mods/smw_widescreen_plugin.c
+    # Trusted static plugin backing the MSU-1 audio mod package's activation.
+    src/mods/smw_msu1_plugin.c
     third_party/gl_core/gl_core_3_1.c
     ${SMW_OVERRIDE_SOURCES}
 )

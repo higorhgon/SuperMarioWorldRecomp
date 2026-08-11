@@ -7,7 +7,7 @@
 # analysis image or generated source directory.
 #
 # Flags:
-#   --stock                 regenerate the normal 1P/MSU build (default).
+#   --stock                 regenerate the normal 1P build (default).
 #   --coop                  regenerate the simultaneous co-op build.
 #   --quick                 default. Skip Phase B fuzz.
 #   --full                  also run Phase B fuzz (stock only).
@@ -79,8 +79,8 @@ OUT_DIR="src/gen"
 FUNCS_HEADER="recomp/funcs.h"
 
 if [ "$VARIANT" = coop ]; then
-  # The co-op and MSU patches are alternative analysis inputs. Generate from
-  # stock+co-op only, matching the image prepared by the runtime patcher.
+  # Generate from stock+co-op only, matching the image prepared by the runtime
+  # patcher. MSU-1 is host-side mod behavior and is not part of regen input.
   COOP_IPS="recomp/coop/smw_coop.ips"
   PATCHED_ROM=".build/smw_coop.sfc"
   mkdir -p "$(dirname "$PATCHED_ROM")"
@@ -117,16 +117,6 @@ if [ "$VARIANT" = coop ]; then
       cp "$overlay" "$dest"
     fi
   done
-else
-  # The normal build remains the existing MSU-capable 1P image.
-  MSU_IPS="recomp/msu1/smw_msu.ips"
-  if [ -f "$MSU_IPS" ]; then
-    PATCHED_ROM=".build/smw_msu1.sfc"
-    mkdir -p "$(dirname "$PATCHED_ROM")"
-    step "Applying MSU-1 patch (Conn, audio-only - recomp/msu1/)"
-    "$PYTHON" tools/apply_msu_patch.py --rom "$ROM" --ips "$MSU_IPS" --out "$PATCHED_ROM"
-    GEN_ROM="$PATCHED_ROM"
-  fi
 fi
 
 step "Syncing $VARIANT funcs.h"

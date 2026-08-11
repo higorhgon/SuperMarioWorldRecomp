@@ -233,7 +233,7 @@ Regenerate the desired variant from your legally obtained stock ROM, then
 build it. The generated C is intentionally untracked:
 
 ```bash
-# Normal 1P/MSU build (the default)
+# Normal 1P build (the default)
 bash tools/regen.sh --stock
 msbuild smw.sln /p:Configuration=Production /p:Platform=x64 /m
 
@@ -277,10 +277,10 @@ framework, or otherwise need to re-run the recompiler:
    excludes it).
 2. Run `bash tools/regen.sh --stock` for the normal build and/or
    `bash tools/regen.sh --coop` for co-op. Stock emits to `src/gen/` from the
-   existing MSU-capable analysis image. Co-op applies the bundled IPS to a
-   throwaway verified ROM, layers the small CFG fragments in `recomp/coop/`,
-   and emits independently to `src/gen-coop/`. It builds and requires the fast
-   native analyzer by default; set
+   vanilla SMW (USA) ROM. Co-op applies the bundled IPS to a throwaway verified
+   ROM, layers the small CFG fragments in `recomp/coop/`, and emits
+   independently to `src/gen-coop/`. It builds and requires the fast native
+   analyzer by default; set
    `SNESRECOMP_ANALYSIS_BACKEND=python` only to use the slower reference path.
 3. Rebuild as above.
 
@@ -291,15 +291,15 @@ to drift.)
 ## MSU-1 audio
 
 The normal 1P build supports CD-quality MSU-1 streaming music using a stock
-SMW (USA) ROM. Regeneration applies Conn's audio-only "SMW MSU-1" patch to a
-throwaway copy and compiles the driver into the executable. At runtime, no
-pack means authentic SPC audio; a matching PCM pack plus MSU-1 enabled in the
-launcher means streamed music. Packs for SMW MSU+ or SMW MSU-1 Plus Ultra are
-not interchangeable with this audio-only patch. Full credit and pack details
-are in [`recomp/msu1/ATTRIBUTION.md`](recomp/msu1/ATTRIBUTION.md).
+SMW (USA) ROM. Regeneration no longer applies Conn's audio-only "SMW MSU-1"
+patch; the preloaded MSU-1 Audio Mods package activates trusted host-side code
+that observes SMW music commands and drives the runner's MSU-1 device directly.
+At runtime, no pack means authentic SPC audio; a matching PCM pack plus the
+MSU-1 Audio mod means streamed music. Packs for SMW MSU+ or SMW MSU-1 Plus
+Ultra are not interchangeable with this audio-only track map. Full credit and
+pack details are in [`recomp/msu1/ATTRIBUTION.md`](recomp/msu1/ATTRIBUTION.md).
 
-MSU-1 is disabled only in the simultaneous co-op build. Both patches alter
-expansion ROM data and cannot be layered into one byte-exact analysis image.
+MSU-1 is disabled in the simultaneous co-op build for now.
 
 ## Repo layout
 
