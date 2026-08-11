@@ -55,11 +55,13 @@ typedef struct {
     uint8_t width, height;
 } SmwFalconNativeSpriteClip;
 
-/* Exact entries from SMW's GetSpriteClippingB tables:
+/* Exact entries from SMW's shared GetSpriteClippingA/B tables:
  * $03:B56C X offset, $03:B5A8 width, $03:B5E4 Y offset, $03:B620 height.
- * These are interaction bounds, not drawn tile dimensions.  Keep this
- * deliberately small: only the two newly admitted source signatures consume
- * this table in the Falcon host boundary. */
+ * $01:A7DC calls GetSpriteClippingA ($03:B69F) before CheckForContact
+ * ($03:B72B); Banzai's $02:D587 explicitly JSLs that $01:A7DC body. These
+ * are interaction bounds, not drawn tile dimensions. Keep this deliberately
+ * small: only the two newly admitted source signatures consume this table in
+ * the Falcon host boundary. */
 static const SmwFalconNativeSpriteClip k_big_target_clips[] = {
     { 0x00u,  2,  3, 12, 10 }, /* Banzai Bill ($9F) */
     { 0x0Du,  0, -4, 15, 16 }, /* Chargin' Chuck ($91) */

@@ -199,6 +199,19 @@ static void smw_falcon_snap_dive_toward_target(CpuState *cpu,
     player_xpos = (uint16_t)(player_xpos + dx);
     player_ypos = (uint16_t)(player_ypos + dy);
 }
+
+static int smw_falcon_impact_guard_state(int state)
+{
+    /* Only source specials that this bridge deliberately maps to a native
+     * sprite consequence receive the one-slot $1497 handoff.  Jabs, tilts,
+     * aerial normals and every future non-special attack retain native
+     * contact behavior until they get their own explicit contract. */
+    return state == FL_FALCON_PUNCH_GROUND ||
+           state == FL_FALCON_PUNCH_AIR ||
+           state == FL_FALCON_KICK_GROUND ||
+           state == FL_FALCON_KICK_AIR ||
+           state == FL_FALCON_KICK_LANDING;
+}
 static uint8_t clamp_speed(double source_delta, int y_axis)
 {
     /* SMW stores a signed 8-bit speed in sixteenth-pixel units. Falcon's
@@ -764,8 +777,7 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
                                            state != NULL ? state->facing : 1.0f,
                                            &s_combat_ledger, out);
     }
-    if (contacts != 0 &&
-        (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) == 0)
+    if (contacts != 0 && smw_falcon_impact_guard_state(s_last_move.state))
         s_impact_contact_slots |= s_combat_ledger.new_hit_slots;
     if (contacts != 0 &&
         (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) != 0)
