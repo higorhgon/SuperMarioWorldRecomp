@@ -49,27 +49,72 @@ int main(void)
     player_in_air_flag = 0;
     player_xpos = 0x070F;
     player_ypos = 0x0160;
+    player_sub_xpos = 0x33;
+    player_sub_ypos = 0x55;
     snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
 
     /* UpdatePlayerSpritePosition's pre-hook snapshots the immediately prior
      * valid coordinate. The f310/f324 live trace supplied the values and
      * $77=$1D signature, not an artificial 59px single-frame movement. */
+    io_controller_hold1 = 0x01; /* continue holding right into the step */
     ++snes_frame_counter;
     SmwFalconBeforePhysics(NULL);
     state = snes_foreign_state();
     if (state == NULL) return fail("foreign state available");
     state->state = FL_RUN;
     state->grounded = 1;
+    state->facing = 1.0f;
     player_xpos = 0x074A;
     player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
     player_xspeed = 0;
     player_yspeed = 0x96;
     player_blocked_flags = 0x1D;
     SmwFalconBeforeCrushCheck(NULL);
     if (player_xpos != 0x070F || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x33 || player_sub_ypos != 0x55 ||
+        player_in_air_flag != 0 ||
         player_xspeed != 0 || player_yspeed != 0 ||
         player_blocked_flags != 0x05)
         return fail("step guard keeps native wall and floor contact ($1D -> $05)");
+
+    /* The f324 correction is not enough by itself: held-right must remain a
+     * narrow wall stop over following frames, rather than re-integrating
+     * Falcon downward through the step's floor.  Deliberately perturb every
+     * native coordinate the latch owns to prove it restores the exact saved
+     * position/subposition/ground state three times. */
+    for (unsigned i = 0; i != 3; ++i) {
+        ++snes_frame_counter;
+        player_xpos = 0x074A;
+        player_ypos = (uint16_t)(0x016F + i);
+        player_sub_xpos = (uint8_t)(0xA1 + i);
+        player_sub_ypos = (uint8_t)(0xB1 + i);
+        player_in_air_flag = 0;
+        player_xspeed = 0x65;
+        player_yspeed = 0x96;
+        player_blocked_flags = 0;
+        state->grounded = 1;
+        SmwFalconBeforePhysics(NULL);
+        if (player_xpos != 0x070F || player_ypos != 0x0160 ||
+            player_sub_xpos != 0x33 || player_sub_ypos != 0x55 ||
+            player_in_air_flag != 0 || player_xspeed != 0 ||
+            player_yspeed != 0 || player_blocked_flags != 0x05)
+            return fail("held-right step latch keeps Falcon standing at the wall");
+    }
+
+    /* Neutral releases the latch; it must not turn later ordinary motion into
+     * blanket position or crush immunity. */
+    io_controller_hold1 = 0;
+    ++snes_frame_counter;
+    player_xpos = 0x0711;
+    player_ypos = 0x0160;
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x04;
+    state->grounded = 1;
+    SmwFalconBeforePhysics(NULL);
+    if (player_xpos != 0x0711)
+        return fail("neutral releases the persistent step-wall latch");
 
     /* The same bit pattern cannot shield an airborne / vertically displaced
      * Falcon from a real crush. */

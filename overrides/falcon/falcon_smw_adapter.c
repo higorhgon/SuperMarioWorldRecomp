@@ -38,8 +38,21 @@ static unsigned s_dash_tap_age;
 static int s_stomp_bounce_armed;
 static int s_stomp_contact_guard;
 static int s_attack_committed;
+static int s_last_input_direction;
+static int s_step_wall_latched;
+static int s_step_wall_direction;
 static uint16_t s_x_before;
 static uint16_t s_y_before;
+static uint8_t s_sub_x_before;
+static uint8_t s_sub_y_before;
+static uint8_t s_in_air_before;
+static uint16_t s_step_wall_x;
+static uint16_t s_step_wall_y;
+static uint8_t s_step_wall_sub_x;
+static uint8_t s_step_wall_sub_y;
+static uint8_t s_step_wall_in_air;
+static uint8_t s_step_wall_blocked;
+static uint8_t s_step_wall_facing;
 static ForeignMoveResult s_last_move;
 static struct {
     uint8_t hold1;
@@ -62,6 +75,28 @@ static void smw_falcon_reset_dash_taps(void)
     s_special_grace_pending = 0;
     s_dash_ignore_until_release = 0;
     s_dash_tap_age = 0;
+}
+
+static void smw_falcon_clear_step_wall_latch(void)
+{
+    s_step_wall_latched = 0;
+    s_step_wall_direction = 0;
+    s_step_wall_blocked = 0;
+}
+
+static void smw_falcon_restore_step_wall_latch(void)
+{
+    player_xpos = s_step_wall_x;
+    player_ypos = s_step_wall_y;
+    player_sub_xpos = s_step_wall_sub_x;
+    player_sub_ypos = s_step_wall_sub_y;
+    player_in_air_flag = s_step_wall_in_air;
+    player_sub_xspeed = player_sub_yspeed = 0;
+    player_xspeed = player_yspeed = 0;
+    player_facing_direction = s_step_wall_facing;
+    /* Preserve unrelated high bits but retain this side's wall and floor. */
+    player_blocked_flags = (uint8_t)((player_blocked_flags & 0xE0u) |
+                                     s_step_wall_blocked);
 }
 
 static void smw_falcon_clear_stomp_contact_guard(void)
@@ -309,6 +344,7 @@ static ForeignInput smw_falcon_input(void)
         }
     }
     s_dash_prev_dir = direction;
+    s_last_input_direction = direction;
     input.stick_x = direction == 0 ? 0.0f :
                     direction * (s_dash_full_hold ? 1.0f : 0.5f);
     input.stick_y = (hold1 & 0x08) ? 1.0f : (hold1 & 0x04) ? -1.0f : 0.0f;
@@ -351,6 +387,7 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
      * leak B/Y/X/A into native SMW before the later controller tick. */
     if (!snes_foreign_active() || !smw_falcon_playable())
     {
+        smw_falcon_clear_step_wall_latch();
         smw_falcon_reset_dash_taps();
         return;
     }
@@ -369,7 +406,10 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
      * previous-frame observation cross a reset, handoff, or next tick. */
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
-    if (!snes_foreign_active()) return;
+    if (!snes_foreign_active()) {
+        smw_falcon_clear_step_wall_latch();
+        return;
+    }
     if (!smw_falcon_playable()) {
         if (snes_foreign_ownership() == FOREIGN_OWNERSHIP_FOREIGN)
             snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
@@ -377,6 +417,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
         s_attack_committed = 0;
+        smw_falcon_clear_step_wall_latch();
         smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
         return;
@@ -388,6 +429,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         /* Script/death/pipe/goal handoffs leave native WRAM authoritative.
          * Re-select resets transient move state before controllable play. */
         const char *id = snes_foreign_active()->id;
+        smw_falcon_clear_step_wall_latch();
         if (!snes_foreign_select(id)) return;
         state = snes_foreign_state();
         smw_falcon_reseed(state);
@@ -412,6 +454,20 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     state->grounded = player_in_air_flag == 0;
 
     input = smw_falcon_input();
+    /* A $77=$1D step latch is only a held-horizontal wall stop. It releases
+     * on neutral, reversal, jump, loss of ground, or any outer handoff; it
+     * never grants general crush immunity. Feed neutral stick to the source
+     * while held so Run cannot immediately re-enter the false-crush branch. */
+    if (s_step_wall_latched) {
+        const int held_direction = input.stick_x > 0.0f ? 1 :
+                                   input.stick_x < 0.0f ? -1 : 0;
+        if (held_direction != s_step_wall_direction || input.jump_pressed ||
+            !state->grounded || player_in_air_flag != s_step_wall_in_air) {
+            smw_falcon_clear_step_wall_latch();
+        } else {
+            input.stick_x = 0.0f;
+        }
+    }
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
@@ -424,13 +480,26 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     smw_falcon_audio_play_events(&s_last_move.audio);
     smw_falcon_adapt_water_motion(&s_last_move);
 
-    s_x_before = player_xpos;
-    s_y_before = player_ypos;
-    s_pending = 1;
-    player_xspeed = clamp_speed(s_last_move.requested_dx, 0);
-    player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
-    player_sub_xspeed = player_sub_yspeed = 0;
-    player_facing_direction = state->facing >= 0.0f;
+    if (s_step_wall_latched) {
+        smw_falcon_restore_step_wall_latch();
+        s_x_before = s_step_wall_x;
+        s_y_before = s_step_wall_y;
+        s_sub_x_before = s_step_wall_sub_x;
+        s_sub_y_before = s_step_wall_sub_y;
+        s_in_air_before = s_step_wall_in_air;
+        s_pending = 1;
+    } else {
+        s_x_before = player_xpos;
+        s_y_before = player_ypos;
+        s_sub_x_before = player_sub_xpos;
+        s_sub_y_before = player_sub_ypos;
+        s_in_air_before = player_in_air_flag;
+        s_pending = 1;
+        player_xspeed = clamp_speed(s_last_move.requested_dx, 0);
+        player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
+        player_sub_xspeed = player_sub_yspeed = 0;
+        player_facing_direction = state->facing >= 0.0f;
+    }
     if ((s_last_move.force_airborne ||
          state->jump_phase == FOREIGN_JUMP_LAUNCH) &&
         !s_force_airborne_pending) {
@@ -467,20 +536,27 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
         /* Slot 0's step path is wall bit $01 plus exact crush bits $1C;
          * do not turn an airborne/moving-ceiling crush into immunity. */
         (player_blocked_flags & 0x1Du) != 0x1Du ||
+        s_in_air_before != 0 ||
         player_ypos != s_y_before) return;
     state = snes_foreign_state();
     if (state == NULL || !state->grounded ||
-        (state->state != FL_DASH && state->state != FL_RUN))
+        (state->state != FL_DASH && state->state != FL_RUN) ||
+        s_last_input_direction == 0 ||
+        s_last_input_direction != (state->facing >= 0.0f ? 1 : -1))
         return;
 
-    player_xpos = s_x_before;
-    player_ypos = s_y_before;
-    player_sub_xspeed = player_sub_yspeed = 0;
-    player_xspeed = player_yspeed = 0;
-    /* $77 bit $04 is the native floor contact (the valid pre-step value was
-     * $04). Clear only incompatible ceiling/crush bits $18: $1D becomes $05,
-     * retaining both the wall and floor result for the next frame. */
-    player_blocked_flags &= 0xE7u;
+    s_step_wall_latched = 1;
+    s_step_wall_direction = s_last_input_direction;
+    s_step_wall_x = s_x_before;
+    s_step_wall_y = s_y_before;
+    s_step_wall_sub_x = s_sub_x_before;
+    s_step_wall_sub_y = s_sub_y_before;
+    s_step_wall_in_air = s_in_air_before;
+    s_step_wall_facing = player_facing_direction;
+    /* $77 bit $04 is floor; retain it with the observed side wall bit while
+     * clearing only $08/$10 ceiling/crush ($1D -> $05). */
+    s_step_wall_blocked = (uint8_t)((player_blocked_flags & 0x03u) | 0x04u);
+    smw_falcon_restore_step_wall_latch();
 }
 
 void SmwFalconAfterPhysics(struct CpuState *cpu)
@@ -622,6 +698,8 @@ void SmwFalconOnStateLoaded(void)
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
     s_attack_committed = 0;
+    s_last_input_direction = 0;
+    smw_falcon_clear_step_wall_latch();
     smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;
     smw_falcon_clear_carry_bridge();

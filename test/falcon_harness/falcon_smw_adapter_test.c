@@ -202,7 +202,8 @@ int main(void)
     /* A D-pad first tap walks. Release then repeat the same direction inside
      * the documented window: only that second edge reaches the source's
      * full-stick Dash gate. */
-    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold1 = 0x01; /* live slot-0 signature is held right */
+    io_controller_press1 = 0;
     io_controller_hold2 = io_controller_press2 = 0;
     ++snes_frame_counter;
     SmwFalconBeforePlayerPhysics(NULL);

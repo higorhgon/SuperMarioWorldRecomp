@@ -31,8 +31,13 @@ patch is gated to playable foreign Dash/Run, grounded state, unchanged Y, and
 that exact wall signature. It restores the immediately pre-integration X/Y and
 zeros velocity while changing `$77` from `$1D` to `$05`: wall `$01` and floor
 `$04` remain, while only incompatible ceiling/crush bits `$18` clear. The step
-therefore stops Falcon without dropping his native floor contact. Airborne and
-vertically displaced crushes remain native.
+therefore stops Falcon without dropping his native floor contact. It records
+that exact safe whole/subpixel X/Y, floor state, facing, and side-wall bit as a
+short-lived latch while the same horizontal direction stays held; source
+horizontal input is neutralized and that grounded wall coordinate is restored
+before each native collision pass. Neutral, reversal, jump, loss of ground,
+state load, or an ownership/mode handoff clears it. Airborne and vertically
+displaced crushes remain native.
 
 Underwater levels remain Falcon-controlled: no native swim input is used, and
 attacks retain the saved raw controller input. At the `$00:DC2D` boundary every
