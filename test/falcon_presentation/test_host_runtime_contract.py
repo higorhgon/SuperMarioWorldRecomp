@@ -30,14 +30,14 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         hostile = r"C:\owner&cache|<bad>^%!$`;space"
         self.assertTrue(hostile.startswith("C:\\"))
 
-    def test_course_clear_is_presentation_only_and_excludes_demo_keyhole(self):
+    def test_course_clear_is_presentation_only_and_keeps_keyhole_falcon(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("static int falcon_controller_selected(void)", source)
         self.assertIn("static int course_clear_active(void)", source)
         self.assertIn("!falcon_controller_selected()", source)
         self.assertIn("misc_game_mode == 0x14 && player_current_state == 0", source)
-        self.assertIn("timer_end_level != 0 && timer_end_level_via_keyhole == 0", source)
-        self.assertIn("misc_game_mode == 0x0b && timer_end_level_via_keyhole == 0", source)
+        self.assertIn("(timer_end_level != 0 || timer_end_level_via_keyhole != 0)", source)
+        self.assertIn("return misc_game_mode == 0x0b;", source)
         self.assertNotIn("flag_show_victory_pose_during_level_end != 0", source)
         self.assertIn("return controllable() || death_active() || course_clear_active() ||", source)
         self.assertIn("if (!presentation_active()) { s_suppression_active = 0; return; }", source)
@@ -48,6 +48,14 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         self.assertIn("pose.state = FALCON_PRESENT_WALK;", source)
         self.assertIn("pose.frame = (float)(counter_global_frames >> 1);", source)
         self.assertIn("no Captain appeal/taunt", source)
+
+    def test_scripted_water_transition_keeps_falcon_presentation(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("static int scripted_water_active(void)", source)
+        self.assertIn("flag_underwater_level != 0", source)
+        self.assertIn("player_timer_pipe_warping == 0", source)
+        self.assertIn("powerup_animation_active() || scripted_water_active();", source)
+        self.assertIn("scripted_water_active() && !controllable()", source)
 
     def test_powerup_and_damage_animation_keep_full_size_falcon(self):
         source = SOURCE.read_text(encoding="utf-8")

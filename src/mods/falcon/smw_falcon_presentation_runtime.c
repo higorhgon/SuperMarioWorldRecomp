@@ -83,15 +83,30 @@ static int death_active(void) { return s_presentation && misc_game_mode == 0x14 
 static int course_clear_active(void)
 {
     if (s_presentation == NULL || !falcon_controller_selected()) return 0;
-    /* Presentation-only.  The adapter refuses control while `$1493` is live,
-     * and native SMW owns all walking, score, timer, and mode progression.
-     * Keep Falcon drawn through the whole non-keyhole goal sequence instead
-     * of only the brief `$1B99` peace-pose subphase.  PlayerState00_LevelFinished
-     * then moves ordinary Course Clear into GameMode $0B, which still draws the
-     * player OBJ on the black result screen. */
+    /* Presentation-only.  The adapter refuses control while `$1493`/keyhole
+     * end timers are live, and native SMW owns all walking, keyhole, score,
+     * timer, and mode progression. Keep Falcon drawn through both goal-tape
+     * and keyhole outro phases instead of exposing native Mario's player OBJ.
+     * PlayerState00_LevelFinished then moves ordinary Course Clear into
+     * GameMode $0B, which still draws the player OBJ on the black result
+     * screen. */
     if (misc_game_mode == 0x14 && player_current_state == 0 &&
-        timer_end_level != 0 && timer_end_level_via_keyhole == 0) return 1;
-    return misc_game_mode == 0x0b && timer_end_level_via_keyhole == 0;
+        (timer_end_level != 0 || timer_end_level_via_keyhole != 0)) return 1;
+    return misc_game_mode == 0x0b;
+}
+
+static int scripted_water_active(void)
+{
+    if (s_presentation == NULL || !falcon_controller_selected()) return 0;
+    /* Water levels can be entered through native transitions where ownership
+     * is briefly SCRIPTED even though gameplay is already back in ordinary
+     * GameMode14. Keep the Falcon presentation/OAM suppression up in that
+     * narrow state; the adapter reclaims control at the next playable physics
+     * seam and continues to own water movement. */
+    return misc_game_mode == 0x14 && player_current_state == 0 &&
+           flag_underwater_level != 0 && player_timer_pipe_warping == 0 &&
+           player_pipe_action == 0 && flag_about_to_warp_in_pipe == 0 &&
+           timer_end_level == 0 && timer_end_level_via_keyhole == 0;
 }
 
 static int powerup_animation_active(void)
@@ -479,7 +494,7 @@ static int controllable(void) {
 static int presentation_active(void)
 {
     return controllable() || death_active() || course_clear_active() ||
-           powerup_animation_active();
+           powerup_animation_active() || scripted_water_active();
 }
 
 void smw_falcon_presentation_reset(void) {
@@ -620,6 +635,9 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
         pose.frame = 0.0f;
         pose.facing_right = player_facing_direction != 0;
         s_last_pose = pose;
+    } else if (scripted_water_active() && !controllable()) {
+        pose = s_last_pose;
+        pose.facing_right = player_facing_direction != 0;
     } else if (state) {
         pose = smw_falcon_presentation_pose_for_state(
             state->state, state->state_frame, state->facing);
