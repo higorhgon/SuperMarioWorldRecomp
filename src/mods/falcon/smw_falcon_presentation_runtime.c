@@ -358,8 +358,8 @@ void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
  * status-$0B routine has already updated native sprite positions, throw
  * state, collisions and despawn.  Touching just these finished OAM entries
  * therefore moves the visible carried shell/card without changing its SMW
- * lifecycle.  Guest NMI has already DMA'd `$0200` before this prepare seam,
- * so the relocation must change the transient PPU OAM copy, not WRAM. Stock
+ * lifecycle.  The final renderer seam runs after guest OAM DMA and changes
+ * the transient PPU OAM copy, never guest WRAM. Stock
  * StunnedShellDraw ($01:9806) writes two 16x16 OAM entries
  * at `$15EA` and `$15EA+4`, then FinishOAMWrite closes that two-entry group.
  * Do not infer a wider group: its next entry can belong to another sprite. */
@@ -467,17 +467,9 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
 }
 
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
-    const ForeignState *state;
-    FalconPresentationPose pose;
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);
     if (!controllable() && !death_active()) { s_suppression_active = 0; return; }
-    state = snes_foreign_state();
-    if (controllable() && state) {
-        pose = smw_falcon_presentation_pose_for_state(
-            state->state, state->state_frame, state->facing);
-        relocate_carried_oam(ppu, &pose);
-    }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,
@@ -505,6 +497,17 @@ void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
         s_suppression_active = 1;
         trace("player OBJ suppression active");
     }
+}
+
+void smw_falcon_presentation_finalize_ppu_oam(Ppu *ppu) {
+    const ForeignState *state;
+    FalconPresentationPose pose;
+    if (!ppu || !controllable()) return;
+    state = snes_foreign_state();
+    if (!state) return;
+    pose = smw_falcon_presentation_pose_for_state(
+        state->state, state->state_frame, state->facing);
+    relocate_carried_oam(ppu, &pose);
 }
 
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,

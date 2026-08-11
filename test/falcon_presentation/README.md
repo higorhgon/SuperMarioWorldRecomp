@@ -64,9 +64,10 @@ The attachment indices are calibrated from the rendered owner-cache skeleton,
 not raw DObj labels: Punch follows the striking hand, ground and aerial Kick
 follow their visible active boots, and carry follows the raised hand. The
 completed native carried-shell allocation is exactly two OAM entries (`$15EA`,
-`$15EA+4`) from `StunnedShellDraw`. At prepare time the guest NMI/DMA has
-already copied that OAM to the PPU, so the host test checks the transient PPU
-pair (and its high-OAM bits), adjacent entries, and untouched guest WRAM.
+`$15EA+4`) from `StunnedShellDraw`. The relocation runs at the final PPU seam,
+immediately before scanline zero snapshots OBJ, so the host test checks the
+transient PPU pair (and its high-OAM bits), adjacent entries, and untouched
+guest WRAM.
 
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.

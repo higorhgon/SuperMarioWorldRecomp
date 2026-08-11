@@ -15,6 +15,11 @@ void smw_falcon_presentation_audio_ready(void);
 /* Configure the narrow player OBJ suppression before PPU draw, then composite
  * the approved owner cache into the PPU-owned frame before presentation. */
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu);
+/* Run after every guest OAM DMA and immediately before PPU scanline zero.
+ * This is deliberately separate from prepare_ppu: the latter configures OBJ
+ * capture, whereas this changes only the finalized, transient PPU OAM pair
+ * used for a carried native shell. */
+void smw_falcon_presentation_finalize_ppu_oam(Ppu *ppu);
 void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
                                      int width, int height);
 int smw_falcon_presentation_is_active(void);

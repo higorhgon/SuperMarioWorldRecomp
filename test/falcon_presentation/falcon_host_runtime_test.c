@@ -59,12 +59,15 @@ static int expect_ppu_oam_group_contract(void) {
     ppu.highOam[1] = 0xaau;
     memset(g_ram, 0x5a, sizeof(g_ram));
     memcpy(ram_before, g_ram, sizeof(g_ram));
-    smw_falcon_presentation_reanchor_ppu_oam_group(&ppu, 4, 2, 50, 60);
+    /* A real raised hand can be on either side of the native 256px viewport.
+     * Exercise the ninth-X bit while verifying the adjacent object and both
+     * selected attribute words remain untouched. */
+    smw_falcon_presentation_reanchor_ppu_oam_group(&ppu, 4, 2, 306, 60);
     if (ppu.oam[8] != (42u | (52u << 8u)) || ppu.oam[9] != 0x3120u ||
         ppu.oam[10] != (58u | (68u << 8u)) || ppu.oam[11] != 0x3121u ||
         ppu.oam[12] != (177u | (199u << 8u)) || ppu.oam[13] != 0x4472u ||
         ppu.oam[14] != (188u | (201u << 8u)) || ppu.oam[15] != 0x4473u ||
-        ppu.highOam[1] != 0xaau || memcmp(g_ram, ram_before, sizeof(g_ram))) {
+        ppu.highOam[1] != 0xafu || memcmp(g_ram, ram_before, sizeof(g_ram))) {
         fputs("FAIL transient PPU carried shell OAM contract\n", stderr);
         return 0;
     }
