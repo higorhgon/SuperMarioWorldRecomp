@@ -35,6 +35,7 @@
 #include "mod_runtime.h"
 #endif
 #include "mods/falcon/smw_falcon_presentation_runtime.h"
+#include "foreign_controller.h"
 
 #include "snes/snes.h"
 #ifdef __SWITCH__
@@ -1609,6 +1610,11 @@ error_reading:;
 #endif
     return 1;
   }
+
+  /* Optional, bounded foreign-controller evidence.  The ring is always
+   * maintained by the runner; this only arms its existing atexit CSV writer
+   * when SNESRECOMP_FTRING_DUMP names a file. */
+  snes_foreign_trace_init_dump();
 
   // Connect debug server to SNES RAM. Declared by debug_server.h, which in
   // a production build resolves this to a no-op stub — do NOT redeclare it
