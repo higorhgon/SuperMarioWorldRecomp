@@ -16,7 +16,7 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_native_contacts;
 
-void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
+void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
         cpu->DB != 2 || cpu->D != 0) return;
@@ -25,11 +25,16 @@ void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
      * persistent SFX-side write is the observed acceptance proof, not a
      * guessed per-enemy timer. */
     ++cpu->ram[0x1DFC];
-    /* $02:9404's accepted loose-shell route reaches $02:945B and stores
-     * status $02. Keep the ordinary Koopa at $08 to model the later native
-     * side-contact pass that needs the exact-slot guard. */
-    if (cpu->ram[0x14C8u + (cpu->X & 0xffu)] == 9)
-        cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 2;
+    /* Keep the ordinary Koopa at $08 to model a native multi-hit family and
+     * exercise exact same-slot side-contact protection. */
+}
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
+{
+    if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
+        cpu->DB != 2 || cpu->D != 0) return;
+    ++s_native_contacts;
+    ++cpu->ram[0x1DFC];
+    cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 2;
 }
 
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }

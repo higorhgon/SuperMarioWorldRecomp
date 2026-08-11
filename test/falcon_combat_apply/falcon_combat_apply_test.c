@@ -5,21 +5,39 @@
 #include <string.h>
 
 static uint8_t s_ram[0x20000];
-static int s_sprite_calls, s_block_calls, s_native_contact_effects;
+static int s_sprite_calls, s_cape_calls, s_loose_kill_calls, s_block_calls;
 static uint16_t s_keep_status08;
 
-void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
+void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
 {
     const unsigned slot = cpu->X & 0xffu;
     if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 ||
-        cpu->D != 0 || cpu->ram[0x0e]) {
+        cpu->D != 0 || cpu->ram[0x0e] != 0 ||
+        cpu->ram[0x15e9] != slot || cpu->ram[0x154c + slot] != 8) {
         fprintf(stderr, "bad sprite contract\n"); return;
     }
-    ++s_sprite_calls;
-    ++s_native_contact_effects; /* native contact SFX/score route */
-    ++cpu->ram[0x1dfc]; /* persistent native SFX consequence for status-$08 */
-    if ((s_keep_status08 & (uint16_t)(1u << slot)) == 0)
+    ++s_sprite_calls; ++s_cape_calls;
+    ++cpu->ram[0x1dfc]; /* native $02:9455 GivePoints-side consequence */
+    if ((s_keep_status08 & (uint16_t)(1u << slot)) == 0) {
+        /* Exact $02:945B follow-up: this ordinary jumpable/non-dying Koopa
+         * metadata becomes carryable, not an invented host death. */
         cpu->ram[0x14c8 + slot] = 2;
+        if ((cpu->ram[0x1656 + slot] & 0x10u) != 0 &&
+            (cpu->ram[0x1656 + slot] & 0x20u) == 0 &&
+            (cpu->ram[0x1662 + slot] & 0x80u) == 0)
+            cpu->ram[0x14c8 + slot] = 9;
+    }
+    cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
+}
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
+{
+    const unsigned slot = cpu->X & 0xffu;
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 || cpu->D != 0) {
+        fprintf(stderr, "bad loose-shell kill contract\n"); return;
+    }
+    ++s_sprite_calls; ++s_loose_kill_calls;
+    cpu->ram[0x14c8 + slot] = 2; /* exact $02:C7B1 accepted native kill */
+    ++cpu->ram[0x1dfc]; /* native kick SFX / GivePoints observable effect */
     cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
 }
 void SpawnBounceSprite(CpuState *cpu)
@@ -67,17 +85,22 @@ int main(void) {
     cpu.DB=1;
 
     /* save1's front pair is a status-$08 Koopa and a status-$09 loose shell,
-     * both ID $05. Punch must submit both to $02:9404; only carried $0B is
+     * both ID $05. Status $0A is the same admitted loose-shell lifecycle.
+     * Punch must submit all three to source $02:9451; only carried $0B is
      * Falcon-owned and excluded. */
     install_sprite(8,8,0x05,184,126); install_sprite(9,9,0x05,202,126);
+    install_sprite(10,10,0x05,210,126);
     install_sprite(7,11,0x04,188,126); begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    s_ram[0x1656 + 8]=0x10; /* CODE_029472/79 carryable follow-up */
     memset(s_ram,0x5a,16); memcpy(scratch,s_ram,16); memset(&hit,0,sizeof(hit));
-    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2);
-    CHECK(s_sprite_calls==2 && s_native_contact_effects==2 &&
-          s_ram[0x14d0]==2 && s_ram[0x14d1]==2 && s_ram[0x14cf]==11 &&
-          hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)) &&
-          ledger.new_hit_slots==((1u<<8)|(1u<<9)));
-    CHECK(memcmp(s_ram,scratch,16)==0 && cpu.DB==1 && cpu.A==0);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==3);
+    CHECK(s_sprite_calls==3 && s_cape_calls==1 && s_loose_kill_calls==2 &&
+          s_ram[0x14d0]==9 && s_ram[0x14d1]==2 && s_ram[0x14d2]==2 &&
+          s_ram[0x14cf]==11 &&
+          hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)|(1u<<10)) &&
+          ledger.new_hit_slots==((1u<<8)|(1u<<9)|(1u<<10)));
+    CHECK(memcmp(s_ram,scratch,16)==0 && s_ram[0x15e9]==0 &&
+          s_ram[0x154c + 8]==8 && cpu.DB==1 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */
     calls=s_sprite_calls; memset(&hit,0,sizeof(hit));

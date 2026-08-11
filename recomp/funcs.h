@@ -15,7 +15,7 @@
 
 #include "cpu_state.h"
 
-/* 1938 functions across all banks (5 decls each). */
+/* 1945 functions across all banks (5 decls each). */
 
 void I_RESET(CpuState *cpu);  /* $00:8000 alias */
 RecompReturn I_RESET_M0X0(CpuState *cpu);
@@ -4412,6 +4412,11 @@ RecompReturn CheckPlayerAttackToNormalSpriteColl_029404_M0X0(CpuState *cpu);
 RecompReturn CheckPlayerAttackToNormalSpriteColl_029404_M0X1(CpuState *cpu);
 RecompReturn CheckPlayerAttackToNormalSpriteColl_029404_M1X0(CpuState *cpu);
 RecompReturn CheckPlayerAttackToNormalSpriteColl_029404_M1X1(CpuState *cpu);
+void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu);  /* $02:9451 alias */
+RecompReturn CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence_M0X0(CpuState *cpu);
+RecompReturn CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence_M0X1(CpuState *cpu);
+RecompReturn CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence_M1X0(CpuState *cpu);
+RecompReturn CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence_M1X1(CpuState *cpu);
 void RunPlayerBlockCode_TriggerCapeDiveGroundPound(CpuState *cpu);  /* $02:94C1 alias */
 RecompReturn RunPlayerBlockCode_TriggerCapeDiveGroundPound_M0X0(CpuState *cpu);
 RecompReturn RunPlayerBlockCode_TriggerCapeDiveGroundPound_M0X1(CpuState *cpu);
@@ -5132,6 +5137,11 @@ RecompReturn Spr091_CharginChuck_ProcessPlayerInteraction_M0X0(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_ProcessPlayerInteraction_M0X1(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_ProcessPlayerInteraction_M1X0(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_ProcessPlayerInteraction_M1X1(CpuState *cpu);
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu);  /* $02:C7B1 alias */
+RecompReturn KillNormalSprite_AcceptedConsequence_M0X0(CpuState *cpu);
+RecompReturn KillNormalSprite_AcceptedConsequence_M0X1(CpuState *cpu);
+RecompReturn KillNormalSprite_AcceptedConsequence_M1X0(CpuState *cpu);
+RecompReturn KillNormalSprite_AcceptedConsequence_M1X1(CpuState *cpu);
 void Spr091_CharginChuck_Draw(CpuState *cpu);  /* $02:C81A alias */
 RecompReturn Spr091_CharginChuck_Draw_M0X0(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_Draw_M0X1(CpuState *cpu);

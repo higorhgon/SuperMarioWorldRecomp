@@ -21,12 +21,13 @@ static int s_audio_dispatches;
  * bridge's accepted-transaction contract; detailed status routing remains in
  * falcon_combat_apply_test. */
 static int s_native_attack_contacts;
-void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
+void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
 {
     if (cpu == NULL) return;
     ++s_native_attack_contacts;
     ++cpu->ram[0x1DFC]; /* native contact/SFX-side effect, outside scratch */
 }
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu) { (void)cpu; }
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
 
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)

@@ -23,6 +23,8 @@
 #define SMW_SPR_X_HI   0x14E0u
 #define SMW_SPR_TWEAKER_C 0x166Eu
 #define SMW_SPR_TWEAKER_D 0x167Au
+#define SMW_SPR_MISC_154C 0x154Cu
+#define SMW_MINOR_SPRITE_PROC_INDEX 0x15E9u
 #define SMW_MAP16_CURRENT 0x1693u
 
 #define SMW_SPRITE_SLOTS 12u
@@ -95,7 +97,7 @@ static int hook_contract_is_valid(const CpuState *cpu)
 
 static void prepare_bank02_call(CpuState *cpu, unsigned slot)
 {
-    /* $02:9404 and $02:8752 are native M1X1 routines. DB=$02 addresses the
+    /* $02:9451 and $02:8752 are native M1X1 routines. DB=$02 addresses the
      * $0000-$1FFF WRAM mirror exactly as their original bank-02 callers do. */
     cpu->P |= 0x30u;
     cpu_p_to_mirrors(cpu);
@@ -119,6 +121,41 @@ static int sprite_is_supported_target(const CpuState *cpu, unsigned slot)
     /* Ordinary status-$08 targets: Koopa families, Goomba/Paragoomba, Buzzy.
      * Bosses, hazards, and unfamiliar sprites remain unsupported. */
     return id <= 0x09u || id == 0x0Fu || id == 0x10u || id == 0x11u;
+}
+
+static int sprite_is_loose_shell(const CpuState *cpu, unsigned slot)
+{
+    const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
+    return (status == 9 || status == 10) &&
+           ram8(cpu, 0x009Eu + slot) >= 0x04u &&
+           ram8(cpu, 0x009Eu + slot) <= 0x07u;
+}
+
+static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot,
+                                             int loose_shell)
+{
+    if (loose_shell) {
+        /* SMWDisX CODE_02C7B1 is reached only after native star contact. It
+         * is the source's no-geometry kill consequence: status $02, kick SFX,
+         * and GivePoints.  Use it for the admitted loose-shell lifecycle,
+         * because CODE_02945B deliberately turns ordinary Koopa metadata back
+         * into carryable status $09. */
+        prepare_bank02_call(cpu, slot);
+        KillNormalSprite_AcceptedConsequence(cpu);
+        return;
+    }
+
+    /* These are the exact ordinary-Cape source inputs immediately before the
+     * accepted continuation: CODE_0293A9 clears $0E before its target loop,
+     * CODE_029404 sets $154C, and $15E9 names the sprite being processed.
+     * (The alternate net-punch route sets $0E=$35 and branches around $9451.)
+     * $0E is transactional scratch; restore the caller's $15E9 after the
+     * direct host call so a different outer normal sprite slot cannot move. */
+    cpu->ram[SMW_SCRATCH_FIRST + 0x0Eu] = 0;
+    cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = (uint8_t)slot;
+    cpu->ram[SMW_SPR_MISC_154C + slot] = 8;
+    prepare_bank02_call(cpu, slot);
+    CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(cpu);
 }
 
 static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
@@ -149,6 +186,7 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
     for (slot = 0; slot < SMW_SPRITE_SLOTS; ++slot) {
         SmwFalconCpuSnapshot saved;
         uint8_t scratch[SMW_SCRATCH_COUNT];
+        uint8_t current_sprite;
         uint8_t before;
         uint32_t effects_before;
         if ((ledger->hit_slots & (uint16_t)(1u << slot)) != 0 ||
@@ -157,14 +195,15 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
 
         before = ram8(cpu, SMW_SPR_STATUS + slot);
         memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
+        current_sprite = ram8(cpu, SMW_MINOR_SPRITE_PROC_INDEX);
         save_cpu(cpu, &saved);
         memset(cpu->ram + SMW_SCRATCH_FIRST, 0, sizeof(scratch));
         effects_before = ram_effect_hash(cpu);
-        /* $02:9404 uses $0E as its contact-effect selector; zero is the
-         * source's regular (non-extended-sprite) native kill path. */
-        prepare_bank02_call(cpu, slot);
-        CheckPlayerAttackToNormalSpriteColl_029404(cpu);
+        /* Host geometry is the admission decision. Both selected entries are
+         * post-geometry native consequences, never a second Mario/cape test. */
+        invoke_native_sprite_consequence(cpu, slot, sprite_is_loose_shell(cpu, slot));
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
+        cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = current_sprite;
         restore_cpu(cpu, &saved);
         /* A multi-hit native enemy can remain status $08 after accepting this
          * canonical transaction. Its slot is still a contact for this move:
