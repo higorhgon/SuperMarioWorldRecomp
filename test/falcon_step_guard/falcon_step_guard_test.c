@@ -26,10 +26,11 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
     (void)frame;
     if (delta_y != NULL) *delta_y = 0.0f;
     if (delta_z != NULL) *delta_z = 0.0f;
-    /* FalconDiveEnd1 is the approved SpecialLwBound motion.  A positive
-     * cached local-Z sample must become recoil against a right-hand wall. */
+    /* FalconDiveEnd1 is the approved SpecialLwBound motion. Its verified
+     * runtime-cache local TraZ delta is negative, which directly recoils
+     * left from a right-hand wall through the ordinary lr projection. */
     if (animation != NULL && strcmp(animation, "FalconDiveEnd1") == 0) {
-        if (delta_z != NULL) *delta_z = 64.0f;
+        if (delta_z != NULL) *delta_z = -64.0f;
         return 1;
     }
     return 0;

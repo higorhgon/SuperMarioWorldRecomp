@@ -79,18 +79,14 @@ static void cf_tick(ForeignState *state, const ForeignInput *input,
                 const int dive_launch =
                     s_fighter.state == FL_FALCON_DIVE_GROUND ||
                     s_fighter.state == FL_FALCON_DIVE_AIR;
-                /* BattleShip ftPhysicsGetAirVelTransN first applies local
-                 * TransN Z through lr, then its TopN basis. SpecialLwBound's
-                 * FalconDiveEnd1 root has the recoil local direction (the
-                 * source initial TraZ is negative); the compact host has no
-                 * TopN basis, so preserve that recoil by reversing only this
-                 * Bound local sample before lr. Direct SpecialAirLw and the
-                 * separate Falcon Dive End1 action keep their normal source
-                 * facing projection. */
-                const double transn_z =
-                    s_fighter.state == FL_FALCON_KICK_BOUND
-                        ? -(double)delta_z : (double)delta_z;
-                s_fighter.vel_air_x = transn_z * (double)s_fighter.lr +
+                /* The approved runtime cache's SpecialLwBound motion
+                 * (asset-table name FalconDiveEnd1) already exposes its
+                 * source local recoil as negative TraZ.  The compact host's
+                 * local-Z convention is the same coordinate, so use the
+                 * sampled signed delta through lr directly: right-facing
+                 * Bound retreats left, and left-facing Bound retreats right.
+                 * Do not apply a second TopN/sign flip here. */
+                s_fighter.vel_air_x = (double)delta_z * (double)s_fighter.lr +
                     (dive_launch ? s_fighter.specialhi_vel_x : 0.0);
                 s_fighter.vel_air_y = (double)delta_y +
                     (dive_launch ? s_fighter.specialhi_vel_y : 0.0);
