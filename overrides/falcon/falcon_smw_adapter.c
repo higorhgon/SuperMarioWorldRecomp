@@ -430,6 +430,12 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
     if (!snes_foreign_active()) {
+        /* A deselected mod has no controller tick in which to age a Catch.
+         * Drop the host-only catch identity rather than allowing a later
+         * reselect to release an old sprite. */
+        smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
+        s_dive_catch_slots = 0;
+        s_dive_catch_slot_guard = 0;
         smw_falcon_clear_step_wall_latch();
         return;
     }

@@ -14,8 +14,9 @@
 uint8 g_ram[0x20000];
 int snes_frame_counter;
 
-void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu) { (void)cpu; }
-void KillNormalSprite_AcceptedConsequence(CpuState *cpu) { (void)cpu; }
+void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu) { (void)cpu; }
+void SpawnSpinJumpStars(CpuState *cpu) { (void)cpu; }
+void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu) { (void)cpu; }
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 {

@@ -16,18 +16,24 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_audio_dispatches;
 
-/* The adapter harness deliberately has no generated game bodies.  The attack
- * stub models only the persistent native contact consequence used by the
- * bridge's accepted-transaction contract; detailed status routing remains in
- * falcon_combat_apply_test. */
+/* The adapter harness deliberately has no generated game bodies.  These
+ * stubs retain the source spin-jump post-contact contract; detailed status
+ * and star routing remains in falcon_combat_apply_test. */
 static int s_native_attack_contacts;
-void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
+void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
-    if (cpu == NULL) return;
+    if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
+        cpu->DB != 1 || cpu->D != 0 ||
+        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
     ++s_native_attack_contacts;
-    ++cpu->ram[0x1DFC]; /* native contact/SFX-side effect, outside scratch */
+    cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 4;
+    cpu->ram[0x1540u + (cpu->X & 0xffu)] = 31;
 }
-void KillNormalSprite_AcceptedConsequence(CpuState *cpu) { (void)cpu; }
+void SpawnSpinJumpStars(CpuState *cpu) { (void)cpu; }
+void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
+{
+    if (cpu != NULL) ++cpu->ram[0x1DFC];
+}
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
 
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
@@ -836,11 +842,11 @@ int main(void)
     if (timer_player_hurt != 0 || player_current_state != 0)
         return fail("stomp immunity latch clears before the next frame");
 
-    /* Kick's native $02:9404 consequence can leave a multi-hit target in
-     * status $08, after which the later normal-sprite side-damage route would
-     * ordinarily hurt Falcon.  Exercise the real adapter sequence through
-     * active frame 12 and prove its per-slot $1497 guard protects only the
-     * connected slot, then clears before the next slot. */
+    /* Kick's native spin-jump consequence moves the target to status $04,
+     * while the later normal-sprite side-damage route would still ordinarily
+     * hurt Falcon. Exercise the real adapter sequence through active frame 12
+     * and prove its per-slot $1497 guard protects only the connected slot,
+     * then clears before the next slot. */
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for Kick contact guard");
     snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);

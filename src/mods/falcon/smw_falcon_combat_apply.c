@@ -23,7 +23,6 @@
 #define SMW_SPR_X_HI   0x14E0u
 #define SMW_SPR_TWEAKER_C 0x166Eu
 #define SMW_SPR_TWEAKER_D 0x167Au
-#define SMW_SPR_MISC_154C 0x154Cu
 #define SMW_MINOR_SPRITE_PROC_INDEX 0x15E9u
 #define SMW_MAP16_CURRENT 0x1693u
 
@@ -95,10 +94,21 @@ static int hook_contract_is_valid(const CpuState *cpu)
            cpu->x_flag == 1 && (cpu->DB == 0 || cpu->DB == 1) && cpu->D == 0;
 }
 
+static void prepare_bank01_call(CpuState *cpu, unsigned slot)
+{
+    /* The native spin-jump sequence is called from bank $01 with M=X=8 and
+     * D=0.  Its absolute $14xx/$15xx accesses use that bank's low-WRAM
+     * mirror; $15E9 names the target consumed by $07:FC3B. */
+    cpu->P |= 0x30u;
+    cpu_p_to_mirrors(cpu);
+    cpu->DB = 1;
+    cpu->X = (uint16_t)slot;
+}
+
 static void prepare_bank02_call(CpuState *cpu, unsigned slot)
 {
-    /* $02:9451 and $02:8752 are native M1X1 routines. DB=$02 addresses the
-     * $0000-$1FFF WRAM mirror exactly as their original bank-02 callers do. */
+    /* SpawnBounceSprite is a bank-$02 native consequence and receives the
+     * same M1X1/D0 low-WRAM mirror contract as its source caller. */
     cpu->P |= 0x30u;
     cpu_p_to_mirrors(cpu);
     cpu->DB = 2;
@@ -123,48 +133,33 @@ static int sprite_is_supported_target(const CpuState *cpu, unsigned slot)
     return id <= 0x09u || id == 0x0Fu || id == 0x10u || id == 0x11u;
 }
 
-static int sprite_is_loose_shell(const CpuState *cpu, unsigned slot)
+static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot)
 {
-    const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
-    return (status == 9 || status == 10) &&
-           ram8(cpu, 0x009Eu + slot) >= 0x04u &&
-           ram8(cpu, 0x009Eu + slot) <= 0x07u;
+    /* This is the source's post-contact spin-jump kill sequence from
+     * $01:A938: status-$04 spin-kill plus $07:FC3B's four extended stars,
+     * then the native stomp score/SFX transaction.  The omitted contact puff
+     * and player bounce are Mario-body side effects, not a target consequence.
+     *
+     * Unlike Cape $02:9451 (ordinary sprites) and star $02:C7B1 (loose
+     * shells), this one native lifecycle intentionally applies to every
+     * admitted target, including status-$08 enemies and status-$09/$0A loose
+     * shells. $15E9 is the source slot selector used by the star spawner. */
+    cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = (uint8_t)slot;
+    prepare_bank01_call(cpu, slot);
+    SprStatus02_Dead_SetNorSprStatus04(cpu);
+    prepare_bank01_call(cpu, slot);
+    SpawnSpinJumpStars(cpu);
+    prepare_bank01_call(cpu, slot);
+    CheckPlayerToNormalSpriteColl_01AB46(cpu);
 }
 
-/* Falcon Dive's source catch category is a fighter/enemy capture.  A loose
+/* Falcon Dive's source catch category is a fighter/enemy capture. A loose
  * shell has a different native lifecycle and must not be silently converted
  * into a grab target. */
 static int sprite_is_dive_catch_target(const CpuState *cpu, unsigned slot)
 {
     return ram8(cpu, SMW_SPR_STATUS + slot) == 8 &&
            sprite_is_supported_target(cpu, slot);
-}
-
-static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot,
-                                             int loose_shell)
-{
-    if (loose_shell) {
-        /* SMWDisX CODE_02C7B1 is reached only after native star contact. It
-         * is the source's no-geometry kill consequence: status $02, kick SFX,
-         * and GivePoints.  Use it for the admitted loose-shell lifecycle,
-         * because CODE_02945B deliberately turns ordinary Koopa metadata back
-         * into carryable status $09. */
-        prepare_bank02_call(cpu, slot);
-        KillNormalSprite_AcceptedConsequence(cpu);
-        return;
-    }
-
-    /* These are the exact ordinary-Cape source inputs immediately before the
-     * accepted continuation: CODE_0293A9 clears $0E before its target loop,
-     * CODE_029404 sets $154C, and $15E9 names the sprite being processed.
-     * (The alternate net-punch route sets $0E=$35 and branches around $9451.)
-     * $0E is transactional scratch; restore the caller's $15E9 after the
-     * direct host call so a different outer normal sprite slot cannot move. */
-    cpu->ram[SMW_SCRATCH_FIRST + 0x0Eu] = 0;
-    cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = (uint8_t)slot;
-    cpu->ram[SMW_SPR_MISC_154C + slot] = 8;
-    prepare_bank02_call(cpu, slot);
-    CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(cpu);
 }
 
 static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
@@ -208,9 +203,9 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
         save_cpu(cpu, &saved);
         memset(cpu->ram + SMW_SCRATCH_FIRST, 0, sizeof(scratch));
         effects_before = ram_effect_hash(cpu);
-        /* Host geometry is the admission decision. Both selected entries are
-         * post-geometry native consequences, never a second Mario/cape test. */
-        invoke_native_sprite_consequence(cpu, slot, sprite_is_loose_shell(cpu, slot));
+        /* Host geometry is the admission decision. This is a post-contact
+         * native spin-jump consequence, never a second Mario/cape test. */
+        invoke_native_sprite_consequence(cpu, slot);
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = current_sprite;
         restore_cpu(cpu, &saved);

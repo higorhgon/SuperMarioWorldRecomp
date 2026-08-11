@@ -5,39 +5,57 @@
 #include <string.h>
 
 static uint8_t s_ram[0x20000];
-static int s_sprite_calls, s_cape_calls, s_loose_kill_calls, s_block_calls;
-static uint16_t s_keep_status08;
+static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
+static int s_spin_score_calls, s_dive_throw_calls, s_block_calls;
 
-void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
+void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
     const unsigned slot = cpu->X & 0xffu;
-    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 ||
-        cpu->D != 0 || cpu->ram[0x0e] != 0 ||
-        cpu->ram[0x15e9] != slot || cpu->ram[0x154c + slot] != 8) {
-        fprintf(stderr, "bad sprite contract\n"); return;
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 1 ||
+        cpu->D != 0 || cpu->ram[0x15e9] != slot) {
+        fprintf(stderr, "bad spin-kill contract\n"); return;
     }
-    ++s_sprite_calls; ++s_cape_calls;
-    ++cpu->ram[0x1dfc]; /* native $02:9455 GivePoints-side consequence */
-    if ((s_keep_status08 & (uint16_t)(1u << slot)) == 0) {
-        /* Exact $02:945B follow-up: this ordinary jumpable/non-dying Koopa
-         * metadata becomes carryable, not an invented host death. */
-        cpu->ram[0x14c8 + slot] = 2;
-        if ((cpu->ram[0x1656 + slot] & 0x10u) != 0 &&
-            (cpu->ram[0x1656 + slot] & 0x20u) == 0 &&
-            (cpu->ram[0x1662 + slot] & 0x80u) == 0)
-            cpu->ram[0x14c8 + slot] = 9;
+    ++s_sprite_calls; ++s_spin_kill_calls;
+    /* Exact $01:9ACB native spin-jump state transition. */
+    cpu->ram[0x14c8 + slot] = 4;
+    cpu->ram[0x1540 + slot] = 31;
+    cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
+}
+void SpawnSpinJumpStars(CpuState *cpu)
+{
+    const unsigned slot = cpu->X & 0xffu;
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 1 ||
+        cpu->D != 0 || cpu->ram[0x15e9] != slot) {
+        fprintf(stderr, "bad spin-star contract\n"); return;
     }
+    ++s_spin_star_calls;
+    /* The source star spawner consumes $15E9, not a host-made particle. */
+    cpu->ram[0x170b] = 16;
+    cpu->ram[0x176f] = 23;
+    cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
+}
+void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
+{
+    const unsigned slot = cpu->X & 0xffu;
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 1 ||
+        cpu->D != 0 || cpu->ram[0x15e9] != slot) {
+        fprintf(stderr, "bad spin-score contract\n"); return;
+    }
+    ++s_spin_score_calls;
+    ++cpu->ram[0x1697];
+    cpu->ram[0x1df9] = 8;
+    ++cpu->ram[0x1dfc];
     cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
 }
 void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
 {
     const unsigned slot = cpu->X & 0xffu;
     if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 || cpu->D != 0) {
-        fprintf(stderr, "bad loose-shell kill contract\n"); return;
+        fprintf(stderr, "bad Dive throw contract\n"); return;
     }
-    ++s_sprite_calls; ++s_loose_kill_calls;
-    cpu->ram[0x14c8 + slot] = 2; /* exact $02:C7B1 accepted native kill */
-    ++cpu->ram[0x1dfc]; /* native kick SFX / GivePoints observable effect */
+    ++s_sprite_calls; ++s_dive_throw_calls;
+    cpu->ram[0x14c8 + slot] = 2;
+    ++cpu->ram[0x1dfc];
     cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
 }
 void SpawnBounceSprite(CpuState *cpu)
@@ -54,7 +72,10 @@ static int failed(const char *x, int n) { fprintf(stderr,"FAIL %d: %s\n",n,x); r
 static void put16(unsigned p, uint16_t x) { s_ram[p]=(uint8_t)x; s_ram[p+1]=(uint8_t)(x>>8); }
 static CpuState fresh(void) {
     CpuState c; memset(&c,0,sizeof(c)); memset(s_ram,0,sizeof(s_ram));
-    c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30; s_keep_status08=0; return c;
+    c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30;
+    s_sprite_calls=s_spin_kill_calls=s_spin_star_calls=s_spin_score_calls=0;
+    s_dive_throw_calls=0;
+    return c;
 }
 static ForeignAttackHitbox punch(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
@@ -91,21 +112,22 @@ int main(void) {
 
     /* save1's front pair is a status-$08 Koopa and a status-$09 loose shell,
      * both ID $05. Status $0A is the same admitted loose-shell lifecycle.
-     * Punch must submit all three to source $02:9451; only carried $0B is
-     * Falcon-owned and excluded. */
+     * All three use the $01:9ACB -> $07:FC3B -> $01:AB46 spin-jump sequence;
+     * only carried $0B is Falcon-owned and excluded. */
     install_sprite(8,8,0x05,184,126); install_sprite(9,9,0x05,202,126);
     install_sprite(10,10,0x05,210,126);
     install_sprite(7,11,0x04,188,126); begin(&ledger,FL_FALCON_PUNCH_GROUND);
-    s_ram[0x1656 + 8]=0x10; /* CODE_029472/79 carryable follow-up */
     memset(s_ram,0x5a,16); memcpy(scratch,s_ram,16); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==3);
-    CHECK(s_sprite_calls==3 && s_cape_calls==1 && s_loose_kill_calls==2 &&
-          s_ram[0x14d0]==9 && s_ram[0x14d1]==2 && s_ram[0x14d2]==2 &&
+    CHECK(s_sprite_calls==3 && s_spin_kill_calls==3 && s_spin_star_calls==3 &&
+          s_spin_score_calls==3 && s_ram[0x14d0]==4 && s_ram[0x14d1]==4 &&
+          s_ram[0x14d2]==4 && s_ram[0x1548]==31 && s_ram[0x1549]==31 &&
+          s_ram[0x154a]==31 && s_ram[0x170b]==16 && s_ram[0x176f]==23 &&
           s_ram[0x14cf]==11 &&
           hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)|(1u<<10)) &&
           ledger.new_hit_slots==((1u<<8)|(1u<<9)|(1u<<10)));
     CHECK(memcmp(s_ram,scratch,16)==0 && s_ram[0x15e9]==0 &&
-          s_ram[0x154c + 8]==8 && cpu.DB==1 && cpu.A==0);
+          s_ram[0x1697]==3 && s_ram[0x1df9]==8 && cpu.DB==1 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */
     calls=s_sprite_calls; memset(&hit,0,sizeof(hit));
@@ -114,24 +136,24 @@ int main(void) {
           ledger.new_hit_slots==0);
 
     /* An aerial Punch that lands during its active window keeps one source
-     * move identity. The air->ground continuation must not re-hit a native
-     * multi-hit target that intentionally remains status $08. */
+     * move identity. The air->ground continuation must not replay the native
+     * spin-kill transaction on its already-resolved slot. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
-    install_sprite(4,8,0x0f,184,120); s_keep_status08=(uint16_t)(1u<<4);
+    install_sprite(4,8,0x0f,184,120);
     begin(&ledger,FL_FALCON_PUNCH_AIR); CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1);
     calls=s_sprite_calls; begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 && s_sprite_calls==calls);
 
-    /* Active Kick's rendered foot reaches a line of regular enemies. Slot 3
-     * intentionally remains native status $08 (multi-hit family), proving
-     * bookkeeping rather than a status mutation prevents repeated contacts.
-     * The target behind Falcon is untouched and therefore stays dangerous. */
+    /* Active Kick's rendered foot reaches a line of regular enemies. Its
+     * status-$04 native transition proves bookkeeping—not a status-$08
+     * assumption—prevents repeated contacts. The target behind Falcon is
+     * untouched and therefore stays dangerous. */
     cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
     install_sprite(1,8,0x0f,170,120); install_sprite(3,8,0x0f,178,120);
-    install_sprite(6,8,0x0f,80,120); s_keep_status08=(uint16_t)(1u<<3);
+    install_sprite(6,8,0x0f,80,120);
     begin(&ledger,FL_FALCON_KICK_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2 && hit.attack_connected);
-    CHECK(s_ram[0x14c9]==2 && s_ram[0x14cb]==8 && s_ram[0x14ce]==8);
+    CHECK(s_ram[0x14c9]==4 && s_ram[0x14cb]==4 && s_ram[0x14ce]==8);
     calls=s_sprite_calls; CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==calls);
 
@@ -161,7 +183,7 @@ int main(void) {
     memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_release_dive(&cpu,&ledger,&hit)==1 &&
           hit.attack_connected && s_sprite_calls==calls+1 &&
-          s_loose_kill_calls>=1 && s_ram[0x14cc]==2 && s_ram[0x14ce]==8 &&
+          s_dive_throw_calls==1 && s_ram[0x14cc]==2 && s_ram[0x14ce]==8 &&
           ledger.dive_latched_slot==-1);
     CHECK(smw_falcon_combat_release_dive(&cpu,&ledger,&hit)==0 &&
           s_sprite_calls==calls+1);

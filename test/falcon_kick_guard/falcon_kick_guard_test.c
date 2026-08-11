@@ -16,25 +16,28 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_native_contacts;
 
-void CheckPlayerAttackToNormalSpriteColl_AcceptedConsequence(CpuState *cpu)
+void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
-        cpu->DB != 2 || cpu->D != 0) return;
+        cpu->DB != 1 || cpu->D != 0 ||
+        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
     ++s_native_contacts;
-    /* A genuine native multi-hit consequence may retain status $08. This
-     * persistent SFX-side write is the observed acceptance proof, not a
-     * guessed per-enemy timer. */
-    ++cpu->ram[0x1DFC];
-    /* Keep the ordinary Koopa at $08 to model a native multi-hit family and
-     * exercise exact same-slot side-contact protection. */
+    cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 4;
+    cpu->ram[0x1540u + (cpu->X & 0xffu)] = 31;
 }
-void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
+void SpawnSpinJumpStars(CpuState *cpu)
 {
     if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
-        cpu->DB != 2 || cpu->D != 0) return;
-    ++s_native_contacts;
+        cpu->DB != 1 || cpu->D != 0 ||
+        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
+    cpu->ram[0x170B] = 16;
+}
+void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
+{
+    if (cpu == NULL || cpu->m_flag != 1 || cpu->x_flag != 1 ||
+        cpu->DB != 1 || cpu->D != 0 ||
+        cpu->ram[0x15E9] != (cpu->X & 0xffu)) return;
     ++cpu->ram[0x1DFC];
-    cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 2;
 }
 
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
@@ -122,8 +125,8 @@ int main(void)
     cpu.DB = 1;
     cpu.X = 8;
     SmwFalconBeforeNormalSprites(&cpu);
-    if (s_native_contacts != 2 || spr_current_status[8] != 8 ||
-        spr_current_status[9] != 2 || timer_player_hurt != 1 || cpu.DB != 1)
+    if (s_native_contacts != 2 || spr_current_status[8] != 4 ||
+        spr_current_status[9] != 4 || timer_player_hurt != 1 || cpu.DB != 1)
         return fail("normal-sprite seam destroys shell and guards its Koopa");
     model_later_side_damage();
     if (player_current_state != 0)
