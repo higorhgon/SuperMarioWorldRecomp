@@ -851,7 +851,16 @@ int main(void)
     io_controller_hold2 = io_controller_press2 = 0;
     ++snes_frame_counter;
     SmwFalconBeforePhysics(NULL);
-    SmwFalconAfterPhysics(NULL); /* arms the future normal-sprite observer */
+    /* Model the documented nonlocal player-collision return: CD36 is
+     * skipped, but the guaranteed first $01:80D2 sprite seam must still arm
+     * the future native stomp observer. */
+    memset(&attack_cpu, 0, sizeof(attack_cpu));
+    attack_cpu.ram = g_ram;
+    attack_cpu.m_flag = attack_cpu.x_flag = 1;
+    attack_cpu.P = 0x30;
+    attack_cpu.DB = 1;
+    attack_cpu.X = 0;
+    SmwFalconBeforeNormalSprites(&attack_cpu);
     timer_player_hurt = 0;
     player_in_air_flag = 1;
     player_yspeed = 0xD0;

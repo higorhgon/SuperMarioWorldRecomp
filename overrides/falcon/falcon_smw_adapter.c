@@ -621,6 +621,8 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     const ForeignState *state;
     ForeignCollisionResult wall;
     int active_ground_kick;
+    uint8_t side_bits;
+    uint8_t expected_side;
     (void)cpu;
 
     /* The BLOCK_PATCH in HandlePlayerLevelCollision_M1X1 reaches the inlined
@@ -635,9 +637,10 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     if (!s_pending || !snes_foreign_active() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         !smw_falcon_playable() ||
-        /* Slot 0's step path is wall bit $01 plus exact crush bits $1C;
-         * do not turn an airborne/moving-ceiling crush into immunity. */
-        (player_blocked_flags & 0x1Du) != 0x1Du ||
+        /* Native $00:E9FB is side-neutral: $1D is right+$1C and $1E is
+         * left+$1C.  Accept exactly one forward wall bit, never a two-sided
+         * or mismatched moving-ceiling crush. */
+        (player_blocked_flags & 0x1Cu) != 0x1Cu ||
         s_in_air_before != 0 ||
         player_ypos != s_y_before) return;
     state = snes_foreign_state();
@@ -649,6 +652,10 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
          ((state->state != FL_DASH && state->state != FL_RUN) ||
           s_last_input_direction == 0 ||
           s_last_input_direction != (state->facing >= 0.0f ? 1 : -1))))
+        return;
+    side_bits = (uint8_t)(player_blocked_flags & 0x03u);
+    expected_side = (uint8_t)(state->facing >= 0.0f ? 0x01u : 0x02u);
+    if (side_bits != expected_side)
         return;
 
     /* Grounded SpecialLw is a one-shot correction: AfterPhysics must see its
@@ -867,6 +874,13 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 {
     unsigned slot = 12u;
     smw_falcon_finish_skipped_direct_air_kick_landing();
+    /* Some player-collision branches return before the inline $00:CD36
+     * callback.  A pending foreign tick still reaches this guaranteed
+     * per-sprite seam before native stomp processing, so arm the exact
+     * post-$01:AA33 observer here as the fallback. */
+    if (s_pending && snes_foreign_active() && smw_falcon_playable() &&
+        snes_foreign_ownership() == FOREIGN_OWNERSHIP_FOREIGN)
+        s_stomp_bounce_armed = 1;
     /* ProcessNormalSprites calls $01:80D2 once per ordinary sprite. Its first
      * instruction saves the current X; later in the same per-slot body it
      * invokes $01:A7E4 CheckPlayerToNormalSpriteCollision. Thus hook entry

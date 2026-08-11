@@ -14,10 +14,17 @@
 uint8 g_ram[0x20000];
 int snes_frame_counter;
 
+void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
+{
+    if (cpu != NULL && cpu->ram != NULL && (bank == 0 || bank == 1))
+        cpu->ram[addr] = value;
+}
+
 void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu) { (void)cpu; }
 void SpawnSpinJumpStars(CpuState *cpu) { (void)cpu; }
 void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu) { (void)cpu; }
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
+void KillNormalSprite_AcceptedConsequence(CpuState *cpu) { (void)cpu; }
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 {
     (void)events;
@@ -58,6 +65,7 @@ static void ground_adapter_frame(uint8_t hold1, uint8_t press1)
 
 int main(void)
 {
+    CpuState cpu;
     ForeignState *state;
 
     memset(g_ram, 0, sizeof(g_ram));
@@ -137,6 +145,64 @@ int main(void)
     if (player_xpos != 0x0711)
         return fail("neutral releases the persistent step-wall latch");
 
+    /* Mirror the exact native false-crush signature at a left wall.  The
+     * side-neutral ROM test is ($77 & $1C)==$1C, so left is $1E and must
+     * retain left+floor as $06. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for left step guard");
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0900;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x44;
+    player_sub_ypos = 0x66;
+    io_controller_hold1 = 0x02;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    state = snes_foreign_state();
+    if (state == NULL) return fail("foreign state available for left wall");
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = -1.0f;
+    player_xpos = 0x08C0;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x90;
+    player_yspeed = 0x96;
+    player_blocked_flags = 0x1E;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x0900 || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x44 || player_sub_ypos != 0x66 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x06)
+        return fail("left step guard mirrors $1E to stable left+floor $06");
+
+    /* A wall bit opposite the authored facing is not Falcon's forward
+     * high-speed step and must remain native-owned. */
+    SmwFalconOnStateLoaded();
+    player_xpos = 0x0900;
+    player_ypos = 0x0160;
+    player_in_air_flag = 0;
+    io_controller_hold1 = 0x02;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    state = snes_foreign_state();
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = -1.0f;
+    player_xpos = 0x08C0;
+    player_ypos = 0x0160;
+    player_xspeed = 0x90;
+    player_yspeed = 0x96;
+    player_blocked_flags = 0x1D;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x08C0 || player_xspeed != 0x90 ||
+        player_blocked_flags != 0x1D)
+        return fail("opposite-side crush remains native-owned");
+
     /* The same bit pattern cannot shield an airborne / vertically displaced
      * Falcon from a real crush. */
     player_xpos = 0x074A;
@@ -212,6 +278,36 @@ int main(void)
                 return fail("Kick wall stop remains Wait across native collision ticks");
         }
     }
+
+    /* A player-collision nonlocal return can omit CD36/AfterPhysics.  The
+     * first guaranteed normal-sprite seam must still arm the observer which
+     * adopts SMW's exact successful stomp impulse from $01:AA33. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for skipped-CD36 stomp");
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0700;
+    player_ypos = 0x0160;
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.ram = g_ram;
+    cpu.m_flag = cpu.x_flag = 1;
+    cpu.P = 0x30;
+    cpu.DB = 1;
+    cpu.X = 0;
+    SmwFalconBeforeNormalSprites(&cpu); /* deliberately omit AfterPhysics */
+    timer_player_hurt = 0;
+    player_in_air_flag = 1;
+    player_yspeed = 0xD0;
+    SmwFalconOnNativeStompBounce(&cpu);
+    state = snes_foreign_state();
+    if (state == NULL || state->vy < 37.49 || state->vy > 37.51 ||
+        state->grounded || timer_player_hurt != 1)
+        return fail("skipped-CD36 stomp adopts native bounce at guaranteed seam");
 
     puts("falcon_step_guard_test: PASS");
     return 0;
