@@ -849,8 +849,8 @@ int main(void)
     SmwFalconBeforeCrushCheck(NULL);
     if (player_xpos != 0x070F || player_ypos != 0x0160 ||
         player_xspeed != 0 || player_yspeed != 0 ||
-        (player_blocked_flags & 0x1C) != 0)
-        return fail("run into one-block step restores pre-move position before native crush");
+        player_blocked_flags != 0x05)
+        return fail("step guard restores position and preserves wall/floor contact");
     /* Do not broadly immunize genuine moving-ceiling / airborne crushes. */
     player_xpos = 0x074A;
     player_ypos = 0x015F;

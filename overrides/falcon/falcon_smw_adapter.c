@@ -477,7 +477,10 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     player_ypos = s_y_before;
     player_sub_xspeed = player_sub_yspeed = 0;
     player_xspeed = player_yspeed = 0;
-    player_blocked_flags &= 0xE3u; /* preserve native wall/edge bits only */
+    /* $77 bit $04 is the native floor contact (the valid pre-step value was
+     * $04). Clear only incompatible ceiling/crush bits $18: $1D becomes $05,
+     * retaining both the wall and floor result for the next frame. */
+    player_blocked_flags &= 0xE7u;
 }
 
 void SmwFalconAfterPhysics(struct CpuState *cpu)

@@ -26,11 +26,13 @@ collision result, but does not claim to suppress native action branches.
 
 When the sourced Dash/Run meets the vertical face of a one-block step, native
 SMW can report `$77=$1D` (wall plus its floor/ceiling crush bits) and branch
-to its kill path even for small Falcon. The precise `$00:E9FB` pre-branch hook
-is gated to playable foreign Dash/Run, grounded state, unchanged Y, and that
-exact wall signature. It restores the immediately pre-integration X/Y and
-zeros velocity while preserving the wall bit, so the step stops Falcon rather
-than killing him. Airborne and vertically displaced crushes remain native.
+to its kill path even for small Falcon. The precise `$00:E9FB` pre-branch block
+patch is gated to playable foreign Dash/Run, grounded state, unchanged Y, and
+that exact wall signature. It restores the immediately pre-integration X/Y and
+zeros velocity while changing `$77` from `$1D` to `$05`: wall `$01` and floor
+`$04` remain, while only incompatible ceiling/crush bits `$18` clear. The step
+therefore stops Falcon without dropping his native floor contact. Airborne and
+vertically displaced crushes remain native.
 
 Underwater levels remain Falcon-controlled: no native swim input is used, and
 attacks retain the saved raw controller input. At the `$00:DC2D` boundary every

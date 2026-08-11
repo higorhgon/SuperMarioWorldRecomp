@@ -68,8 +68,8 @@ int main(void)
     SmwFalconBeforeCrushCheck(NULL);
     if (player_xpos != 0x070F || player_ypos != 0x0160 ||
         player_xspeed != 0 || player_yspeed != 0 ||
-        player_blocked_flags != 0x01)
-        return fail("run into one-block step backs out before $00:EA08 kill");
+        player_blocked_flags != 0x05)
+        return fail("step guard keeps native wall and floor contact ($1D -> $05)");
 
     /* The same bit pattern cannot shield an airborne / vertically displaced
      * Falcon from a real crush. */
