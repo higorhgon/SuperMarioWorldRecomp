@@ -23,9 +23,15 @@ void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
 int smw_falcon_presentation_root_delta(const char *animation, float frame,
                                        float *delta_y, float *delta_z)
 {
-    (void)animation; (void)frame;
+    (void)frame;
     if (delta_y != NULL) *delta_y = 0.0f;
     if (delta_z != NULL) *delta_z = 0.0f;
+    /* FalconDiveEnd1 is the approved SpecialLwBound motion.  A positive
+     * cached local-Z sample must become recoil against a right-hand wall. */
+    if (animation != NULL && strcmp(animation, "FalconDiveEnd1") == 0) {
+        if (delta_z != NULL) *delta_z = 64.0f;
+        return 1;
+    }
     return 0;
 }
 
@@ -190,11 +196,22 @@ int main(void)
     if (state == NULL || state->state != FL_FALCON_KICK_BOUND ||
         state->grounded)
         return fail("restored low-step wall reaches Ground Kick Bound after CD36");
+    {
+        const uint16_t safe_wall_x = player_xpos;
     ++snes_frame_counter;
     SmwFalconBeforePlayerPhysics(NULL);
     SmwFalconBeforePhysics(NULL);
-    if (player_in_air_flag == 0 || player_xspeed != 0)
-        return fail("Bound gets one native airborne handoff without a held wall latch");
+        if (player_in_air_flag == 0 || (int8_t)player_xspeed >= 0)
+            return fail("Bound projects its authored TransN away from the wall");
+        /* Model the following native position integration.  The rebound's
+         * first root-motion tick must retreat from the safe face, never cross
+         * it as the rejected build did (0745 -> 0767). */
+        player_xpos = (uint16_t)(player_xpos + (int8_t)player_xspeed / 16);
+        if (player_xpos >= safe_wall_x)
+            return fail("Bound next tick remains on the safe side of the wall");
+        player_blocked_flags = 0;
+        SmwFalconAfterPhysics(NULL);
+    }
 
     puts("falcon_step_guard_test: PASS");
     return 0;

@@ -47,7 +47,10 @@ contact window enters the existing source `FL_FALCON_KICK_BOUND` state
 integrate the rejected horizontal delta before the Bound transition. The
 approved `FalconDiveEnd1` track is the fifth positional Captain SpecialL
 motion—the slot `ftcaptain.h` identifies as SpecialLwBound—so it supplies the
-authored rebound TransN. Ground-origin continuation and direct SpecialAirLw
+authored rebound TransN. Bound projects that local recoil basis away from the
+rejected side wall, matching BattleShip's airborne TopN/TransN transform
+rather than reusing the host's facing-only ground projection. Ground-origin
+continuation and direct SpecialAirLw
 use their own map paths: a side wall retains that Kick state with native
 horizontal clamp and is never promoted to Ground Bound. This is limited to
 Kick wall contact—ordinary jump/run wall handling is unchanged.
