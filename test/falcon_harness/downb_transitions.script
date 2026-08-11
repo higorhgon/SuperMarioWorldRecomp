@@ -21,9 +21,8 @@ frames 1
 expect_state FALCON_KICK_GROUND_AIR
 expect_grounded 0 0
 
-# A low side wall during Ground SpecialLw's authored flag1/contact window
-# enters the dedicated rebound state, clamps the private mirror before it can
-# cross, and forces air kinetics before ordinary landing reconciliation.
+# An active Ground Kick meeting a low side wall is a solid stop. It must not
+# enter Bound, force air, or reapply its root through the accepted wall face.
 reset
 neutral
 stick_y -80
@@ -31,11 +30,14 @@ special down
 frames 1
 special up
 frames 11
+pos_x 745
 host_wall
 frames 1
-expect_state FALCON_KICK_BOUND
-expect_grounded 0 0
-roundtrip
+expect_state WAIT
+expect_grounded 1 1
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
 
 # Late Ground SpecialLw is outside the source flag1 Bound window. It must
 # consume the remaining forward root at the native wall face rather than
@@ -105,7 +107,7 @@ frames 4
 expect_pos_x 745 745
 roundtrip
 
-# An ordinary jump wall collision does not become Falcon Kick Bound.
+# An ordinary jump wall collision remains ordinary jump behavior.
 reset
 jump down
 frames 4

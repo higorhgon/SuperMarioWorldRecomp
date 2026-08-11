@@ -26,12 +26,10 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
     (void)frame;
     if (delta_y != NULL) *delta_y = 0.0f;
     if (delta_z != NULL) *delta_z = 0.0f;
-    /* FalconDiveEnd1 is the approved SpecialLwBound motion. Its verified
-     * runtime-cache local TraZ delta is negative, which directly recoils
-     * left from a right-hand wall through the ordinary lr projection. */
+    /* A Kick wall now stops before any Bound root can be sampled. Keep this
+     * callback inert so the fixture proves no hidden force-air/root route. */
     if (animation != NULL && strcmp(animation, "FalconDiveEnd1") == 0) {
-        if (delta_z != NULL) *delta_z = -64.0f;
-        return 1;
+        return 0;
     }
     return 0;
 }
@@ -154,8 +152,8 @@ int main(void)
     /* Ground SpecialLw's source flag1 opens at frame 12. A one-block step
      * produces native $77=$1D before CD36/AfterPhysics, so this one-shot
      * correction must restore the exact DC2D snapshot, retain wall+floor,
-     * then let the normal resolver select Ground SpecialLw Bound. No held
-     * step latch is allowed: Bound's authored TransN recoil owns next frame. */
+     * then enter the approved solid-wall Wait with no force-airborne or root
+     * recoil. No held Dash/Run latch is allowed for this Kick path. */
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for Kick low-step guard");
     SmwFalconOnStateLoaded();
@@ -194,24 +192,23 @@ int main(void)
         return fail("active Ground Kick restores low-step snapshot once ($1D -> $05)");
     SmwFalconAfterPhysics(NULL);
     state = snes_foreign_state();
-    if (state == NULL || state->state != FL_FALCON_KICK_BOUND ||
-        state->grounded)
-        return fail("restored low-step wall reaches Ground Kick Bound after CD36");
+    if (state == NULL || state->state != FL_WAIT || !state->grounded)
+        return fail("restored low-step wall enters grounded Kick wall stop after CD36");
     {
         const uint16_t safe_wall_x = player_xpos;
-    ++snes_frame_counter;
-    SmwFalconBeforePlayerPhysics(NULL);
-    SmwFalconBeforePhysics(NULL);
-        if (player_in_air_flag == 0 || (int8_t)player_xspeed >= 0)
-            return fail("Bound projects its authored TransN away from the wall");
-        /* Model the following native position integration.  The rebound's
-         * first root-motion tick must retreat from the safe face, never cross
-         * it as the rejected build did (0745 -> 0767). */
-        player_xpos = (uint16_t)(player_xpos + (int8_t)player_xspeed / 16);
-        if (player_xpos >= safe_wall_x)
-            return fail("Bound next tick remains on the safe side of the wall");
-        player_blocked_flags = 0;
-        SmwFalconAfterPhysics(NULL);
+        for (unsigned i = 0; i != 3; ++i) {
+            ++snes_frame_counter;
+            SmwFalconBeforePlayerPhysics(NULL);
+            SmwFalconBeforePhysics(NULL);
+            if (player_in_air_flag != 0 || player_xspeed != 0 ||
+                player_yspeed != 0 || player_xpos != safe_wall_x)
+                return fail("Kick wall stop holds grounded safe position without root");
+            player_blocked_flags = 0x05;
+            SmwFalconAfterPhysics(NULL);
+            state = snes_foreign_state();
+            if (state == NULL || state->state != FL_WAIT || !state->grounded)
+                return fail("Kick wall stop remains Wait across native collision ticks");
+        }
     }
 
     puts("falcon_step_guard_test: PASS");

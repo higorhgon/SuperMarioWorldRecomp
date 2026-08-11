@@ -606,28 +606,6 @@ static void enter_falcon_kick_landing(FalconFighter *f)
     set_status(f, FL_FALCON_KICK_LANDING);
 }
 
-/* Captain's SpecialL wall branch has a dedicated Bound action state.  The
- * collision owner has already stopped him at the wall; preserve that native
- * position and enter source air/bound state with no residual forward speed.
- * Do not borrow a Dive release trajectory for a Kick wall contact. */
-static void enter_falcon_kick_bound(FalconFighter *f)
-{
-    f->grounded = 0;
-    f->vel_ground_x = 0.0;
-    f->vel_air_x = f->vel_air_y = 0.0;
-    set_status(f, FL_FALCON_KICK_BOUND);
-}
-
-/* BattleShip ftcaptainspeciallw.c's Ground ProcMap reaches BoundCheck only
- * when SpecialLw's authored flag1 is raised.  The extracted port represents
- * that exact collision window as source frames [12, 32). Direct SpecialAirLw
- * has landing-only ProcMap and must never enter this grounded Bound state. */
-static int is_falcon_kick_ground_bound_window(const FalconFighter *f)
-{
-    return f->state == FL_FALCON_KICK_GROUND &&
-           f->state_frame >= 12.0 && f->state_frame < 32.0;
-}
-
 static int is_falcon_kick_wall_state(int state)
 {
     return state == FL_FALCON_KICK_GROUND ||
@@ -635,14 +613,12 @@ static int is_falcon_kick_wall_state(int state)
            state == FL_FALCON_KICK_AIR;
 }
 
-/* A Ground SpecialLw side contact outside flag1 is not SpecialLwBound in
- * Smash.  Likewise, SpecialAirLw has no BoundCheck at all.  In either case
- * the source map owns the solid wall each following tick; this 2D host can
- * lose that side flag on the next endpoint sample, so retaining a TransN
- * status would re-apply its forward root delta through the wall.  Consume
- * only that rejected move root: floor contact returns to ordinary Wait (or
- * the direct-air landing), while an airborne contact falls with zero carried
- * X.  This is a bounded host wall stop, not a second Bound action. */
+/* The native one-block wall must remain solid at Falcon's much larger root
+ * deltas. User-approved host policy is a stop rather than a rebound: consume
+ * every Kick root at the accepted wall face. Floor contact returns to Wait
+ * (direct aerial Kick retains its landing pose); an airborne contact falls
+ * with zero carried X. This intentionally bypasses SpecialLwBound so no
+ * airborne handshake or rebound root can tunnel through the step. */
 static void enter_falcon_kick_wall_stop(FalconFighter *f, int grounded)
 {
     f->vel_ground_x = 0.0;
@@ -1580,10 +1556,7 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
     }
 
     if (kick_wall) {
-        if (is_falcon_kick_ground_bound_window(f))
-            enter_falcon_kick_bound(f);
-        else
-            enter_falcon_kick_wall_stop(f, hit->grounded);
+        enter_falcon_kick_wall_stop(f, hit->grounded);
         return;
     }
 
