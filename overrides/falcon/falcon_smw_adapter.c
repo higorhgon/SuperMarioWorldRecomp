@@ -23,6 +23,7 @@
 #define SMW_FALCON_DASH_DOUBLE_TAP_FRAMES 15
 #define SMW_FALCON_DIVE_IFRAME_GRACE_FRAMES 8u
 #define SMW_FALCON_WALL_SAFETY_FRAMES 12u
+#define SMW_FALCON_WALL_OOB_MAX_DELTA 64
 /* Approved owner cache FalconDive TransN is subpixel through source frame 13
  * and first produces an upward SMW speed at frame 14.  The source resolver
  * itself preserves grounded-Dive air kinetics through frame 15. */
@@ -186,10 +187,12 @@ static void smw_falcon_remember_wall_safe_ground(void)
 
 static int smw_falcon_wall_safety_should_restore(void)
 {
+    int16_t dx;
     int16_t dy;
     if (!s_wall_safety_valid || !snes_foreign_active() ||
         misc_game_mode != 0x14)
         return 0;
+    dx = (int16_t)(player_xpos - s_wall_safety_x);
     dy = (int16_t)(player_ypos - s_wall_safety_y);
     /* $00:E9FB false-crush and $00:F595 pit/OOB both converge on native
      * state $09. Once native has entered that terminal path, restore the last
@@ -201,6 +204,9 @@ static int smw_falcon_wall_safety_should_restore(void)
         return 1;
     if (s_wall_safety_recent_frames == 0)
         return 0;
+    if (dx > SMW_FALCON_WALL_OOB_MAX_DELTA ||
+        dx < -SMW_FALCON_WALL_OOB_MAX_DELTA)
+        return 1;
     if (dy > 24 && player_in_air_flag != 0)
         return 1;
     if (player_in_air_flag != 0 && (player_blocked_flags & 0x03u) != 0)

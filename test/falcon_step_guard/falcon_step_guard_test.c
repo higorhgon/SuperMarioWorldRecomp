@@ -443,6 +443,43 @@ int main(void)
         player_blocked_flags != 0x06)
         return fail("wall safety rollback catches X underflow without native death");
 
+    /* Symmetric right-side ejection can stay below $F000 and still be an OOB
+     * UX failure.  A recent wall-run frame that moves more than four tiles
+     * from the last safe grounded point restores even before native death. */
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0800;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x22;
+    player_sub_ypos = 0x44;
+    player_blocked_flags = 0x04;
+    player_facing_direction = 1;
+    state = snes_foreign_state();
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = 1.0f;
+    io_controller_hold1 = 0x01;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0860;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x65;
+    player_yspeed = 0;
+    player_blocked_flags = 0x05;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (player_current_state != 0 || player_xpos != 0x0800 ||
+        player_ypos != 0x0160 || player_sub_xpos != 0x22 ||
+        player_sub_ypos != 0x44 || player_in_air_flag != 0 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x05)
+        return fail("wall safety rollback catches large right-side ejection");
+
     /* A player-collision nonlocal return can omit CD36/AfterPhysics.  The
      * first guaranteed normal-sprite seam must still arm the observer which
      * adopts SMW's exact successful stomp impulse from $01:AA33. */
