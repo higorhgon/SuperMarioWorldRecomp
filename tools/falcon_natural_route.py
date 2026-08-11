@@ -95,6 +95,23 @@ def load_route(path: pathlib.Path) -> dict[str, Any]:
                 or capture["at"] < previous or not isinstance(capture.get("id"), str)):
             raise RouteError("captures need ordered integer at values and string ids")
         previous = capture["at"]
+    saves = data.get("savestates", [])
+    if not isinstance(saves, list):
+        raise RouteError("savestates must be a list")
+    previous = -1
+    for save in saves:
+        if (not isinstance(save, dict) or not isinstance(save.get("at"), int)
+                or save["at"] < previous or not isinstance(save.get("slot"), int)
+                or not 0 <= save["slot"] <= 11 or not isinstance(save.get("id"), str)):
+            raise RouteError("savestates need ordered at values, ids, and slots 0 through 11")
+        previous = save["at"]
+    signature = data.get("load_signature")
+    if signature is not None:
+        if not isinstance(signature, dict):
+            raise RouteError("load_signature must be an object")
+        for key in ("game_mode", "player_state", "x", "y"):
+            if not isinstance(signature.get(key), str):
+                raise RouteError(f"load_signature needs string {key}")
     return data
 
 
@@ -154,6 +171,16 @@ def find_interesting(sample: dict[str, Any]) -> list[dict[str, int]]:
     return found
 
 
+def matches_load_signature(sample: dict[str, Any], signature: dict[str, str]) -> bool:
+    player = bytes.fromhex(sample["player"])
+    x = player[0x94 - 0x71] | player[0x95 - 0x71] << 8
+    y = player[0x96 - 0x71] | player[0x97 - 0x71] << 8
+    return (sample["game_mode"].lower() == signature["game_mode"].lower()
+            and f"{player[0]:02x}" == signature["player_state"].lower()
+            and f"{x:04x}" == signature["x"].lower()
+            and f"{y:04x}" == signature["y"].lower())
+
+
 def capture(client: Tcp, output: pathlib.Path, ident: str, evidence: dict[str, Any]) -> None:
     image = output / f"{ident}.bmp"
     reply = client.command("screenshot " + str(image).replace("\\", "/"))
@@ -178,6 +205,11 @@ def run(args: argparse.Namespace) -> int:
     require_port_free(args.port)
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
+    for save in route.get("savestates", []):
+        # A validation checkpoint must never overwrite a pre-existing native
+        # save.  Its only allowed write is a newly requested main-thread slot.
+        if (args.exe.parent / "saves" / f"save{save['slot']}.sav").exists():
+            raise RouteError(f"refusing to overwrite existing save{save['slot']}.sav")
     config = args.out / "no_gamepad.ini"
     write_no_gamepad_config(config)
     cache_root = pathlib.Path(os.environ["LOCALAPPDATA"]) / "SuperMarioWorldRecomp" / "smash64"
@@ -206,12 +238,39 @@ def run(args: argparse.Namespace) -> int:
             time.sleep(0.008)
         # Loading is asynchronous: it is consumed only by main's normal frame
         # boundary; the runner is never halted.
+        client.command("set_controller p1=none")
         client.command(f"loadstate {route['slot']}")
-        start = client.command("frame").get("frame")
+        signature = route.get("load_signature")
+        if signature:
+            deadline = time.monotonic() + 5
+            stable_frame = -1
+            while time.monotonic() < deadline:
+                loaded = snapshot(client)
+                if matches_load_signature(loaded, signature):
+                    loaded_frame = loaded.get("frame")
+                    if isinstance(loaded_frame, int):
+                        stable_frame = loaded_frame
+                        evidence["load_signature"] = {"matched_frame": stable_frame,
+                            "state": loaded}
+                        break
+                time.sleep(0.008)
+            if stable_frame < 0:
+                raise RouteError("loadstate did not reach the declared signature")
+            # Give the asynchronous handoff two ordinary running frames before
+            # the timeline begins; neither the main loop nor the CPU is paused.
+            while True:
+                frame_after_load = client.command("frame").get("frame")
+                if isinstance(frame_after_load, int) and frame_after_load - stable_frame >= 2:
+                    start = frame_after_load
+                    break
+                time.sleep(0.008)
+        else:
+            start = client.command("frame").get("frame")
         if not isinstance(start, int):
             raise RouteError("frame counter is absent")
         event_index = 0
         capture_index = 0
+        save_index = 0
         last_sample_frame = -1
         captured_loaded = False
         found: set[tuple[int, int, int]] = set()
@@ -227,6 +286,14 @@ def run(args: argparse.Namespace) -> int:
             while capture_index < len(route.get("captures", [])) and elapsed >= route["captures"][capture_index]["at"]:
                 capture(client, args.out, route["captures"][capture_index]["id"], evidence)
                 capture_index += 1
+            while save_index < len(route.get("savestates", [])) and elapsed >= route["savestates"][save_index]["at"]:
+                save = route["savestates"][save_index]
+                reply = client.command(f"savestate {save['slot']}")
+                evidence.setdefault("savestates", []).append({
+                    "id": save["id"], "slot": save["slot"], "requested_elapsed": elapsed,
+                    "requested_frame": frame_reply, "reply": reply,
+                })
+                save_index += 1
             if frame_reply != last_sample_frame:
                 sample = snapshot(client); sample["elapsed"] = elapsed
                 interesting = find_interesting(sample); sample["interesting"] = interesting
@@ -250,6 +317,15 @@ def run(args: argparse.Namespace) -> int:
         client.command("set_controller p1=none")
         capture(client, args.out, "route_end", evidence)
         evidence["end"] = snapshot(client)
+        for saved in evidence.get("savestates", []):
+            path = args.exe.parent / "saves" / f"save{saved['slot']}.sav"
+            deadline = time.monotonic() + 2
+            while not path.is_file() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            if not path.is_file():
+                raise RouteError(f"save{saved['slot']}.sav was not materialized")
+            saved["path"] = str(path)
+            saved["sha256"] = sha256(path)
         (args.out / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         print(f"PASS: wrote {args.out / 'evidence.json'}")
         return 0

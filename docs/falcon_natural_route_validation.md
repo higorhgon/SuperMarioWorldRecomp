@@ -16,6 +16,16 @@ ordinary frame boundary with `RtlSaveLoad(kSaveLoad_Save, N)`. It must never be
 used to synthesize a target; hash the resulting `saves/saveN.sav` before using
 it as a later route input.
 
+Route JSON may declare ordered `savestates` checkpoints (`at`, `id`, `slot`).
+The scout refuses to overwrite an existing slot, requests the save through the
+asynchronous command at the listed live frame, and records the materialized
+file's SHA-256 in evidence.
+
+For a native load route, `load_signature` (`game_mode`, `player_state`, `x`,
+`y`) waits for the saved state to become observable, then allows two ordinary
+running frames before the controller timeline starts. This anchors free-running
+inputs to the loaded game state without using a pause or step command.
+
 ```powershell
 py -3 tools/falcon_natural_route.py `
   --exe build-falcon/SuperMarioWorldSNESRecomp.exe `
