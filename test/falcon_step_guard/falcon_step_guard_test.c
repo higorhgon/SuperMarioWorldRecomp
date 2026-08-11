@@ -308,6 +308,15 @@ int main(void)
     if (state == NULL || state->vy < 37.49 || state->vy > 37.51 ||
         state->grounded || timer_player_hurt != 1)
         return fail("skipped-CD36 stomp adopts native bounce at guaranteed seam");
+    /* The next sprite in the same ProcessNormalSprites pass must not re-arm
+     * the already-consumed observer while s_pending is still set. */
+    state->vy = 0.0;
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    player_yspeed = 0xD0;
+    SmwFalconOnNativeStompBounce(&cpu);
+    if (state->vy != 0.0)
+        return fail("skipped-CD36 fallback consumes at most one stomp per frame");
 
     puts("falcon_step_guard_test: PASS");
     return 0;

@@ -37,6 +37,7 @@ static int s_special_grace_pending;
 static int s_dash_ignore_until_release;
 static unsigned s_dash_tap_age;
 static int s_stomp_bounce_armed;
+static int s_stomp_bounce_consumed;
 static int s_stomp_contact_guard;
 static SmwFalconCombatLedger s_combat_ledger;
 static uint16_t s_kick_contact_slots;
@@ -490,6 +491,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     /* BoostMarioSpeed runs later in ProcessNormalSprites. Never let its
      * previous-frame observation cross a reset, handoff, or next tick. */
     s_stomp_bounce_armed = 0;
+    s_stomp_bounce_consumed = 0;
     s_stomp_contact_guard = 0;
     if (!snes_foreign_active()) {
         /* A deselected mod has no controller tick in which to age a Catch.
@@ -852,6 +854,7 @@ void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
         (native_speed != 0xD0 && native_speed != 0xA8)) return;
 
     s_stomp_bounce_armed = 0;
+    s_stomp_bounce_consumed = 1;
     /* The current normal-sprite pass can dispatch later custom/multi-hit
      * interaction bodies after the native stomp path returns. $1497 is their
      * own established no-hurt guard. Arm exactly one frame only when it was
@@ -878,7 +881,8 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * callback.  A pending foreign tick still reaches this guaranteed
      * per-sprite seam before native stomp processing, so arm the exact
      * post-$01:AA33 observer here as the fallback. */
-    if (s_pending && snes_foreign_active() && smw_falcon_playable() &&
+    if (s_pending && !s_stomp_bounce_consumed && snes_foreign_active() &&
+        smw_falcon_playable() &&
         snes_foreign_ownership() == FOREIGN_OWNERSHIP_FOREIGN)
         s_stomp_bounce_armed = 1;
     /* ProcessNormalSprites calls $01:80D2 once per ordinary sprite. Its first
@@ -979,6 +983,7 @@ void SmwFalconOnStateLoaded(void)
     s_force_airborne_pending = 0;
     s_force_airborne_frames = 0;
     s_stomp_bounce_armed = 0;
+    s_stomp_bounce_consumed = 0;
     s_stomp_contact_guard = 0;
     s_kick_contact_slots = 0;
     s_kick_slot_guard = 0;
