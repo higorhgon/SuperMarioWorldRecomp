@@ -41,6 +41,17 @@ class NaturalRouteTests(unittest.TestCase):
             with self.assertRaisesRegex(route.RouteError, "slots 0 through 11"):
                 route.load_route(path)
 
+    def test_rejects_an_invalid_target_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "bad-target.json"
+            path.write_text("""{
+              "format": "falcon-native-route/v1", "slot": 0,
+              "inputs": [{"at": 0, "p1": "none"}],
+              "target_checkpoint": {"id": "target", "slot": 2, "statuses": []}
+            }""", encoding="utf-8")
+            with self.assertRaisesRegex(route.RouteError, "target_checkpoint"):
+                route.load_route(path)
+
 
 if __name__ == "__main__":
     unittest.main()

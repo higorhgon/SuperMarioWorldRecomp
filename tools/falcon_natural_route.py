@@ -112,6 +112,14 @@ def load_route(path: pathlib.Path) -> dict[str, Any]:
         for key in ("game_mode", "player_state", "x", "y"):
             if not isinstance(signature.get(key), str):
                 raise RouteError(f"load_signature needs string {key}")
+    target = data.get("target_checkpoint")
+    if target is not None:
+        if (not isinstance(target, dict) or not isinstance(target.get("id"), str)
+                or not isinstance(target.get("slot"), int) or not 0 <= target["slot"] <= 11
+                or not isinstance(target.get("statuses"), list)
+                or not target["statuses"] or any(not isinstance(state, int) or not 0 <= state <= 0xFF
+                                                   for state in target["statuses"])):
+            raise RouteError("target_checkpoint needs id, slot 0 through 11, and status bytes")
     return data
 
 
@@ -210,6 +218,9 @@ def run(args: argparse.Namespace) -> int:
         # save.  Its only allowed write is a newly requested main-thread slot.
         if (args.exe.parent / "saves" / f"save{save['slot']}.sav").exists():
             raise RouteError(f"refusing to overwrite existing save{save['slot']}.sav")
+    target = route.get("target_checkpoint")
+    if target and (args.exe.parent / "saves" / f"save{target['slot']}.sav").exists():
+        raise RouteError(f"refusing to overwrite existing save{target['slot']}.sav")
     config = args.out / "no_gamepad.ini"
     write_no_gamepad_config(config)
     cache_root = pathlib.Path(os.environ["LOCALAPPDATA"]) / "SuperMarioWorldRecomp" / "smash64"
@@ -223,7 +234,10 @@ def run(args: argparse.Namespace) -> int:
     client: Tcp | None = None
     evidence: dict[str, Any] = {"format": "falcon-native-route-evidence/v1",
         "route": args.route.name, "exe": str(args.exe), "exe_sha256": sha256(args.exe),
-        "route_sha256": sha256(args.route), "captures": [], "samples": []}
+        "route_sha256": sha256(args.route), "cache": str(cache),
+        "cache_manifest_sha256": sha256(cache / "manifest.json"),
+        "cache_runtime_sha256": sha256(cache / "falcon_runtime.bin"),
+        "captures": [], "samples": []}
     try:
         client = wait_for_tcp(process, args.port)
         boot_start = client.command("frame").get("frame")
@@ -274,6 +288,7 @@ def run(args: argparse.Namespace) -> int:
         last_sample_frame = -1
         captured_loaded = False
         found: set[tuple[int, int, int]] = set()
+        checkpointed_target = False
         end_offset = int(route.get("route_frames", 420))
         while True:
             frame_reply = client.command("frame").get("frame")
@@ -305,6 +320,21 @@ def run(args: argparse.Namespace) -> int:
                     if key not in found:
                         found.add(key)
                         capture(client, args.out, f"sprite_s{candidate['slot']}_id{candidate['id']:02x}_st{candidate['status']:02x}", evidence)
+                    if (target and not checkpointed_target
+                            and candidate["status"] in target["statuses"]):
+                        # Stop input before the next main frame, then ask that
+                        # same unpaused main thread to preserve the real target.
+                        client.command("set_controller p1=none")
+                        reply = client.command(f"savestate {target['slot']}")
+                        evidence.setdefault("savestates", []).append({
+                            "id": target["id"], "slot": target["slot"],
+                            "requested_elapsed": elapsed, "requested_frame": frame_reply,
+                            "reply": reply, "target": candidate, "precontact": sample,
+                        })
+                        evidence["stop_reason"] = f"target_checkpoint_{target['id']}"
+                        checkpointed_target = True
+                if checkpointed_target:
+                    break
                 # A route whose player state became death is not a valid natural
                 # target route.  Stop at the first observed state instead of
                 # continuing to the overworld and obscuring the failure point.

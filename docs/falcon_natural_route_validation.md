@@ -26,6 +26,12 @@ For a native load route, `load_signature` (`game_mode`, `player_state`, `x`,
 running frames before the controller timeline starts. This anchors free-running
 inputs to the loaded game state without using a pause or step command.
 
+`target_checkpoint` may name accepted native sprite-status bytes and an empty
+slot. On first observation the scout captures the sprite, releases the
+controller, requests the native save at the next ordinary frame boundary, and
+stops the route. This is suitable for preserving a natural pre-contact status
+`$08` enemy; it never populates sprite tables itself.
+
 ```powershell
 py -3 tools/falcon_natural_route.py `
   --exe build-falcon/SuperMarioWorldSNESRecomp.exe `
