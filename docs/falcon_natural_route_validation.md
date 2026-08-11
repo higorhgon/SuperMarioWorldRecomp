@@ -58,22 +58,22 @@ For each capture the output records:
 
 For natural carry, accept only a level-spawned loose shell with a real native
 status `$09 -> $0B` transition and native carry flags; do not accept a seeded
-table. For Punch/Kick, the intended ordinary target must be a natural status
-`$08` sprite and evidence must cover pre-contact, active/recovery, and the
-post-contact native status. Current combat code deliberately excludes loose
-shell status `$09/$0A` from attack targets, so a Punch-vs-loose-shell scenario
-can currently only prove preservation/no corruption, not a hit.
+table. For Punch/Kick, evidence must cover pre-contact, active/recovery, and
+the post-contact native status. Supported targets are ordinary status-`$08`
+sprites and loose shell IDs `$04-$07` in status `$09/$0A`; a carried status-`$0B`
+shell remains excluded. A multi-shell Punch proof must show that every natural
+shell intersecting the same active volume receives its native consequence.
 
 ## Current route blocker
 
 The supplied `save0.sav` begins immediately before the one-block step and does
-not expose a normal sprite. A controller-only bypass is now known: double-tap
-Right (frames 10/11), hold Right into the wall, release at 50, press Up+Y for
-one frame at 53, release at 54, then hold Right from 68. It produces a natural
-grounded Falcon Dive that rises over the step without state `$09`. Its landing
-remains on the approach side, so it is a safe launch checkpoint rather than
-proof of horizontal clearance. The route still found no status `$08/$09/$0A/$0B`
-sprite, so slot 0 is not yet a reviewed natural combat/carry target route.
+not expose a normal sprite. A controller-only route combining the grounded
+Dive and a full held aerial second jump now clears that step without state
+`$09`. The game naturally saved the resulting post-step state as `save1.sav`
+(SHA-256
+`9088252C25082B968AD16DB7DC45EABBE85C8472936C024FE04E8E00641DD6E3`).
+No status `$08/$09/$0A/$0B` sprite had spawned at that checkpoint, so validation
+must continue from slot 1 to reach natural combat/carry targets.
 
 To turn the scout into a proof scenario, provide a hash-pinned save slot or a
 reviewed controller-only level path that reaches both a level-spawned loose
