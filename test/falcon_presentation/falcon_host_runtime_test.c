@@ -74,6 +74,16 @@ static int expect_ppu_oam_group_contract(void) {
     return 1;
 }
 
+static int expect_normal_sprite_oam_page_contract(void) {
+    if (smw_falcon_presentation_normal_sprite_ppu_slot(0x00u) != 64u ||
+        smw_falcon_presentation_normal_sprite_ppu_slot(0xecu) != 123u ||
+        smw_falcon_presentation_normal_sprite_ppu_slot(0xfcu) != 127u) {
+        fputs("FAIL normal-sprite OAM page mapping\n", stderr);
+        return 0;
+    }
+    return 1;
+}
+
 int main(void) {
     if (!expect(FL_WAIT, FALCON_PRESENT_IDLE, 1) || !expect(FL_WALK_FAST, FALCON_PRESENT_WALK, 0) ||
         !expect(FL_RUN, FALCON_PRESENT_RUN, 1) || !expect(FL_JUMP_F, FALCON_PRESENT_JUMP, 0) ||
@@ -81,7 +91,8 @@ int main(void) {
         !expect(FL_FALCON_KICK_GROUND, FALCON_PRESENT_KICK, 0) ||
         !expect(FL_FALCON_KICK_AIR, FALCON_PRESENT_KICK_AIR, 0) || !expect(FL_FALCON_DIVE_AIR, FALCON_PRESENT_DIVE, 1) ||
         !expect(FL_FALCON_DIVE_CATCH, FALCON_PRESENT_DIVE_CATCH, 0) || !expect(FL_FALCON_DIVE_THROW, FALCON_PRESENT_DIVE_THROW, 1) ||
-        !expect_oam_group_contract() || !expect_ppu_oam_group_contract()) return 1;
+        !expect_oam_group_contract() || !expect_ppu_oam_group_contract() ||
+        !expect_normal_sprite_oam_page_contract()) return 1;
     puts("falcon_host_runtime: pose mapping and OAM contracts PASS");
     return 0;
 }

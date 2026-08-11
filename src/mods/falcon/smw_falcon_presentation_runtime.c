@@ -354,6 +354,11 @@ void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
     }
 }
 
+unsigned smw_falcon_presentation_normal_sprite_ppu_slot(uint8_t oam_offset) {
+    return FALCON_PLAYER_OAM_FIRST +
+           (unsigned)oam_offset / (unsigned)sizeof(OamEnt);
+}
+
 /* `$15EA` is a completed normal-sprite OAM allocation.  By this point the
  * status-$0B routine has already updated native sprite positions, throw
  * state, collisions and despawn.  Touching just these finished OAM entries
@@ -389,7 +394,11 @@ static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
          * intentionally left entirely native until individually audited. */
         if (spr_current_status[slot] != 0x0b || spr_spriteid[slot] < 0x04u ||
             spr_spriteid[slot] > 0x07u) continue;
-        first = spr_oamindex[slot] / sizeof(*oam_buf);
+        /* `$15EA` is a byte offset from SMW's normal-sprite OAM base $0300,
+         * not from the PPU's absolute slot zero.  The live save-2 shell uses
+         * offset $EC: $EC/4 = 59, therefore absolute PPU slot 64+59 = 123. */
+        first = smw_falcon_presentation_normal_sprite_ppu_slot(
+            spr_oamindex[slot]);
         if (first > 126u) continue;
         smw_falcon_presentation_reanchor_ppu_oam_group(
             ppu, first, 2u, (int)(hand_x + .5f), (int)(hand_y + .5f));

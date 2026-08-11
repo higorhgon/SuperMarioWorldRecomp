@@ -42,10 +42,13 @@ void smw_falcon_presentation_reanchor_oam_group(uint8_t *entries,
  * here would miss the current frame's completed NMI/DMA transfer.  Only X/Y
  * position fields of [first, first + count) are changed. */
 void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
-                                                    unsigned first,
-                                                    unsigned count,
-                                                    int anchor_x,
-                                                    int anchor_y);
+                                                     unsigned first,
+                                                     unsigned count,
+                                                     int anchor_x,
+                                                     int anchor_y);
+/* SMW normal-sprite draw routines address OAM relative to WRAM $0300.  PPU
+ * OAM is absolute, so its first normal-sprite entry is slot 64. */
+unsigned smw_falcon_presentation_normal_sprite_ppu_slot(uint8_t oam_offset);
 
 /* Exposed for focused host-boundary tests. */
 FalconPresentationPose smw_falcon_presentation_pose_for_state(
