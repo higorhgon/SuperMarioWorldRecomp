@@ -70,6 +70,7 @@ The identical one-pass `$1497` guard is armed only after an active grounded or
 aerial Falcon Kick receives a confirmed native target consequence; a miss or a
 target behind Falcon leaves native contact damage untouched.
 
-Run `test\falcon_combat\build.bat`, `test\falcon_combat_apply\build.bat`, and
-`test\falcon_step_guard\build.bat` for policy, mocked-native, and exact
-one-block-step regression validation.
+Run `test\falcon_combat\build.bat`, `test\falcon_combat_apply\build.bat`,
+`test\falcon_kick_guard\build.bat`, and `test\falcon_step_guard\build.bat`
+for policy, mocked-native, direct one-pass Kick, and exact one-block-step
+regression validation.
