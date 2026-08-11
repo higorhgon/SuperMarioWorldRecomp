@@ -1,6 +1,7 @@
 #include "smw_falcon_combat_apply.h"
 
 #include "smw_falcon_combat_policy.h"
+#include "falcon_locomotion.h"
 
 #include "funcs.h"
 
@@ -25,6 +26,7 @@
 #define SMW_MAP16_CURRENT 0x1693u
 
 #define SMW_SPRITE_SLOTS 12u
+#define SMW_RAM_SIZE 0x20000u
 
 typedef struct {
     uint16_t A, X, Y, S, D;
@@ -42,6 +44,18 @@ static uint8_t ram8(const CpuState *cpu, unsigned address)
 static uint16_t ram16(const CpuState *cpu, unsigned address)
 {
     return (uint16_t)ram8(cpu, address) | ((uint16_t)ram8(cpu, address + 1) << 8);
+}
+
+static uint32_t ram_effect_hash(const CpuState *cpu)
+{
+    /* $0000-$000F is deliberately transactional scratch and restored around
+     * the native call. Hash every other guest byte instead of guessing which
+     * status-$08 multi-hit table proves an accepted collision. */
+    uint32_t hash = 2166136261u;
+    unsigned address;
+    for (address = SMW_SCRATCH_COUNT; address < SMW_RAM_SIZE; ++address)
+        hash = (hash ^ cpu->ram[address]) * 16777619u;
+    return hash;
 }
 
 static void save_cpu(const CpuState *cpu, SmwFalconCpuSnapshot *saved)
@@ -87,16 +101,21 @@ static void prepare_bank02_call(CpuState *cpu, unsigned slot)
     cpu->X = (uint16_t)slot;
 }
 
-static int sprite_is_supported_ordinary(const CpuState *cpu, unsigned slot)
+static int sprite_is_supported_target(const CpuState *cpu, unsigned slot)
 {
+    const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
     uint8_t id;
-    if (ram8(cpu, SMW_SPR_STATUS + slot) != 8 ||
+    if ((status != 8 && status != 9 && status != 10) ||
         (ram8(cpu, SMW_SPR_TWEAKER_C + slot) & 0x20u) != 0 ||
         (ram8(cpu, SMW_SPR_TWEAKER_D + slot) & 0x02u) != 0) return 0;
     id = ram8(cpu, 0x009Eu + slot);
-    /* Deliberate support allowlist: Koopa/shell families, Goomba/Paragoomba,
-     * and Buzzy Beetle. Bosses, hazards, carried entities, and unfamiliar
-     * sprites remain host-unsupported rather than guessed. */
+    if (status == 9 || status == 10) {
+        /* Native loose/rolling shell lifecycle. Status $0B is deliberately
+         * absent: Falcon-owned carried shells are never combat targets. */
+        return id >= 0x04u && id <= 0x07u;
+    }
+    /* Ordinary status-$08 targets: Koopa families, Goomba/Paragoomba, Buzzy.
+     * Bosses, hazards, and unfamiliar sprites remain unsupported. */
     return id <= 0x09u || id == 0x0Fu || id == 0x10u || id == 0x11u;
 }
 
@@ -109,42 +128,53 @@ static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
                    ((uint16_t)ram8(cpu, SMW_SPR_X_HI + slot) << 8));
     y = (uint16_t)(ram8(cpu, SMW_SPR_Y_LO + slot) |
                    ((uint16_t)ram8(cpu, SMW_SPR_Y_HI + slot) << 8));
-    /* Every admitted target has native status $08. IDs $04-$07 are upright
-     * shelled Koopas, not loose shells; loose shells use $09/$0A and are
-     * intentionally excluded by sprite_is_supported_ordinary. Use the proven
-     * conservative 16x24 union for all admitted upright enemies. */
+    /* Upright targets use the conservative 16x24 union. Native loose shells
+     * are 16x16, which still shares the same front/foot contact projection. */
     {
-        SmwFalconAabb result = { x, y, (double)x + 16.0, (double)y + 24.0 };
+        const double height = ram8(cpu, SMW_SPR_STATUS + slot) == 8 ? 24.0 : 16.0;
+        SmwFalconAabb result = { x, y, (double)x + 16.0, (double)y + height };
         return result;
     }
 }
 
-static int apply_one_sprite(CpuState *cpu, const ForeignAttackHitbox *attack,
-                            float facing)
+static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack,
+                                float facing, SmwFalconCombatLedger *ledger)
 {
     SmwFalconAabb hit = smw_falcon_attack_world_aabb(
         attack, ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
     unsigned slot;
+    int contacts = 0;
     for (slot = 0; slot < SMW_SPRITE_SLOTS; ++slot) {
         SmwFalconCpuSnapshot saved;
         uint8_t scratch[SMW_SCRATCH_COUNT];
         uint8_t before;
-        if (!sprite_is_supported_ordinary(cpu, slot) ||
+        uint32_t effects_before;
+        if ((ledger->hit_slots & (uint16_t)(1u << slot)) != 0 ||
+            !sprite_is_supported_target(cpu, slot) ||
             !smw_falcon_aabb_overlaps(hit, sprite_bounds(cpu, slot))) continue;
 
         before = ram8(cpu, SMW_SPR_STATUS + slot);
         memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
         save_cpu(cpu, &saved);
         memset(cpu->ram + SMW_SCRATCH_FIRST, 0, sizeof(scratch));
+        effects_before = ram_effect_hash(cpu);
         /* $02:9404 uses $0E as its contact-effect selector; zero is the
          * source's regular (non-extended-sprite) native kill path. */
         prepare_bank02_call(cpu, slot);
         CheckPlayerAttackToNormalSpriteColl_029404(cpu);
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         restore_cpu(cpu, &saved);
-        if (ram8(cpu, SMW_SPR_STATUS + slot) != before) return 1;
+        /* A multi-hit native enemy can remain status $08 after accepting this
+         * canonical transaction. Its slot is still a contact for this move:
+         * record it so lingering Punch/Kick frames cannot replay native SFX,
+         * score, or damage against the same target. */
+        if (ram8(cpu, SMW_SPR_STATUS + slot) == before &&
+            ram_effect_hash(cpu) == effects_before)
+            continue;
+        ledger->hit_slots |= (uint16_t)(1u << slot);
+        ++contacts;
     }
-    return 0;
+    return contacts;
 }
 
 static SmwFalconMap16Class native_collision_block_class(const CpuState *cpu)
@@ -197,19 +227,45 @@ static int apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
     return 1;
 }
 
-int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
-                            float facing, ForeignCollisionResult *out_collision)
+void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
+                                     int move_state, int attack_active)
 {
-    int sprite_applied;
+    /* Landing carries an active aerial Punch into ground physics without a
+     * new source move; its target ledger must survive that state spelling. */
+    if (move_state == FL_FALCON_PUNCH_AIR)
+        move_state = FL_FALCON_PUNCH_GROUND;
+    if (ledger == NULL) return;
+    if (!attack_active) {
+        memset(ledger, 0, sizeof(*ledger));
+        return;
+    }
+    if (!ledger->active || ledger->move_state != move_state) {
+        memset(ledger, 0, sizeof(*ledger));
+        ledger->active = 1;
+        ledger->move_state = move_state;
+    }
+}
+
+int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
+                            float facing, SmwFalconCombatLedger *ledger,
+                            ForeignCollisionResult *out_collision)
+{
+    int sprite_contacts;
     if (out_collision == NULL || !hook_contract_is_valid(cpu) ||
-        attack == NULL || !attack->active) return 0;
-    sprite_applied = apply_one_sprite(cpu, attack, facing);
-    if (sprite_applied) {
+        attack == NULL || !attack->active || ledger == NULL || !ledger->active)
+        return 0;
+    sprite_contacts = apply_sprite_targets(cpu, attack, facing, ledger);
+    if (sprite_contacts != 0) {
         out_collision->attack_connected = 1;
-        /* A host contact window is deliberately lingered. Its first admitted
-         * native sprite result is the whole move's consequence; do not also
-         * consume a block under the same frame. */
+        ledger->had_sprite_contact = 1;
+        /* Native sprite contacts own their score/SFX/status transaction. A
+         * group may all receive it, but the block route remains separate. */
+        return sprite_contacts;
+    }
+    if (ledger->had_sprite_contact || ledger->block_applied) return 0;
+    if (apply_native_block(cpu, attack, facing)) {
+        ledger->block_applied = 1;
         return 1;
     }
-    return apply_native_block(cpu, attack, facing);
+    return 0;
 }

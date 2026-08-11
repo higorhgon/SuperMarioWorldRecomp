@@ -5,15 +5,30 @@
 #include "cpu_state.h"
 #include "foreign_controller.h"
 
+#include <stdint.h>
+
+/* One sourced move may hit each sprite slot once across its linger frames,
+ * while still admitting a group of distinct targets in the same frame. */
+typedef struct {
+    int move_state;
+    int active;
+    int had_sprite_contact;
+    int block_applied;
+    uint16_t hit_slots;
+} SmwFalconCombatLedger;
+
+void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
+                                     int move_state, int attack_active);
+
 /*
- * Apply at most one ordinary-sprite hit and the one native collision block
- * currently under $98/$9A.  This must run at the M1X1 PlayerState00_00CD36
- * hook, immediately after native player collision and before foreign resolve.
+ * Apply every previously-unhit eligible ordinary target, then (only if this
+ * move has not touched a sprite) the one native collision block currently
+ * under $98/$9A. This runs at M1X1 PlayerState00_00CD36, after native player
+ * collision and before foreign resolve. Returns the number of sprite contacts
+ * plus any native block consequence.
  */
-/* Returns nonzero only when the native sprite or block route actually took a
- * consequence.  Callers use this to make a lingering host attack window
- * consume one native consequence rather than one per frame. */
 int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
-                            float facing, ForeignCollisionResult *out_collision);
+                            float facing, SmwFalconCombatLedger *ledger,
+                            ForeignCollisionResult *out_collision);
 
 #endif

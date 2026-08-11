@@ -16,10 +16,17 @@ uint8 g_ram[0x20000];
 int snes_frame_counter;
 static int s_audio_dispatches;
 
-/* The adapter harness deliberately has no generated game bodies. These are
- * the two validated native aliases exercised in detail by falcon_combat_apply
- * unit tests; adapter calls here use a null CpuState until a full CPU fixture. */
-void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu) { (void)cpu; }
+/* The adapter harness deliberately has no generated game bodies.  The attack
+ * stub models only the persistent native contact consequence used by the
+ * bridge's accepted-transaction contract; detailed status routing remains in
+ * falcon_combat_apply_test. */
+static int s_native_attack_contacts;
+void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
+{
+    if (cpu == NULL) return;
+    ++s_native_attack_contacts;
+    ++cpu->ram[0x1DFC]; /* native contact/SFX-side effect, outside scratch */
+}
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
 
 void smw_falcon_audio_play_events(const ForeignAudioEvents *events)
@@ -136,9 +143,23 @@ static void adapter_frame(uint8_t hold1, uint8_t press1,
     SmwFalconAfterPhysics(NULL);
 }
 
+static void adapter_frame_cpu(uint8_t hold1, uint8_t press1,
+                              uint8_t hold2, uint8_t press2, CpuState *cpu)
+{
+    io_controller_hold1 = hold1;
+    io_controller_press1 = press1;
+    io_controller_hold2 = hold2;
+    io_controller_press2 = press2;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(cpu);
+}
+
 int main(void)
 {
     ForeignTraceEntry trace;
+    CpuState attack_cpu;
     int count;
 
     /* The title attract handler retains GM=$07 while it jumps into its level
@@ -813,6 +834,45 @@ int main(void)
     SmwFalconBeforePlayerPhysics(NULL);
     if (timer_player_hurt != 0 || player_current_state != 0)
         return fail("stomp immunity latch clears before the next frame");
+
+    /* Kick's native $02:9404 consequence can leave a multi-hit target in
+     * status $08, after which the later normal-sprite side-damage route would
+     * ordinarily hurt Falcon.  Exercise the real adapter sequence through
+     * active frame 12 and prove its one-pass $1497 guard protects only that
+     * following pass, then clears at the next early player seam. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Kick contact guard");
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 100;
+    player_ypos = 200;
+    timer_player_hurt = 0;
+    spr_current_status[0] = 8;
+    spr_spriteid[0] = 0x0f;
+    spr_xpos_lo[0] = 170;
+    spr_xpos_hi[0] = 0;
+    spr_ypos_lo[0] = 220;
+    spr_ypos_hi[0] = 0;
+    memset(&attack_cpu, 0, sizeof(attack_cpu));
+    attack_cpu.ram = g_ram;
+    attack_cpu.m_flag = attack_cpu.x_flag = 1;
+    attack_cpu.P = 0x30;
+    s_native_attack_contacts = 0;
+    for (int frame = 0; frame != 13; ++frame) {
+        const uint8_t special = frame == 0 ? 0x44 : 0;
+        adapter_frame_cpu(special, special, 0, 0, &attack_cpu);
+    }
+    if (!smw_falcon_last_attack()->active || s_native_attack_contacts != 1 ||
+        timer_player_hurt != 1 || player_current_state != 0)
+        return fail("active Kick contact arms exactly one native side-damage guard");
+    model_native_later_side_damage();
+    if (player_current_state != 0)
+        return fail("active Kick contact blocks same-pass side damage only");
+    SmwFalconBeforePlayerPhysics(NULL);
+    if (timer_player_hurt != 0)
+        return fail("Kick contact guard clears before the next normal-sprite pass");
 
     /* Live slot 0 reproduced this exact native condition while a small
      * Falcon (powerup $00) ran into a one-block step: after collision, $77

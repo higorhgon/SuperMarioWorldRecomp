@@ -1312,17 +1312,21 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
          * an enemy. Keep an intentionally host-only 42..55 contact linger
          * after the authored impact so a normal platformer approach is not a
          * five-frame timing test, but never damage before the visible fist /
-         * fire impact. Its 80px front edge is two broad Falcon body widths
-         * from his centre; the rear edge remains in front of him. The adapter
-         * consumes the first native consequence, so this cannot sweep a row
-         * of sprites or retrigger one block. */
+         * fire impact. The arm-aligned host union reaches 112px ahead from
+         * Falcon's centre and includes the shell-height band in front of his
+         * hand; it deliberately does not extend behind him. The adapter
+         * records each native target once per move, so a close line can be
+         * hit without repeating one target across the linger frames. */
         if (t >= 42.0 && t < 56.0)
-            set_attack(out, 560.0, 160.0, 900.0, 400.0, 25, 105.0, 55.0, 1);
+            set_attack(out, 700.0, 100.0, 1400.0, 650.0, 25, 105.0, 55.0, 1);
         break;
     case FL_FALCON_KICK_GROUND:
     case FL_FALCON_KICK_AIR: /* active 12..31, damage 15 */
         if (t >= 12.0 && t < 32.0)
-            set_attack(out, 300.0, 150.0, 520.0, 250.0, 15, 82.0, 25.0, 1);
+            /* Rendered foot/fire travels low and forward. This generous
+             * 72px front-foot union covers platformer-sized enemy groups,
+             * while retaining no rear-facing contact. */
+            set_attack(out, 480.0, 40.0, 900.0, 600.0, 15, 82.0, 25.0, 1);
         break;
     case FL_FALCON_KICK_LANDING: /* source one-frame landing impact */
         if (t <= 1.0)
@@ -1453,6 +1457,13 @@ void falcon_tick(FalconFighter *f, const FalconInputRaw *in, FalconMotion *out)
             /* A ground-origin Kick may regain the floor without changing its
              * continuation status; only direct aerial Kick uses the impact
              * landing motion. */
+        } else if (f->state == FL_FALCON_PUNCH_AIR) {
+            /* Host landing reconciliation happens before falcon_resolve.
+             * Continue the same motion frame in the ground spelling so the
+             * authored impact at 42 and end at 56 cannot restart or cancel. */
+            f->state = FL_FALCON_PUNCH_GROUND;
+            f->vel_ground_x = f->vel_air_x * (double)f->lr;
+            f->vel_air_x = f->vel_air_y = 0.0;
         } else if (f->state == FL_FALCON_KICK_AIR) {
             enter_falcon_kick_landing(f);
         } else if (f->state == FL_FALCON_DIVE_FALL) {
@@ -1548,6 +1559,15 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
         if (hit->grounded && !(hit->has_imposed_vy && hit->imposed_vy > 0.0)) {
             if (f->state == FL_FALCON_KICK_GROUND ||
                 f->state == FL_FALCON_KICK_GROUND_AIR) {
+                f->grounded = 1;
+                f->vel_ground_x = f->vel_air_x * (double)f->lr;
+                f->vel_air_x = f->vel_air_y = 0.0;
+            } else if (f->state == FL_FALCON_PUNCH_AIR) {
+                /* Landing cannot cancel an aerial Punch before its authored
+                 * fist/fire frame. Keep its monotonic source timeline (and
+                 * thus impact at 42 plus linger through <56), merely adopt
+                 * ground physics for the remaining recovery. */
+                f->state = FL_FALCON_PUNCH_GROUND;
                 f->grounded = 1;
                 f->vel_ground_x = f->vel_air_x * (double)f->lr;
                 f->vel_air_x = f->vel_air_y = 0.0;

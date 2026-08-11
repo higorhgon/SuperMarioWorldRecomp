@@ -37,7 +37,8 @@ static int s_dash_ignore_until_release;
 static unsigned s_dash_tap_age;
 static int s_stomp_bounce_armed;
 static int s_stomp_contact_guard;
-static int s_attack_committed;
+static SmwFalconCombatLedger s_combat_ledger;
+static int s_kick_contact_guard;
 static int s_last_input_direction;
 static int s_step_wall_latched;
 static int s_step_wall_direction;
@@ -105,9 +106,16 @@ static void smw_falcon_clear_stomp_contact_guard(void)
      * side-damage path. We write only its one-frame value and remove exactly
      * that value at the next early player seam. A real native timer update is
      * never overwritten. */
-    if (s_stomp_contact_guard && timer_player_hurt == 1)
+    if ((s_stomp_contact_guard || s_kick_contact_guard) &&
+        timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_stomp_contact_guard = 0;
+    s_kick_contact_guard = 0;
+}
+
+static int smw_falcon_active_kick_state(int state)
+{
+    return state == FL_FALCON_KICK_GROUND || state == FL_FALCON_KICK_AIR;
 }
 
 static uint8_t clamp_speed(double source_delta, int y_axis)
@@ -416,7 +424,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_pending = 0;
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
-        s_attack_committed = 0;
+        smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
         smw_falcon_clear_step_wall_latch();
         smw_falcon_reset_dash_taps();
         smw_falcon_clear_carry_bridge();
@@ -471,8 +479,8 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     memset(&s_last_move, 0, sizeof(s_last_move));
     if (!snes_foreign_tick(snes_frame_counter, &input, &s_last_move))
         return;
-    if (!s_last_move.attack.active)
-        s_attack_committed = 0;
+    smw_falcon_combat_ledger_update(&s_combat_ledger, s_last_move.state,
+                                    s_last_move.attack.active);
     /* An opposite-facing first press starts a source Turn, not a completed
      * SMW D-pad tap. Suppress it until its eventual neutral release. */
     if (state->state == FL_TURN || state->state == FL_TURN_RUN)
@@ -585,12 +593,21 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
     }
-    if (cpu != NULL && s_last_move.attack.active && !s_attack_committed) {
+    if (cpu != NULL && s_last_move.attack.active) {
         const ForeignState *state = snes_foreign_state();
-        if (smw_falcon_combat_apply(cpu, &s_last_move.attack,
-                                    state != NULL ? state->facing : 1.0f,
-                                    &hit))
-            s_attack_committed = 1;
+        const int contacts = smw_falcon_combat_apply(
+            cpu, &s_last_move.attack, state != NULL ? state->facing : 1.0f,
+            &s_combat_ledger, &hit);
+        /* The exact native contact transaction can retain a multi-hit enemy
+         * at status $08. Protect Falcon only for this immediately following
+         * normal-sprite pass; the early next-frame seam removes our one-frame
+         * $1497 value before any later pass, leaving misses/behind contacts
+         * fully native-dangerous. */
+        if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state) &&
+            timer_player_hurt == 0) {
+            timer_player_hurt = 1;
+            s_kick_contact_guard = 1;
+        }
     }
     /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the
      * post-write observer for this one frame so an accepted native stomp can
@@ -697,7 +714,8 @@ void SmwFalconOnStateLoaded(void)
     s_force_airborne_frames = 0;
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
-    s_attack_committed = 0;
+    s_kick_contact_guard = 0;
+    smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
     smw_falcon_clear_step_wall_latch();
     smw_falcon_reset_dash_taps();
