@@ -10,9 +10,10 @@ struct CpuState;
  * consequences and foreign movement resolution. */
 void SmwFalconBeforePlayerPhysics(struct CpuState *cpu);
 void SmwFalconBeforePhysics(struct CpuState *cpu);
-/* This is the pre-branch seam at SMWDisX $00:E9FB.  A running Falcon who
- * reaches a one-block step is restored to the pre-move position before the
- * native false-crush branch can kill him. */
+/* This is called from the inlined $00:E9FB block inside
+ * HandlePlayerLevelCollision_M1X1 (not its separately generated entry). A
+ * running Falcon who reaches a one-block step is restored to the pre-move
+ * position before the native false-crush branch can kill him. */
 void SmwFalconBeforeCrushCheck(struct CpuState *cpu);
 void SmwFalconAfterPhysics(struct CpuState *cpu);
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu);

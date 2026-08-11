@@ -452,7 +452,8 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     const ForeignState *state;
     (void)cpu;
 
-    /* SMWDisX $00:E9FB sends $77&$1C==$1C to $00:EA08, which calls
+    /* The BLOCK_PATCH in HandlePlayerLevelCollision_M1X1 reaches the inlined
+     * SMWDisX $00:E9FB block before it sends $77&$1C==$1C to $00:EA08, which calls
      * DamagePlayer_KillAndDisableButtons.  That exact combination means the
      * movement reached the vertical face of a one-block step while grounded;
      * it is not ordinary head contact.  Falcon's high-speed Dash/Run can

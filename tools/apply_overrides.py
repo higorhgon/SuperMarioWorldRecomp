@@ -295,6 +295,23 @@ def _ws_despawn_patch(anchor_pc, tbl_lo):
 
 
 BLOCK_PATCHES = [
+    # FALCON-STEP-CRUSH: the live $00:E92B collision routine contains the
+    # $00:E9FB block inline.  The separately emitted E9FB entry is only used
+    # by external dispatches, so an @hook on that symbol does not guard the
+    # normal player-physics path.  Patch the trace-labelled inlined block in
+    # its exact M1X1 enclosing function, immediately before it reads $77 and
+    # branches to $00:EA08 / DamagePlayer_KillAndDisableButtons.
+    {
+        "marker": "/*FALCON-STEP-CRUSH*/",
+        "check_exactly_once": True,
+        "func_match": "HandlePlayerLevelCollision_M1X1",
+        "anchor": "cpu_trace_block(cpu, 0x00E9FB)",
+        "snippet": (
+            " /*FALCON-STEP-CRUSH*/ {"
+            " extern void SmwFalconBeforeCrushCheck(CpuState *cpu);"
+            " SmwFalconBeforeCrushCheck(cpu); }"
+        ),
+    },
     # FALCON-STOMP: BoostMarioSpeed ($01:AA33) is reached only after SMW's
     # normal-sprite interaction chose the stomp path. At its $01:AA41 return,
     # native code has already written the exact D0/A8 player bounce speed.
@@ -850,6 +867,30 @@ def main():
             sys.exit(
                 "apply_overrides: manifest bases never matched a definition: "
                 + ", ".join(sorted(missing))
+            )
+        # Block patches do not have a manifest symbol to validate.  Assert
+        # their unique marker instead, so an inlined native seam cannot
+        # silently regress into a no-op hook on a dead standalone entry.
+        checked_patches = [p for p in BLOCK_PATCHES
+                           if p.get("check_exactly_once")]
+        marker_counts = {p["marker"]: 0 for p in checked_patches}
+        for name in os.listdir(args.gen_dir):
+            if not name.endswith(".c"):
+                continue
+            with open(os.path.join(args.gen_dir, name), "r", encoding="utf-8",
+                      newline="") as f:
+                generated = f.read()
+            for marker in marker_counts:
+                marker_counts[marker] += generated.count(marker)
+        bad_patches = [marker for marker, count in marker_counts.items()
+                       if count != 1]
+        if bad_patches:
+            details = ", ".join(
+                f"{marker}={marker_counts[marker]}" for marker in bad_patches
+            )
+            sys.exit(
+                "apply_overrides: block patches did not match exactly once: "
+                + details
             )
 
     print(f"apply_overrides: injected {total} dispatch prologue(s)")
