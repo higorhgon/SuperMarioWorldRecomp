@@ -295,6 +295,22 @@ def _ws_despawn_patch(anchor_pc, tbl_lo):
 
 
 BLOCK_PATCHES = [
+    # FALCON-AFTER-PHYSICS: ordinary PlayerState00 reaches $00:CD36 by
+    # fall-through from the live $00:CD24 routine.  The separately emitted
+    # CD36 entry is only an external dispatch target, so its @hook does not
+    # publish native wall/floor results to Falcon during normal gameplay.
+    # Patch the trace-labelled inline block in its exact M1X1 owner.
+    {
+        "marker": "/*FALCON-AFTER-PHYSICS*/",
+        "check_exactly_once": True,
+        "func_match": "PlayerState00_00CD24_M1X1",
+        "anchor": "cpu_trace_block(cpu, 0x00CD36)",
+        "snippet": (
+            " /*FALCON-AFTER-PHYSICS*/ {"
+            " extern void SmwFalconAfterPhysics(CpuState *cpu);"
+            " SmwFalconAfterPhysics(cpu); }"
+        ),
+    },
     # FALCON-STEP-CRUSH: the live $00:E92B collision routine contains the
     # $00:E9FB block inline.  The separately emitted E9FB entry is only used
     # by external dispatches, so an @hook on that symbol does not guard the
@@ -681,6 +697,19 @@ def apply_block_patches(text):
         text = "".join(out)
     return text, n
 
+
+def count_block_marker_in_function(text, patch):
+    """Count one block marker only in its declared generated function."""
+    count = 0
+    cur_func = None
+    for line in text.splitlines():
+        mh = _FUNC_HDR.match(line)
+        if mh:
+            cur_func = mh.group(1)
+        if cur_func and patch["func_match"] in cur_func:
+            count += line.count(patch["marker"])
+    return count
+
 # Matches a generated function DEFINITION (opening brace), not a forward
 # declaration (which ends in ';'). Captures the base name and the _M?X? suffix.
 #   RecompReturn  SomeName_M1X1 ( CpuState *cpu ) {
@@ -874,6 +903,7 @@ def main():
         checked_patches = [p for p in BLOCK_PATCHES
                            if p.get("check_exactly_once")]
         marker_counts = {p["marker"]: 0 for p in checked_patches}
+        scoped_marker_counts = {p["marker"]: 0 for p in checked_patches}
         for name in os.listdir(args.gen_dir):
             if not name.endswith(".c"):
                 continue
@@ -882,11 +912,16 @@ def main():
                 generated = f.read()
             for marker in marker_counts:
                 marker_counts[marker] += generated.count(marker)
+            for p in checked_patches:
+                scoped_marker_counts[p["marker"]] += \
+                    count_block_marker_in_function(generated, p)
         bad_patches = [marker for marker, count in marker_counts.items()
-                       if count != 1]
+                       if count != 1 or scoped_marker_counts[marker] != 1]
         if bad_patches:
             details = ", ".join(
-                f"{marker}={marker_counts[marker]}" for marker in bad_patches
+                f"{marker}={marker_counts[marker]}"
+                f" (scoped={scoped_marker_counts[marker]})"
+                for marker in bad_patches
             )
             sys.exit(
                 "apply_overrides: block patches did not match exactly once: "
