@@ -115,6 +115,20 @@ static void smw_falcon_restore_step_wall_latch(void)
                                      s_step_wall_blocked);
 }
 
+static void smw_falcon_install_step_wall_latch(uint8_t blocked_flags)
+{
+    s_step_wall_latched = 1;
+    s_step_wall_direction = s_last_input_direction;
+    s_step_wall_x = s_x_before;
+    s_step_wall_y = s_y_before;
+    s_step_wall_sub_x = s_sub_x_before;
+    s_step_wall_sub_y = s_sub_y_before;
+    s_step_wall_in_air = s_in_air_before;
+    s_step_wall_facing = player_facing_direction;
+    s_step_wall_blocked = (uint8_t)((blocked_flags & 0x03u) | 0x04u);
+    smw_falcon_restore_step_wall_latch();
+}
+
 static void smw_falcon_clear_stomp_contact_guard(void)
 {
     /* $1497 is SMW's IFrameTimer, checked by the later native/custom-sprite
@@ -212,6 +226,25 @@ static int smw_falcon_impact_guard_state(int state)
            state == FL_FALCON_KICK_AIR ||
            state == FL_FALCON_KICK_LANDING;
 }
+
+static int smw_falcon_ground_run_wall_state(int state)
+{
+    return state == FL_DASH || state == FL_RUN || state == FL_TURN_RUN;
+}
+
+static double smw_falcon_limit_ground_run_dx(const ForeignState *state,
+                                            double source_delta)
+{
+    const double max_smw_px = 4.0;
+    const double max_source_delta = max_smw_px * SMW_TO_FALCON;
+    if (state == NULL || !state->grounded ||
+        !smw_falcon_ground_run_wall_state(state->state))
+        return source_delta;
+    if (source_delta > max_source_delta) return max_source_delta;
+    if (source_delta < -max_source_delta) return -max_source_delta;
+    return source_delta;
+}
+
 static uint8_t clamp_speed(double source_delta, int y_axis)
 {
     /* SMW stores a signed 8-bit speed in sixteenth-pixel units. Falcon's
@@ -629,6 +662,8 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_sub_y_before = player_sub_ypos;
         s_in_air_before = player_in_air_flag;
         s_pending = 1;
+        s_last_move.requested_dx =
+            smw_falcon_limit_ground_run_dx(state, s_last_move.requested_dx);
         player_xspeed = clamp_speed(s_last_move.requested_dx, 0);
         player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
         player_sub_xspeed = player_sub_yspeed = 0;
@@ -727,18 +762,9 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
 
     /* Dash/Run needs a held-direction latch to remain pressed against the
      * step. Its existing behavior is deliberately unchanged. */
-    s_step_wall_latched = 1;
-    s_step_wall_direction = s_last_input_direction;
-    s_step_wall_x = s_x_before;
-    s_step_wall_y = s_y_before;
-    s_step_wall_sub_x = s_sub_x_before;
-    s_step_wall_sub_y = s_sub_y_before;
-    s_step_wall_in_air = s_in_air_before;
-    s_step_wall_facing = player_facing_direction;
     /* $77 bit $04 is floor; retain it with the observed side wall bit while
-     * clearing only $08/$10 ceiling/crush ($1D -> $05). */
-    s_step_wall_blocked = (uint8_t)((player_blocked_flags & 0x03u) | 0x04u);
-    smw_falcon_restore_step_wall_latch();
+     * clearing only $08/$10 ceiling/crush ($1D -> $05, $1E -> $06). */
+    smw_falcon_install_step_wall_latch(player_blocked_flags);
 }
 
 /* A full player collision can return nonlocally before reaching inline
@@ -787,8 +813,11 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
 void SmwFalconAfterPhysics(struct CpuState *cpu)
 {
     ForeignCollisionResult hit;
+    const ForeignState *state;
     const int dx = (int)(int16_t)(player_xpos - s_x_before);
     const int dy = (int)(int16_t)(player_ypos - s_y_before);
+    uint8_t side_bits;
+    uint8_t expected_side;
     if (!s_pending || snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
     {
         smw_falcon_clear_carry_bridge();
@@ -809,6 +838,20 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         !hit.hit_ceiling) {
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
+    }
+    state = snes_foreign_state();
+    side_bits = (uint8_t)(player_blocked_flags & 0x03u);
+    expected_side = state != NULL && state->facing < 0.0f ? 0x02u : 0x01u;
+    if (state != NULL && hit.grounded && hit.hit_wall && s_in_air_before == 0 &&
+        smw_falcon_ground_run_wall_state(state->state) &&
+        s_last_input_direction != 0 &&
+        s_last_input_direction == (state->facing >= 0.0f ? 1 : -1) &&
+        side_bits == expected_side) {
+        smw_falcon_install_step_wall_latch(player_blocked_flags);
+        memset(&hit, 0, sizeof(hit));
+        hit.grounded = 1;
+        hit.hit_floor = 1;
+        hit.hit_wall = 1;
     }
     smw_falcon_apply_combat_once(cpu, &hit);
     /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the

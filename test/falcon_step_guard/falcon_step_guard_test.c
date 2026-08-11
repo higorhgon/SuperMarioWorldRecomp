@@ -180,6 +180,54 @@ int main(void)
         player_blocked_flags != 0x06)
         return fail("left step guard mirrors $1E to stable left+floor $06");
 
+    /* A taller wall can report ordinary side contact without reaching the
+     * $00:E9FB false-crush branch.  Slot 0 reproduced this by double-tapping
+     * left into a larger wall: the wall result must still become the same
+     * held neutral-input latch, not a one-frame speed zero that can re-enter
+     * geometry on the next frame. */
+    SmwFalconOnStateLoaded();
+    player_xpos = 0x0900;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x44;
+    player_sub_ypos = 0x66;
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x04;
+    io_controller_hold1 = 0x02;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    state = snes_foreign_state();
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = -1.0f;
+    player_xpos = 0x08C0;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x90;
+    player_yspeed = 0;
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x06;
+    SmwFalconAfterPhysics(NULL);
+    if (player_xpos != 0x0900 || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x44 || player_sub_ypos != 0x66 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x06)
+        return fail("ordinary left wall contact installs stable held-wall latch");
+    for (unsigned i = 0; i != 2; ++i) {
+        ++snes_frame_counter;
+        player_xpos = 0x08BF;
+        player_ypos = 0x0170;
+        player_xspeed = 0x90;
+        player_yspeed = 0x90;
+        player_blocked_flags = 0;
+        state->grounded = 1;
+        SmwFalconBeforePhysics(NULL);
+        if (player_xpos != 0x0900 || player_ypos != 0x0160 ||
+            player_xspeed != 0 || player_yspeed != 0 ||
+            player_blocked_flags != 0x06)
+            return fail("ordinary wall latch holds safe position while left remains held");
+    }
+
     /* A wall bit opposite the authored facing is not Falcon's forward
      * high-speed step and must remain native-owned. */
     SmwFalconOnStateLoaded();
