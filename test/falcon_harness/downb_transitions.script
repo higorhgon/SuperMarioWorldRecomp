@@ -21,8 +21,9 @@ frames 1
 expect_state FALCON_KICK_GROUND_AIR
 expect_grounded 0 0
 
-# The frame-12..31 grounded wall gate enters the dedicated rebound state and
-# forces air kinetics before any ordinary landing reconciliation can run.
+# A low side wall during Ground SpecialLw's authored flag1/contact window
+# enters the dedicated rebound state, clamps the private mirror before it can
+# cross, and forces air kinetics before ordinary landing reconciliation.
 reset
 neutral
 stick_y -80
@@ -35,3 +36,31 @@ frames 1
 expect_state FALCON_KICK_BOUND
 expect_grounded 0 0
 roundtrip
+
+# Direct SpecialAirLw has landing-only ProcMap: a side wall preserves its
+# aerial status but exposes no crossed source delta or residual horizontal
+# speed. It must never be promoted to Ground SpecialLw Bound.
+reset
+pos_y 1000
+host_fall
+stick_y -80
+special down
+frames 1
+special up
+expect_state FALCON_KICK_AIR
+host_wall
+frames 1
+expect_state FALCON_KICK_AIR
+expect_grounded 0 0
+roundtrip
+
+# An ordinary jump wall collision does not become Falcon Kick Bound.
+reset
+jump down
+frames 4
+jump up
+frames 1
+expect_state JUMP_F
+host_wall
+frames 1
+expect_state JUMP_F

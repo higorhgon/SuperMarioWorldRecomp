@@ -606,6 +606,38 @@ static void enter_falcon_kick_landing(FalconFighter *f)
     set_status(f, FL_FALCON_KICK_LANDING);
 }
 
+/* Captain's SpecialL wall branch has a dedicated Bound action state.  The
+ * collision owner has already stopped him at the wall; preserve that native
+ * position and enter source air/bound state with no residual forward speed.
+ * Do not borrow a Dive release trajectory for a Kick wall contact. */
+static void enter_falcon_kick_bound(FalconFighter *f)
+{
+    f->grounded = 0;
+    f->vel_ground_x = 0.0;
+    f->vel_air_x = f->vel_air_y = 0.0;
+    set_status(f, FL_FALCON_KICK_BOUND);
+}
+
+/* BattleShip ftcaptainspeciallw.c's Ground ProcMap reaches BoundCheck only
+ * when SpecialLw's authored flag1 is raised.  The extracted port represents
+ * that exact collision window as source frames [12, 32). Direct SpecialAirLw
+ * has landing-only ProcMap and must never enter this grounded Bound state. */
+static int is_falcon_kick_ground_bound_window(const FalconFighter *f)
+{
+    return (f->state == FL_FALCON_KICK_GROUND &&
+            f->state_frame >= 12.0 && f->state_frame < 32.0) ||
+           /* Ground-origin SpecialLw's air continuation retains the same
+            * sourced wall-rebound route. Direct SpecialAirLw is excluded. */
+           f->state == FL_FALCON_KICK_GROUND_AIR;
+}
+
+static int is_falcon_kick_wall_state(int state)
+{
+    return state == FL_FALCON_KICK_GROUND ||
+           state == FL_FALCON_KICK_GROUND_AIR ||
+           state == FL_FALCON_KICK_AIR;
+}
+
 static void enter_falcon_dive(FalconFighter *f, int from_ground)
 {
     f->grounded = 0;
@@ -1507,8 +1539,14 @@ void falcon_tick(FalconFighter *f, const FalconInputRaw *in, FalconMotion *out)
 void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
 {
     int in_air = !f->grounded;
+    const int kick_wall = hit->hit_wall && is_falcon_kick_wall_state(f->state);
 
-    f->pos_x += hit->actual_dx;
+    /* Native SMW collision has already clamped the player to the wall.  Do
+     * not integrate a penetrating/tunneled host delta into Falcon's private
+     * mirror on a Kick wall response; the next source tick must start from a
+     * safe stop, while ordinary non-Kick wall state remains byte-for-byte the
+     * existing host-driven behavior. */
+    if (!kick_wall) f->pos_x += hit->actual_dx;
     f->pos_y += hit->actual_dy;
 
     /* Falcon Dive's attack volume is a catch search, not a repeated damage
@@ -1525,14 +1563,12 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
         /* Sign convention: the host reports +y as DOWN, the source works in
          * +y UP. The adapter converts; here vel_air_y > 0 is upward. */
         if (hit->hit_ceiling && f->vel_air_y > 0.0) f->vel_air_y = 0.0;
+        if (kick_wall && is_falcon_kick_ground_bound_window(f)) {
+            enter_falcon_kick_bound(f);
+            return;
+        }
         if (hit->hit_wall) {
             f->vel_air_x = 0.0;
-            if (f->state == FL_FALCON_KICK_GROUND &&
-                f->state_frame >= 12.0 && f->state_frame < 32.0) {
-                set_status(f, FL_FALCON_KICK_BOUND);
-                f->grounded = 0;
-                return;
-            }
         }
 
         /*
@@ -1585,14 +1621,12 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
             return;
         }
     } else {
+        if (kick_wall && is_falcon_kick_ground_bound_window(f)) {
+            enter_falcon_kick_bound(f);
+            return;
+        }
         if (hit->hit_wall) {
             f->vel_ground_x = 0.0;
-            if (f->state == FL_FALCON_KICK_GROUND &&
-                f->state_frame >= 12.0 && f->state_frame < 32.0) {
-                set_status(f, FL_FALCON_KICK_BOUND);
-                f->grounded = 0;
-                return;
-            }
         }
 
         /* Walked off an edge. */

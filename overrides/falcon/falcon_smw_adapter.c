@@ -533,17 +533,18 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
 void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
 {
     const ForeignState *state;
+    int active_ground_kick;
     (void)cpu;
 
     /* The BLOCK_PATCH in HandlePlayerLevelCollision_M1X1 reaches the inlined
      * SMWDisX $00:E9FB block before it sends $77&$1C==$1C to $00:EA08, which calls
      * DamagePlayer_KillAndDisableButtons.  That exact combination means the
      * movement reached the vertical face of a one-block step while grounded;
-     * it is not ordinary head contact.  Falcon's high-speed Dash/Run can
-     * reach that branch before the later CD36 seam. Restore the DC2D snapshot
-     * and let the original routine take its normal non-crush path, so the
-     * step behaves as a solid wall rather than leaving Falcon embedded or
-     * granting broad damage immunity. */
+     * it is not ordinary head contact. Falcon's high-speed Dash/Run and
+     * Ground SpecialLw flag1 window can reach that branch before the later
+     * CD36 seam. Restore the DC2D snapshot and let the original routine take
+     * its normal non-crush path, so the step behaves as a solid wall rather
+     * than leaving Falcon embedded or granting broad damage immunity. */
     if (!s_pending || !snes_foreign_active() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         !smw_falcon_playable() ||
@@ -553,12 +554,36 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
         s_in_air_before != 0 ||
         player_ypos != s_y_before) return;
     state = snes_foreign_state();
+    active_ground_kick = state != NULL && state->grounded &&
+        state->state == FL_FALCON_KICK_GROUND &&
+        state->state_frame >= 12u && state->state_frame < 32u;
     if (state == NULL || !state->grounded ||
-        (state->state != FL_DASH && state->state != FL_RUN) ||
-        s_last_input_direction == 0 ||
-        s_last_input_direction != (state->facing >= 0.0f ? 1 : -1))
+        (!active_ground_kick &&
+         ((state->state != FL_DASH && state->state != FL_RUN) ||
+          s_last_input_direction == 0 ||
+          s_last_input_direction != (state->facing >= 0.0f ? 1 : -1))))
         return;
 
+    /* Grounded SpecialLw is a one-shot correction: AfterPhysics must see its
+     * preserved side-wall result in this same frame so the sourced Bound
+     * transition can consume it. Never route Kick through the held Dash/Run
+     * latch, which would erase the authored Bound TransN recoil next tick. */
+    if (active_ground_kick) {
+        player_xpos = s_x_before;
+        player_ypos = s_y_before;
+        player_sub_xpos = s_sub_x_before;
+        player_sub_ypos = s_sub_y_before;
+        player_in_air_flag = s_in_air_before;
+        player_sub_xspeed = player_sub_yspeed = 0;
+        player_xspeed = player_yspeed = 0;
+        /* Keep precisely native wall+floor, removing only the false crush
+         * ceiling bits ($1D -> $05) before the original kill branch. */
+        player_blocked_flags = (uint8_t)((player_blocked_flags & 0x03u) | 0x04u);
+        return;
+    }
+
+    /* Dash/Run needs a held-direction latch to remain pressed against the
+     * step. Its existing behavior is deliberately unchanged. */
     s_step_wall_latched = 1;
     s_step_wall_direction = s_last_input_direction;
     s_step_wall_x = s_x_before;

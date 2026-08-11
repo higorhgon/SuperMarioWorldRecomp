@@ -35,6 +35,20 @@ static int fail(const char *message)
     return 1;
 }
 
+static void ground_adapter_frame(uint8_t hold1, uint8_t press1)
+{
+    io_controller_hold1 = hold1;
+    io_controller_press1 = press1;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    /* This fixture models the native floor result between DC2D and CD36. */
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x04;
+    SmwFalconAfterPhysics(NULL);
+}
+
 int main(void)
 {
     ForeignState *state;
@@ -129,6 +143,58 @@ int main(void)
         player_xspeed != 0x65 || player_yspeed != 0x96 ||
         player_blocked_flags != 0x1D)
         return fail("real vertical crush remains native-owned");
+
+    /* Ground SpecialLw's source flag1 opens at frame 12. A one-block step
+     * produces native $77=$1D before CD36/AfterPhysics, so this one-shot
+     * correction must restore the exact DC2D snapshot, retain wall+floor,
+     * then let the normal resolver select Ground SpecialLw Bound. No held
+     * step latch is allowed: Bound's authored TransN recoil owns next frame. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Kick low-step guard");
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x070F;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x33;
+    player_sub_ypos = 0x55;
+    /* Enter Kick, then advance exactly through authored source frame 12. */
+    ground_adapter_frame(0x44, 0x44);
+    for (unsigned i = 0; i != 12; ++i)
+        ground_adapter_frame(0, 0);
+    state = snes_foreign_state();
+    if (state == NULL || state->state != FL_FALCON_KICK_GROUND ||
+        state->state_frame != 12u)
+        return fail("Kick reaches authored Ground SpecialLw flag1 frame");
+
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL); /* snapshot and advance to active frame 13 */
+    player_xpos = 0x074A;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x65;
+    player_yspeed = 0x96;
+    player_blocked_flags = 0x1D;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x070F || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x33 || player_sub_ypos != 0x55 ||
+        player_in_air_flag != 0 || player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x05)
+        return fail("active Ground Kick restores low-step snapshot once ($1D -> $05)");
+    SmwFalconAfterPhysics(NULL);
+    state = snes_foreign_state();
+    if (state == NULL || state->state != FL_FALCON_KICK_BOUND ||
+        state->grounded)
+        return fail("restored low-step wall reaches Ground Kick Bound after CD36");
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (player_in_air_flag == 0 || player_xspeed != 0)
+        return fail("Bound gets one native airborne handoff without a held wall latch");
 
     puts("falcon_step_guard_test: PASS");
     return 0;

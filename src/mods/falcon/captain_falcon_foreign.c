@@ -25,6 +25,10 @@ static const char *cf_root_motion_animation(void)
     case FL_FALCON_KICK_AIR:
         return "DownSpecialAir";
     case FL_FALCON_KICK_BOUND:
+        /* BattleShip ftdata.c's fifth Captain SpecialL motion is named
+         * FalconDiveEnd1 in the asset table, but ftcaptain.h identifies that
+         * positional slot as SpecialLwBound. It is the authored rebound
+         * TransN, not a borrowed Dive-release trajectory. */
         return "FalconDiveEnd1";
     case FL_FALCON_DIVE_GROUND:
         return "FalconDive";
