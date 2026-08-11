@@ -129,6 +129,21 @@ static void smw_falcon_install_step_wall_latch(uint8_t blocked_flags)
     smw_falcon_restore_step_wall_latch();
 }
 
+static void smw_falcon_install_current_step_wall_latch(int direction,
+                                                       uint8_t blocked_flags)
+{
+    s_step_wall_latched = 1;
+    s_step_wall_direction = direction;
+    s_step_wall_x = player_xpos;
+    s_step_wall_y = player_ypos;
+    s_step_wall_sub_x = player_sub_xpos;
+    s_step_wall_sub_y = player_sub_ypos;
+    s_step_wall_in_air = player_in_air_flag;
+    s_step_wall_facing = player_facing_direction;
+    s_step_wall_blocked = (uint8_t)((blocked_flags & 0x03u) | 0x04u);
+    smw_falcon_restore_step_wall_latch();
+}
+
 static void smw_falcon_clear_stomp_contact_guard(void)
 {
     /* $1497 is SMW's IFrameTimer, checked by the later native/custom-sprite
@@ -235,7 +250,12 @@ static int smw_falcon_ground_run_wall_state(int state)
 static double smw_falcon_limit_ground_run_dx(const ForeignState *state,
                                             double source_delta)
 {
-    const double max_smw_px = 4.0;
+    /* SMW's native player collision is tile-sized and can miss fatal wall
+     * crush/embedding cases when Falcon carries Smash 64's full ground run
+     * delta into a one-frame native integration.  Keep Dash/Run visibly fast
+     * but cap grounded horizontal travel to two native pixels per frame; wall
+     * contacts then have stable side/floor flags for the guard below. */
+    const double max_smw_px = 2.0;
     const double max_source_delta = max_smw_px * SMW_TO_FALCON;
     if (state == NULL || !state->grounded ||
         !smw_falcon_ground_run_wall_state(state->state))
@@ -615,6 +635,24 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     state->grounded = player_in_air_flag == 0;
 
     input = smw_falcon_input();
+    /* If Falcon is already grounded against a side wall, a fresh double-tap
+     * into that wall must not be allowed to become a high-speed Dash/Run
+     * request before native collision gets another chance to respond.  Treat
+     * this as the same held-wall state installed after an approach collision,
+     * but seed it from the current native-safe coordinate. */
+    if (!s_step_wall_latched && state->grounded && player_in_air_flag == 0) {
+        const int held_direction = input.stick_x > 0.0f ? 1 :
+                                   input.stick_x < 0.0f ? -1 : 0;
+        const uint8_t expected_side = held_direction > 0 ? 0x01u :
+                                      held_direction < 0 ? 0x02u : 0u;
+        if (expected_side != 0 &&
+            (player_blocked_flags & 0x04u) != 0 &&
+            (player_blocked_flags & 0x03u) == expected_side) {
+            smw_falcon_install_current_step_wall_latch(
+                held_direction, player_blocked_flags);
+            input.stick_x = 0.0f;
+        }
+    }
     /* A $77=$1D step latch is only a held-horizontal wall stop. It releases
      * on neutral, reversal, jump, loss of ground, or any outer handoff; it
      * never grants general crush immunity. Feed neutral stick to the source

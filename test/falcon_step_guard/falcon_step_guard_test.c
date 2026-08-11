@@ -228,6 +228,44 @@ int main(void)
             return fail("ordinary wall latch holds safe position while left remains held");
     }
 
+    /* Starting a fresh sprint while already pressed into the wall is the
+     * remaining slot0 failure: the second tap must be neutralized before the
+     * source tick can emit Dash/Run velocity into the solid tile. */
+    SmwFalconOnStateLoaded();
+    player_xpos = 0x0900;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x21;
+    player_sub_ypos = 0x43;
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x06;
+    player_xspeed = 0;
+    player_yspeed = 0;
+    io_controller_hold1 = 0x02;
+    io_controller_press1 = 0x02;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    state = snes_foreign_state();
+    if (player_xpos != 0x0900 || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x21 || player_sub_ypos != 0x43 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x06 ||
+        state == NULL || state->state == FL_DASH || state->state == FL_RUN)
+        return fail("already-at-wall left tap is neutralized before Dash/Run");
+    for (unsigned i = 0; i != 2; ++i) {
+        ++snes_frame_counter;
+        player_xpos = 0x08C8;
+        player_ypos = 0x0170;
+        player_xspeed = 0x90;
+        player_yspeed = 0x90;
+        player_blocked_flags = 0;
+        state->grounded = 1;
+        SmwFalconBeforePhysics(NULL);
+        if (player_xpos != 0x0900 || player_ypos != 0x0160 ||
+            player_xspeed != 0 || player_yspeed != 0 ||
+            player_blocked_flags != 0x06)
+            return fail("already-at-wall sprint latch holds safe left wall coordinate");
+    }
+
     /* A wall bit opposite the authored facing is not Falcon's forward
      * high-speed step and must remain native-owned. */
     SmwFalconOnStateLoaded();

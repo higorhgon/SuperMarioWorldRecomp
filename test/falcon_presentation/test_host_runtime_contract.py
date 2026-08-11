@@ -45,6 +45,9 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         # Carry OAM mutation remains live-control-only; Course Clear merely
         # hides PlayerGFXRt and draws Falcon over the native score script.
         self.assertIn("if (!ppu || !controllable()) return;", source)
+        self.assertIn("pose.state = FALCON_PRESENT_WALK;", source)
+        self.assertIn("pose.frame = (float)(counter_global_frames >> 1);", source)
+        self.assertIn("no Captain appeal/taunt", source)
 
     def test_powerup_and_damage_animation_keep_full_size_falcon(self):
         source = SOURCE.read_text(encoding="utf-8")
@@ -52,7 +55,7 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         self.assertIn("Native GameMode14 player-state table:", source)
         self.assertIn("1 PowerDown, 2 Grow, 3 GotCape, 4 GotFlower", source)
         self.assertIn("return player_current_state >= 1 && player_current_state <= 4;", source)
-        self.assertIn("if (course_clear_active() || powerup_animation_active())", source)
+        self.assertIn("else if (powerup_animation_active())", source)
         self.assertIn("pose.state = FALCON_PRESENT_IDLE;", source)
         self.assertIn("pose.frame = 0.0f;", source)
 

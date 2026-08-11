@@ -600,11 +600,22 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     /* Mature NES port convention: Captain's authored front/back axis must be
      * yawed 88 degrees into the 2D host plane for readable left/right profile. */
     target.yaw_degrees = 88.0f;
-    if (course_clear_active() || powerup_animation_active()) {
+    if (course_clear_active()) {
+        /* Native SMW is driving the end-level walk/score script.  Keep the
+         * parody readable by rendering Captain's slow Walk2 pose instead of
+         * the native Mario peace/score sprite.  The approved runtime cache
+         * currently exposes Wait/Walk variants but no Captain appeal/taunt
+         * animation, so the requested salute remains a future cache-export
+         * addition rather than a fabricated pose. */
+        pose.state = FALCON_PRESENT_WALK;
+        pose.frame = (float)(counter_global_frames >> 1);
+        pose.facing_right = player_facing_direction != 0;
+        s_last_pose = pose;
+    } else if (powerup_animation_active()) {
         /* The source controller is intentionally frozen while native SMW
-         * runs scripted Course Clear or powerup/powerdown animation states.
-         * Do not leave a stale Punch/Kick frame or expose native Mario; render
-         * a stable, native-facing full-size Wait pose instead. */
+         * runs powerup/powerdown animation states. Do not leave a stale
+         * Punch/Kick frame or expose native Mario; render a stable,
+         * native-facing full-size Wait pose instead. */
         pose.state = FALCON_PRESENT_IDLE;
         pose.frame = 0.0f;
         pose.facing_right = player_facing_direction != 0;
