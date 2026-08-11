@@ -18,10 +18,9 @@ frames 1
 expect_state JUMP_F
 
 # The host's ordinary launched handoff uses the same primary-jump adaptation:
-# the full-stick source launch is 58.118 units/frame (= 4.65 px at 0.08
-# px/unit), not SMB1's native -4 px/frame.  At unchanged 3.4 gravity its
-# 526-unit apex is about half the former 1085-unit host-launch height.
-expect_vel_air_y 58.0 58.2
+# full-stick source launch is now 51.624 units/frame (= 4.13 px at 0.08
+# px/unit), not SMB1's native -4 px/frame.
+expect_vel_air_y 51.5 51.8
 frames 25
 expect_state JUMP_F
 

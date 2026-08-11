@@ -12,7 +12,7 @@ frames 2
 jump down
 frames 1
 expect_state JUMPAERIAL_F
-expect_vel_air_y 90.1 90.3
+expect_vel_air_y 80.2 80.5
 roundtrip
 jump up
 frames 7
@@ -31,5 +31,5 @@ stick_x -80
 jump down
 frames 1
 expect_state JUMPAERIAL_B
-expect_vel_air_y 90.1 90.3
+expect_vel_air_y 80.2 80.5
 roundtrip

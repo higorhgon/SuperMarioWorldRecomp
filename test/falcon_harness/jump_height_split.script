@@ -13,17 +13,17 @@
 #   full  17.0 * 1 + 63.0 =  80.0 -> 77.0            (clamped, BTN_HEIGHT_CLAMP)
 #
 # then ftCommonJumpSetStatus adds A_JUMP_HEIGHT_BASE 24.0.  The SMW adaptation
-# applies sqrt(1/2) to this primary grounded launch, so unchanged gravity yields
-# approximately half the former apex; proc_physics applies A_GRAVITY 3.4 on the
-# same tick.  The velocity visible on the takeoff frame is:
+# applies sqrt(0.4) to this primary grounded launch: first half-height, then
+# a playtest-requested 20% lower apex.  proc_physics applies A_GRAVITY 3.4 on
+# the same tick.  The velocity visible on the takeoff frame is:
 #
-#   short  (45.0 + 24.0) * sqrt(1/2) - 3.4 = 45.390
-#   full   (77.0 + 24.0) * sqrt(1/2) - 3.4 = 68.018
+#   short  (45.0 + 24.0) * sqrt(0.4) - 3.4 = 40.239
+#   full   (77.0 + 24.0) * sqrt(0.4) - 3.4 = 60.478
 #
 # Peak height is the sum of the rising frames, sum(V - 3.4k) while positive:
 #
-#   short  about 326 units (26 px), versus 666 units before scaling
-#   full   about 714 units (57 px), versus 1450 units before scaling
+#   short  about 258 units (21 px), versus 666 units before scaling
+#   full   about 568 units (45 px), versus 1450 units before scaling
 #
 # A neutral full hop is higher than the ~1070-unit hop seen in host_launch.script
 # because that one holds the stick at 80, which drives sq to 0 and drops the
@@ -49,10 +49,10 @@ expect_state KNEEBEND
 
 frames 1
 expect_state JUMP_F
-expect_vel_air_y 45.3 45.5
+expect_vel_air_y 40.1 40.4
 
 frames 40
-expect_peak_y 320.0 332.0
+expect_peak_y 252.0 265.0
 
 frames 60
 expect_state WAIT
@@ -70,7 +70,7 @@ expect_state KNEEBEND
 
 frames 1
 expect_state JUMP_F
-expect_vel_air_y 67.9 68.1
+expect_vel_air_y 60.3 60.7
 
 frames 60
-expect_peak_y 705.0 724.0
+expect_peak_y 560.0 578.0
