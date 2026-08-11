@@ -164,6 +164,8 @@ def snapshot(client: Tcp) -> dict[str, Any]:
         "sprite_y_lo": client.read(0x00D8, 12), "sprite_y_hi": client.read(0x14D4, 12),
         "sprite_x_lo": client.read(0x00E4, 12), "sprite_x_hi": client.read(0x14E0, 12),
         "sprite_y_speed": client.read(0x00AA, 12), "sprite_x_speed": client.read(0x00B6, 12),
+        "sprite_tweaker_c": client.read(0x166E, 12),
+        "sprite_tweaker_d": client.read(0x167A, 12),
         "sprite_subposition": client.read(0x14EC, 12) + client.read(0x14F8, 12),
         "sprite_oam": client.read(0x15EA, 12),
     }
