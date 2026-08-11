@@ -178,6 +178,52 @@ int main(void)
     if (player_current_state != 9)
         return fail("unhit/behind same-pass slot remains native-dangerous");
 
+    /* Punch uses the same exact-slot metadata as Kick.  Commit its native
+     * consequence once at an unrelated $01:80D2 slot, prove that slot sees no
+     * timer, then prove the connected slot is protected immediately before
+     * its later native side-contact check. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Punch contact guard");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 100;
+    player_ypos = 200;
+    timer_player_hurt = 0;
+    memset(spr_current_status, 0, 12);
+    spr_current_status[8] = 8;
+    spr_spriteid[8] = 0x05;
+    spr_xpos_lo[8] = 148;
+    spr_ypos_lo[8] = 220;
+    s_native_contacts = 0;
+    for (int i = 0; i != 43; ++i)
+        frame(i == 0 ? 0x40 : 0, i == 0 ? 0x40 : 0, &cpu);
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (!smw_falcon_last_attack()->active || s_native_contacts != 0)
+        return fail("active Punch reaches normal-sprite seam without CD36");
+    cpu.DB = 1;
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (s_native_contacts != 1 || spr_current_status[8] != 4 ||
+        timer_player_hurt != 0)
+        return fail("Punch consequence leaves unrelated slot unguarded");
+    cpu.X = 8;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 1)
+        return fail("connected Punch slot arms exact native side-damage guard");
+    model_later_side_damage();
+    if (player_current_state != 0)
+        return fail("connected Punch slot blocks same-pass side damage");
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 0)
+        return fail("Punch guard clears before the following unhit slot");
+
     /* A player-collision exit may skip inline $00:CD36 entirely.  Direct
      * SpecialAirLw must nevertheless complete at the first grounded native
      * frame, before $01:80D2's normal-sprite pass/presentation can expose a

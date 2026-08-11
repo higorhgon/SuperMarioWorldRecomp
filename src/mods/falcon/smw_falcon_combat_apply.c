@@ -22,6 +22,7 @@
 #define SMW_SPR_X_LO   0x00E4u
 #define SMW_SPR_Y_HI   0x14D4u
 #define SMW_SPR_X_HI   0x14E0u
+#define SMW_SPR_TWEAKER_B 0x1662u
 #define SMW_SPR_TWEAKER_C 0x166Eu
 #define SMW_SPR_TWEAKER_D 0x167Au
 #define SMW_MINOR_SPRITE_PROC_INDEX 0x15E9u
@@ -41,6 +42,28 @@ typedef struct {
 } SmwFalconCpuSnapshot;
 
 typedef void (*SmwFalconNativeEntry)(CpuState *cpu);
+
+typedef enum {
+    SMW_FALCON_SPRITE_CONSEQUENCE_NONE,
+    SMW_FALCON_SPRITE_CONSEQUENCE_SPIN,
+    SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL,
+} SmwFalconSpriteConsequence;
+
+typedef struct {
+    uint8_t index;
+    int8_t x_offset, y_offset;
+    uint8_t width, height;
+} SmwFalconNativeSpriteClip;
+
+/* Exact entries from SMW's GetSpriteClippingB tables:
+ * $03:B56C X offset, $03:B5A8 width, $03:B5E4 Y offset, $03:B620 height.
+ * These are interaction bounds, not drawn tile dimensions.  Keep this
+ * deliberately small: only the two newly admitted source signatures consume
+ * this table in the Falcon host boundary. */
+static const SmwFalconNativeSpriteClip k_big_target_clips[] = {
+    { 0x00u,  2,  3, 12, 10 }, /* Banzai Bill ($9F) */
+    { 0x0Du,  0, -4, 15, 16 }, /* Chargin' Chuck ($91) */
+};
 
 static uint8_t ram8(const CpuState *cpu, unsigned address)
 {
@@ -141,26 +164,53 @@ static void invoke_native_jsl(CpuState *cpu, uint8_t target_bank,
     entry(cpu);
 }
 
-static int sprite_is_supported_target(const CpuState *cpu, unsigned slot)
+static SmwFalconSpriteConsequence sprite_target_consequence(const CpuState *cpu,
+                                                            unsigned slot)
 {
     const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
-    uint8_t id;
+    const uint8_t id = ram8(cpu, 0x009Eu + slot);
+    const uint8_t clip = ram8(cpu, SMW_SPR_TWEAKER_B + slot) & 0x3Fu;
+    const uint8_t tweaker_c = ram8(cpu, SMW_SPR_TWEAKER_C + slot);
+    const uint8_t tweaker_d = ram8(cpu, SMW_SPR_TWEAKER_D + slot);
+
+    /* These two source sprites opt out of the generic cape/star routes, not
+     * of all player damage.  Their exact ID/tweaker/clip signatures keep the
+     * exceptional admission narrow and reject ROM-hack variants. */
+    if (status == 8 && id == 0x9Fu && clip == 0x00u &&
+        tweaker_c == 0x30u && tweaker_d == 0xA2u)
+        return SMW_FALCON_SPRITE_CONSEQUENCE_SPIN;
+    if (status == 8 && id == 0x91u && clip == 0x0Du &&
+        tweaker_c == 0xE3u && tweaker_d == 0x81u)
+        return SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL;
+
     if ((status != 8 && status != 9 && status != 10) ||
-        (ram8(cpu, SMW_SPR_TWEAKER_C + slot) & 0x20u) != 0 ||
-        (ram8(cpu, SMW_SPR_TWEAKER_D + slot) & 0x02u) != 0) return 0;
-    id = ram8(cpu, 0x009Eu + slot);
+        (tweaker_c & 0x20u) != 0 || (tweaker_d & 0x02u) != 0)
+        return SMW_FALCON_SPRITE_CONSEQUENCE_NONE;
     if (status == 9 || status == 10) {
         /* Native loose/rolling shell lifecycle. Status $0B is deliberately
          * absent: Falcon-owned carried shells are never combat targets. */
-        return id >= 0x04u && id <= 0x07u;
+        return id >= 0x04u && id <= 0x07u
+            ? SMW_FALCON_SPRITE_CONSEQUENCE_SPIN
+            : SMW_FALCON_SPRITE_CONSEQUENCE_NONE;
     }
     /* Ordinary status-$08 targets: Koopa families, Goomba/Paragoomba, Buzzy.
      * Bosses, hazards, and unfamiliar sprites remain unsupported. */
-    return id <= 0x09u || id == 0x0Fu || id == 0x10u || id == 0x11u;
+    return id <= 0x09u || id == 0x0Fu || id == 0x10u || id == 0x11u
+        ? SMW_FALCON_SPRITE_CONSEQUENCE_SPIN
+        : SMW_FALCON_SPRITE_CONSEQUENCE_NONE;
 }
 
-static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot)
+static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot,
+                                             SmwFalconSpriteConsequence consequence)
 {
+    if (consequence == SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL) {
+        /* $02:C7B1 is the native post-star-contact defeat transaction.  It
+         * has no geometry query; host AABB admission replaces that part of
+         * the source path, and the framed JSR preserves its RTS ABI. */
+        prepare_bank02_call(cpu, slot);
+        invoke_native_jsr(cpu, 2, KillNormalSprite_AcceptedConsequence);
+        return;
+    }
     /* This is the source's post-contact spin-jump kill sequence from
      * $01:A938: status-$04 spin-kill plus $07:FC3B's four extended stars,
      * then the native stomp score/SFX transaction.  The omitted contact puff
@@ -187,7 +237,9 @@ static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot)
 static int sprite_is_dive_catch_target(const CpuState *cpu, unsigned slot)
 {
     return ram8(cpu, SMW_SPR_STATUS + slot) == 8 &&
-           sprite_is_supported_target(cpu, slot);
+           sprite_target_consequence(cpu, slot) ==
+               SMW_FALCON_SPRITE_CONSEQUENCE_SPIN &&
+           ram8(cpu, 0x009Eu + slot) != 0x9Fu;
 }
 
 static uint16_t sprite_xpos(const CpuState *cpu, unsigned slot)
@@ -209,6 +261,23 @@ static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
     /* $00D8/$14D4 and $00E4/$14E0 are low/high position tables. */
     x = sprite_xpos(cpu, slot);
     y = sprite_ypos(cpu, slot);
+    const uint8_t id = ram8(cpu, 0x009Eu + slot);
+    const uint8_t clip_index = ram8(cpu, SMW_SPR_TWEAKER_B + slot) & 0x3Fu;
+    unsigned i;
+    for (i = 0; i < sizeof(k_big_target_clips) / sizeof(k_big_target_clips[0]); ++i) {
+        const SmwFalconNativeSpriteClip *clip = &k_big_target_clips[i];
+        if (clip->index == clip_index &&
+            ((id == 0x9Fu && clip_index == 0x00u) ||
+             (id == 0x91u && clip_index == 0x0Du))) {
+            SmwFalconAabb result = {
+                (double)(int32_t)x + clip->x_offset,
+                (double)(int32_t)y + clip->y_offset,
+                (double)(int32_t)x + clip->x_offset + clip->width,
+                (double)(int32_t)y + clip->y_offset + clip->height,
+            };
+            return result;
+        }
+    }
     /* Upright targets use the conservative 16x24 union. Native loose shells
      * are 16x16, which still shares the same front/foot contact projection. */
     {
@@ -231,8 +300,10 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
         uint8_t current_sprite;
         uint8_t before;
         uint32_t effects_before;
+        SmwFalconSpriteConsequence consequence;
+        consequence = sprite_target_consequence(cpu, slot);
         if ((ledger->hit_slots & (uint16_t)(1u << slot)) != 0 ||
-            !sprite_is_supported_target(cpu, slot) ||
+            consequence == SMW_FALCON_SPRITE_CONSEQUENCE_NONE ||
             !smw_falcon_aabb_overlaps(hit, sprite_bounds(cpu, slot))) continue;
 
         before = ram8(cpu, SMW_SPR_STATUS + slot);
@@ -243,7 +314,7 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
         effects_before = ram_effect_hash(cpu);
         /* Host geometry is the admission decision. This is a post-contact
          * native spin-jump consequence, never a second Mario/cape test. */
-        invoke_native_sprite_consequence(cpu, slot);
+        invoke_native_sprite_consequence(cpu, slot, consequence);
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = current_sprite;
         restore_cpu(cpu, &saved);

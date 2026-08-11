@@ -40,8 +40,11 @@ static int s_stomp_bounce_armed;
 static int s_stomp_bounce_consumed;
 static int s_stomp_contact_guard;
 static SmwFalconCombatLedger s_combat_ledger;
-static uint16_t s_kick_contact_slots;
-static int s_kick_slot_guard;
+/* Exact normal-sprite slots whose accepted Punch/Kick consequence belongs to
+ * this ProcessNormalSprites pass.  This is deliberately not an attack-wide
+ * immunity flag: each slot receives at most its own pre-contact timer tick. */
+static uint16_t s_impact_contact_slots;
+static int s_impact_slot_guard;
 static uint16_t s_dive_catch_slots;
 static int s_dive_catch_slot_guard;
 static unsigned s_dive_iframe_grace_frames;
@@ -196,12 +199,6 @@ static void smw_falcon_snap_dive_toward_target(CpuState *cpu,
     player_xpos = (uint16_t)(player_xpos + dx);
     player_ypos = (uint16_t)(player_ypos + dy);
 }
-
-static int smw_falcon_active_kick_state(int state)
-{
-    return state == FL_FALCON_KICK_GROUND || state == FL_FALCON_KICK_AIR;
-}
-
 static uint8_t clamp_speed(double source_delta, int y_axis)
 {
     /* SMW stores a signed 8-bit speed in sixteenth-pixel units. Falcon's
@@ -472,12 +469,12 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
     /* ProcessNormalSprites is wholly within the preceding player frame. A
      * missing/aborted pass must never carry a pending Kick slot into the next
      * one, and the old exact guard value is safe to remove at D5F2. */
-    if ((s_kick_slot_guard || s_dive_catch_slot_guard) &&
+    if ((s_impact_slot_guard || s_dive_catch_slot_guard) &&
         timer_player_hurt == 1)
         timer_player_hurt = 0;
-    s_kick_slot_guard = 0;
+    s_impact_slot_guard = 0;
     s_dive_catch_slot_guard = 0;
-    s_kick_contact_slots = 0;
+    s_impact_contact_slots = 0;
     s_dive_catch_slots = 0;
     s_foreign_pad.valid = 0;
     s_foreign_pad.carry_valid = 0;
@@ -767,8 +764,9 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
                                            state != NULL ? state->facing : 1.0f,
                                            &s_combat_ledger, out);
     }
-    if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state))
-        s_kick_contact_slots |= s_combat_ledger.new_hit_slots;
+    if (contacts != 0 &&
+        (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) == 0)
+        s_impact_contact_slots |= s_combat_ledger.new_hit_slots;
     if (contacts != 0 &&
         (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) != 0)
         s_dive_catch_slots |= s_combat_ledger.new_hit_slots;
@@ -854,7 +852,7 @@ static void smw_falcon_finish_skipped_direct_air_kick_landing(void)
         s_last_move.state = FL_WAIT;
         memset(&s_last_move.attack, 0, sizeof(s_last_move.attack));
         smw_falcon_combat_ledger_update(&s_combat_ledger, FL_WAIT, 0);
-        s_kick_contact_slots = 0;
+        s_impact_contact_slots = 0;
     }
     snes_foreign_trace_note_native(player_xpos, player_ypos);
     s_pending = 0;
@@ -913,18 +911,18 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * invokes $01:A7E4 CheckPlayerToNormalSpriteCollision. Thus hook entry
      * has the unmodified current slot and is before that slot's hurt test.
      * Clear only our prior-slot exact value, then guard only a newly accepted
-     * Kick slot. An untouched/behind slot receives $1497==0. */
+     * Punch/Kick slot. An untouched/behind slot receives $1497==0. */
     if (!s_dive_iframes_active &&
-        (s_kick_slot_guard || s_dive_catch_slot_guard) &&
+        (s_impact_slot_guard || s_dive_catch_slot_guard) &&
         timer_player_hurt == 1)
         timer_player_hurt = 0;
-    s_kick_slot_guard = 0;
+    s_impact_slot_guard = 0;
     s_dive_catch_slot_guard = 0;
     /* Live Ground Kick collisions can nonlocally leave the player collision
      * body before its inline $00:CD36 AfterPhysics callback.  $01:80D2 is
      * the guaranteed later normal-sprite pass and still precedes this slot's
      * $01:A7E4 side-damage check.  Commit the move once here when CD36 did
-     * not run, then arm only the exact accepted Kick slots below. */
+     * not run, then arm only the exact accepted Punch/Kick slots below. */
     memset(&skipped_cd36_hit, 0, sizeof(skipped_cd36_hit));
     smw_falcon_apply_combat_once(cpu, &skipped_cd36_hit);
     if (skipped_cd36_hit.attack_connected &&
@@ -945,7 +943,7 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
     }
     if (!snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
-        s_kick_contact_slots = 0;
+        s_impact_contact_slots = 0;
         s_dive_catch_slots = 0;
     } else if (cpu != NULL && cpu->x_flag == 1) {
         slot = cpu->X & 0xffu;
@@ -959,12 +957,12 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
             s_dive_iframe_timer_guard = 1;
         }
     } else if (slot < 12u &&
-        ((s_kick_contact_slots | s_dive_catch_slots) &
+        ((s_impact_contact_slots | s_dive_catch_slots) &
          (uint16_t)(1u << slot)) != 0 &&
         timer_player_hurt == 0) {
         timer_player_hurt = 1;
-        if ((s_kick_contact_slots & (uint16_t)(1u << slot)) != 0)
-            s_kick_slot_guard = 1;
+        if ((s_impact_contact_slots & (uint16_t)(1u << slot)) != 0)
+            s_impact_slot_guard = 1;
         else
             s_dive_catch_slot_guard = 1;
     }
@@ -1025,8 +1023,8 @@ void SmwFalconOnStateLoaded(void)
     s_stomp_bounce_armed = 0;
     s_stomp_bounce_consumed = 0;
     s_stomp_contact_guard = 0;
-    s_kick_contact_slots = 0;
-    s_kick_slot_guard = 0;
+    s_impact_contact_slots = 0;
+    s_impact_slot_guard = 0;
     s_dive_catch_slots = 0;
     s_dive_catch_slot_guard = 0;
     /* Host latches belong to the abandoned timeline, while $1497 has just
