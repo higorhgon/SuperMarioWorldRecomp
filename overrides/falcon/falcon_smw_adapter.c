@@ -40,6 +40,10 @@ static int s_stomp_contact_guard;
 static SmwFalconCombatLedger s_combat_ledger;
 static uint16_t s_kick_contact_slots;
 static int s_kick_slot_guard;
+/* $01:80D2 executes once per normal-sprite slot.  A move consequence is
+ * global to the frame, not to each slot, so remember the one pass which
+ * committed it. */
+static int s_combat_apply_frame = -1;
 static int s_last_input_direction;
 static int s_step_wall_latched;
 static int s_step_wall_direction;
@@ -614,6 +618,36 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     smw_falcon_restore_step_wall_latch();
 }
 
+/* A full player collision can return nonlocally before reaching inline
+ * $00:CD36.  The normal-sprite pass is nevertheless guaranteed afterwards;
+ * use its first $01:80D2 entry as the durable combat consequence seam.  The
+ * generated body reaches it in M1X1 with DB/D still mirroring bank $00, the
+ * exact contract expected by smw_falcon_combat_apply before it temporarily
+ * enters the native $02:9404 accepted-consequence route. */
+static void smw_falcon_apply_combat_once(CpuState *cpu,
+                                         ForeignCollisionResult *collision)
+{
+    ForeignCollisionResult ignored;
+    ForeignCollisionResult *out = collision != NULL ? collision : &ignored;
+    const ForeignState *state;
+    int contacts;
+
+    if (cpu == NULL || !snes_foreign_active() || !smw_falcon_playable() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        !s_last_move.attack.active ||
+        s_combat_apply_frame == snes_frame_counter || cpu->m_flag != 1 ||
+        cpu->x_flag != 1 || cpu->DB != 0 || cpu->D != 0)
+        return;
+    s_combat_apply_frame = snes_frame_counter;
+    memset(&ignored, 0, sizeof(ignored));
+    state = snes_foreign_state();
+    contacts = smw_falcon_combat_apply(cpu, &s_last_move.attack,
+                                       state != NULL ? state->facing : 1.0f,
+                                       &s_combat_ledger, out);
+    if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state))
+        s_kick_contact_slots |= s_combat_ledger.new_hit_slots;
+}
+
 void SmwFalconAfterPhysics(struct CpuState *cpu)
 {
     ForeignCollisionResult hit;
@@ -640,18 +674,7 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         s_force_airborne_pending = 0;
         s_force_airborne_frames = 0;
     }
-    if (cpu != NULL && s_last_move.attack.active) {
-        const ForeignState *state = snes_foreign_state();
-        const int contacts = smw_falcon_combat_apply(
-            cpu, &s_last_move.attack, state != NULL ? state->facing : 1.0f,
-            &s_combat_ledger, &hit);
-        /* $01:80D2 executes once for each ordinary sprite with X still its
-         * current slot, before this routine reaches the later $01:A7E4
-         * CheckPlayerToNormalSpriteCollision call.  Defer the exact newly
-         * accepted slots to that seam; never publish a global $1497 here. */
-        if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state))
-            s_kick_contact_slots |= s_combat_ledger.new_hit_slots;
-    }
+    smw_falcon_apply_combat_once(cpu, &hit);
     /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the
      * post-write observer for this one frame so an accepted native stomp can
      * hand its exact $D0/$A8 bounce back to the controller without changing
@@ -708,6 +731,12 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
     if (s_kick_slot_guard && timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_kick_slot_guard = 0;
+    /* Live Ground Kick collisions can nonlocally leave the player collision
+     * body before its inline $00:CD36 AfterPhysics callback.  $01:80D2 is
+     * the guaranteed later normal-sprite pass and still precedes this slot's
+     * $01:A7E4 side-damage check.  Commit the move once here when CD36 did
+     * not run, then arm only the exact accepted Kick slots below. */
+    smw_falcon_apply_combat_once(cpu, NULL);
     if (!snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
         s_kick_contact_slots = 0;
@@ -778,6 +807,7 @@ void SmwFalconOnStateLoaded(void)
     s_stomp_contact_guard = 0;
     s_kick_contact_slots = 0;
     s_kick_slot_guard = 0;
+    s_combat_apply_frame = -1;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
     smw_falcon_clear_step_wall_latch();

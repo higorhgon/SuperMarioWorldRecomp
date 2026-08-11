@@ -63,16 +63,17 @@ int main(void) {
     SmwFalconCombatLedger ledger; int calls; uint8_t scratch[16];
     memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
 
-    /* Punch reaches two loose shells directly ahead. Their native $09/$0A
-     * lifecycle is admitted, but carried $0B remains Falcon-owned. */
-    install_sprite(2,9,0x04,184,126); install_sprite(5,10,0x05,202,126);
+    /* save1's front pair is a status-$08 Koopa and a status-$09 loose shell,
+     * both ID $05. Punch must submit both to $02:9404; only carried $0B is
+     * Falcon-owned and excluded. */
+    install_sprite(8,8,0x05,184,126); install_sprite(9,9,0x05,202,126);
     install_sprite(7,11,0x04,188,126); begin(&ledger,FL_FALCON_PUNCH_GROUND);
     memset(s_ram,0x5a,16); memcpy(scratch,s_ram,16); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2);
     CHECK(s_sprite_calls==2 && s_native_contact_effects==2 &&
-          s_ram[0x14ca]==2 && s_ram[0x14cd]==2 && s_ram[0x14cf]==11 &&
-          hit.attack_connected && ledger.hit_slots==((1u<<2)|(1u<<5)) &&
-          ledger.new_hit_slots==((1u<<2)|(1u<<5)));
+          s_ram[0x14d0]==2 && s_ram[0x14d1]==2 && s_ram[0x14cf]==11 &&
+          hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)) &&
+          ledger.new_hit_slots==((1u<<8)|(1u<<9)));
     CHECK(memcmp(s_ram,scratch,16)==0 && cpu.DB==0 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */

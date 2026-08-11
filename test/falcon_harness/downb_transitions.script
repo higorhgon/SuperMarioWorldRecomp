@@ -107,6 +107,21 @@ frames 4
 expect_pos_x 745 745
 roundtrip
 
+# Direct aerial Kick touching ground settles immediately.  The adapter must
+# not emit the obsolete KickLanding/Ground-Kick pose for even one frame.
+reset
+pos_y 1000
+host_fall
+stick_y -80
+special down
+frames 1
+special up
+expect_state FALCON_KICK_AIR
+host_land
+frames 1
+expect_state WAIT
+expect_grounded 1 1
+
 # An ordinary jump wall collision remains ordinary jump behavior.
 reset
 jump down

@@ -25,6 +25,11 @@ void CheckPlayerAttackToNormalSpriteColl_029404(CpuState *cpu)
      * persistent SFX-side write is the observed acceptance proof, not a
      * guessed per-enemy timer. */
     ++cpu->ram[0x1DFC];
+    /* $02:9404's accepted loose-shell route reaches $02:945B and stores
+     * status $02. Keep the ordinary Koopa at $08 to model the later native
+     * side-contact pass that needs the exact-slot guard. */
+    if (cpu->ram[0x14C8u + (cpu->X & 0xffu)] == 9)
+        cpu->ram[0x14C8u + (cpu->X & 0xffu)] = 2;
 }
 
 void SpawnBounceSprite(CpuState *cpu) { (void)cpu; }
@@ -77,30 +82,42 @@ int main(void)
     player_in_air_flag = 0;
     player_xpos = 100;
     player_ypos = 200;
-    /* Kick's low forward foot union includes this target. A retained status
-     * models the enemy family whose later same-pass collision would hurt. */
-    spr_current_status[0] = 8;
-    spr_spriteid[0] = 0x0F;
-    spr_xpos_lo[0] = 170;
-    spr_ypos_lo[0] = 220;
+    /* Slot 8 is the retained Koopa side-contact. Slot 9 is a loose shell:
+     * both are immediately ahead, mirroring save1's native lifecycle mix. */
+    spr_current_status[8] = 8;
+    spr_spriteid[8] = 0x05;
+    spr_xpos_lo[8] = 170;
+    spr_ypos_lo[8] = 220;
+    spr_current_status[9] = 9;
+    spr_spriteid[9] = 0x05;
+    spr_xpos_lo[9] = 176;
+    spr_ypos_lo[9] = 220;
 
     memset(&cpu, 0, sizeof(cpu));
     cpu.ram = g_ram;
     cpu.m_flag = cpu.x_flag = 1;
     cpu.P = 0x30;
 
-    /* Frame 12 is the authored beginning of Kick's active interval. */
-    for (int i = 0; i != 13; ++i)
+    /* Advance to source frame 12.  Model the real low ground-collision
+     * nonlocal return by deliberately omitting CD36/AfterPhysics on the
+     * active frame; $01:80D2 must still apply the consequence before native
+     * side damage. */
+    for (int i = 0; i != 12; ++i)
         frame(i == 0 ? 0x44 : 0, i == 0 ? 0x44 : 0, &cpu);
-    if (!smw_falcon_last_attack()->active || s_native_contacts != 1 ||
-        spr_current_status[0] != 8 || timer_player_hurt != 0)
-        return fail("active Kick records only its accepted retained $08 slot");
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (!smw_falcon_last_attack()->active || s_native_contacts != 0)
+        return fail("active Kick reaches the normal-sprite seam without CD36");
     /* $01:80D2 is re-entered once per ordinary slot before that slot's
-     * collision check. X=0 is the connected multi-hit target. */
-    cpu.X = 0;
+     * collision check. X=8 is the connected retained multi-hit target. */
+    cpu.X = 8;
     SmwFalconBeforeNormalSprites(&cpu);
-    if (timer_player_hurt != 1)
-        return fail("connected $08 slot receives its own collision guard");
+    if (s_native_contacts != 2 || spr_current_status[8] != 8 ||
+        spr_current_status[9] != 2 || timer_player_hurt != 1)
+        return fail("normal-sprite seam destroys shell and guards its Koopa");
     model_later_side_damage();
     if (player_current_state != 0)
         return fail("connected Kick slot prevents its same-pass side damage");

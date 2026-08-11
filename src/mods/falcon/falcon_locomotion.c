@@ -593,19 +593,6 @@ static void enter_landing(FalconFighter *f)
     set_status(f, heavy ? FL_LANDING_HEAVY : FL_LANDING_LIGHT);
 }
 
-/* ftCaptainSpecialLwLandingSetStatus: direct aerial Falcon Kick has its own
- * root-motion landing pose and one-frame impact, rather than generic aerial
- * landing lag. */
-static void enter_falcon_kick_landing(FalconFighter *f)
-{
-    f->grounded = 1;
-    f->jumps_used = 0;
-    f->is_fastfall = 0;
-    f->vel_ground_x = 0.0;
-    f->vel_air_x = f->vel_air_y = 0.0;
-    set_status(f, FL_FALCON_KICK_LANDING);
-}
-
 static int is_falcon_kick_wall_state(int state)
 {
     return state == FL_FALCON_KICK_GROUND ||
@@ -615,19 +602,16 @@ static int is_falcon_kick_wall_state(int state)
 
 /* The native one-block wall must remain solid at Falcon's much larger root
  * deltas. User-approved host policy is a stop rather than a rebound: consume
- * every Kick root at the accepted wall face. Floor contact returns to Wait
- * (direct aerial Kick retains its landing pose); an airborne contact falls
- * with zero carried X. This intentionally bypasses SpecialLwBound so no
+ * every Kick root at the accepted wall face. Floor contact returns to Wait;
+ * an airborne contact falls with zero carried X. This intentionally bypasses
+ * SpecialLwBound so no
  * airborne handshake or rebound root can tunnel through the step. */
 static void enter_falcon_kick_wall_stop(FalconFighter *f, int grounded)
 {
     f->vel_ground_x = 0.0;
     f->vel_air_x = f->vel_air_y = 0.0;
     if (grounded) {
-        if (f->state == FL_FALCON_KICK_AIR)
-            enter_falcon_kick_landing(f);
-        else
-            enter_wait(f);
+        enter_wait(f);
     } else {
         f->grounded = 0;
         enter_fall(f);
@@ -1493,7 +1477,10 @@ void falcon_tick(FalconFighter *f, const FalconInputRaw *in, FalconMotion *out)
             f->vel_ground_x = f->vel_air_x * (double)f->lr;
             f->vel_air_x = f->vel_air_y = 0.0;
         } else if (f->state == FL_FALCON_KICK_AIR) {
-            enter_falcon_kick_landing(f);
+            /* Direct SpecialAirLw has no gameplay landing continuation in
+             * this host: settle immediately so no KickLanding/Ground-Kick
+             * presentation flash is emitted after touching down. */
+            enter_wait(f);
         } else if (f->state == FL_FALCON_DIVE_FALL) {
             enter_falcon_dive_landing(f);
         } else {
@@ -1605,7 +1592,7 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
                 f->vel_ground_x = f->vel_air_x * (double)f->lr;
                 f->vel_air_x = f->vel_air_y = 0.0;
             } else if (f->state == FL_FALCON_KICK_AIR) {
-                enter_falcon_kick_landing(f);
+                enter_wait(f);
             } else if (f->state == FL_FALCON_DIVE_FALL) {
                 enter_falcon_dive_landing(f);
             } else {
