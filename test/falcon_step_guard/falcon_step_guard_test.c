@@ -145,6 +145,32 @@ int main(void)
     if (player_xpos != 0x0711)
         return fail("neutral releases the persistent step-wall latch");
 
+    /* The wall/OOB rollback must not become blanket enemy invulnerability.
+     * A normal grounded snapshot with no side-wall hazard leaves native
+     * damage/death state $09 untouched at the later guaranteed seam. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for ordinary enemy damage");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0800;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x22;
+    player_sub_ypos = 0x44;
+    player_blocked_flags = 0x04;
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    player_current_state = 9;
+    player_xpos = 0x0800;
+    player_ypos = 0x0160;
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x04;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (player_current_state != 9)
+        return fail("ordinary enemy damage is not cancelled by wall safety");
+
     /* Mirror the exact native false-crush signature at a left wall.  The
      * side-neutral ROM test is ($77 & $1C)==$1C, so left is $1E and must
      * retain left+floor as $06. */

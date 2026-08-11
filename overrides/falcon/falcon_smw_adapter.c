@@ -72,6 +72,7 @@ static uint8_t s_step_wall_in_air;
 static uint8_t s_step_wall_blocked;
 static uint8_t s_step_wall_facing;
 static unsigned s_wall_safety_recent_frames;
+static int s_wall_safety_hazard_armed;
 static int s_wall_safety_valid;
 static uint16_t s_wall_safety_x;
 static uint16_t s_wall_safety_y;
@@ -159,13 +160,21 @@ static void smw_falcon_install_current_step_wall_latch(int direction,
 
 static void smw_falcon_note_wall_safety_context(const ForeignState *state)
 {
-    if (s_wall_safety_recent_frames != 0)
-        --s_wall_safety_recent_frames;
+    int wall_hazard = 0;
     if (state == NULL) return;
     if (player_in_air_flag == 0 &&
-        (smw_falcon_ground_run_wall_state(state->state) ||
-         (player_blocked_flags & 0x03u) != 0))
+        ((player_blocked_flags & 0x03u) != 0 || s_step_wall_latched))
+        wall_hazard = 1;
+    if (wall_hazard) {
+        s_wall_safety_hazard_armed = 1;
         s_wall_safety_recent_frames = SMW_FALCON_WALL_SAFETY_FRAMES;
+    } else if (s_wall_safety_recent_frames != 0) {
+        --s_wall_safety_recent_frames;
+    } else if (player_in_air_flag == 0 &&
+               (player_blocked_flags & 0x04u) != 0 &&
+               !smw_falcon_ground_run_wall_state(state->state)) {
+        s_wall_safety_hazard_armed = 0;
+    }
 }
 
 static void smw_falcon_remember_wall_safe_ground(void)
@@ -195,14 +204,16 @@ static int smw_falcon_wall_safety_should_restore(void)
     dx = (int16_t)(player_xpos - s_wall_safety_x);
     dy = (int16_t)(player_ypos - s_wall_safety_y);
     /* $00:E9FB false-crush and $00:F595 pit/OOB both converge on native
-     * state $09. Once native has entered that terminal path, restore the last
-     * Falcon-owned grounded coordinate unconditionally; a short wall-TTL can
-     * expire before the pit/OOB check crosses its threshold. */
+     * state $09, but ordinary enemy damage can also enter state $09. Restore
+     * death only while a wall/OOB hazard has been observed; never turn the
+     * boundary safety net into global enemy invulnerability. */
     if (player_current_state == 9)
-        return 1;
+        return s_wall_safety_hazard_armed ||
+               s_wall_safety_recent_frames != 0 ||
+               player_xpos >= 0xF000u;
     if (player_xpos >= 0xF000u)
         return 1;
-    if (s_wall_safety_recent_frames == 0)
+    if (!s_wall_safety_hazard_armed && s_wall_safety_recent_frames == 0)
         return 0;
     if (dx > SMW_FALCON_WALL_OOB_MAX_DELTA ||
         dx < -SMW_FALCON_WALL_OOB_MAX_DELTA)
@@ -262,6 +273,7 @@ static int smw_falcon_restore_wall_safe_ground(void)
     s_pending = 0;
     s_force_airborne_pending = 0;
     s_force_airborne_frames = 0;
+    s_wall_safety_hazard_armed = 1;
     s_wall_safety_recent_frames = SMW_FALCON_WALL_SAFETY_FRAMES;
     return 1;
 }
@@ -688,6 +700,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         smw_falcon_reset_dive_iframes();
         smw_falcon_clear_step_wall_latch();
         s_wall_safety_recent_frames = 0;
+        s_wall_safety_hazard_armed = 0;
         s_wall_safety_valid = 0;
         return;
     }
@@ -858,19 +871,22 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
          * or mismatched moving-ceiling crush. */
         (player_blocked_flags & 0x1Cu) != 0x1Cu ||
         s_in_air_before != 0 ||
-        player_ypos != s_y_before) return;
+        (int16_t)(player_ypos - s_y_before) < -1 ||
+        (int16_t)(player_ypos - s_y_before) > 1) return;
     state = snes_foreign_state();
     active_ground_kick = state != NULL && state->grounded &&
         state->state == FL_FALCON_KICK_GROUND &&
         state->state_frame >= 12u && state->state_frame < 32u;
-    if (state == NULL || !state->grounded ||
-        (!active_ground_kick &&
-         ((state->state != FL_DASH && state->state != FL_RUN) ||
-          s_last_input_direction == 0 ||
-          s_last_input_direction != (state->facing >= 0.0f ? 1 : -1))))
-        return;
-    side_bits = (uint8_t)(player_blocked_flags & 0x03u);
-    expected_side = (uint8_t)(state->facing >= 0.0f ? 0x01u : 0x02u);
+    {
+        const int motion_direction = s_last_move.requested_dx > 0.0 ? 1 :
+                                     s_last_move.requested_dx < 0.0 ? -1 : 0;
+        if (state == NULL || !state->grounded || motion_direction == 0 ||
+            (!active_ground_kick &&
+             !smw_falcon_ground_run_wall_state(state->state)))
+            return;
+        side_bits = (uint8_t)(player_blocked_flags & 0x03u);
+        expected_side = (uint8_t)(motion_direction > 0 ? 0x01u : 0x02u);
+    }
     if (side_bits != expected_side)
         return;
 
@@ -1239,6 +1255,7 @@ void SmwFalconOnStateLoaded(void)
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
     s_wall_safety_recent_frames = 0;
+    s_wall_safety_hazard_armed = 0;
     s_wall_safety_valid = 0;
     smw_falcon_clear_step_wall_latch();
     smw_falcon_reset_dash_taps();
