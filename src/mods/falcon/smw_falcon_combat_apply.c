@@ -158,6 +158,12 @@ static void prepare_bank00_call(CpuState *cpu)
     cpu->DB = 0;
 }
 
+static void write_ram16(CpuState *cpu, unsigned address, uint16_t value)
+{
+    cpu->ram[address] = (uint8_t)value;
+    cpu->ram[address + 1] = (uint8_t)(value >> 8);
+}
+
 static void invoke_native_jsr(CpuState *cpu, uint8_t target_bank,
                               SmwFalconNativeEntry entry)
 {
@@ -177,6 +183,12 @@ static void invoke_native_jsl(CpuState *cpu, uint8_t target_bank,
     cpu->PB = target_bank;
     cpu_push_jsl_return_frame(cpu);
     entry(cpu);
+}
+
+static void invoke_native_map16_lookup(CpuState *cpu)
+{
+    prepare_bank00_call(cpu);
+    invoke_native_jsr(cpu, 0, GetPlayerLevelCollisionMap16ID_Entry2);
 }
 
 static SmwFalconSpriteConsequence sprite_target_consequence(const CpuState *cpu,
@@ -383,46 +395,100 @@ static SmwFalconMap16Class native_collision_block_class(const CpuState *cpu)
     return SMW_FALCON_MAP16_UNKNOWN;
 }
 
-static int attack_touches_native_collision_block(const CpuState *cpu,
-                                                 const ForeignAttackHitbox *attack,
-                                                 float facing)
+static SmwFalconMap16Class map16_low_class(uint8_t map16_low)
 {
-    SmwFalconAabb hit = smw_falcon_attack_world_aabb(
-        attack, ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
-    unsigned x = ram16(cpu, SMW_TOUCH_X) & ~15u;
-    unsigned y = ram16(cpu, SMW_TOUCH_Y) & ~15u;
-    SmwFalconAabb block = { x, y, (double)x + 16.0, (double)y + 16.0 };
-    return smw_falcon_aabb_overlaps(hit, block);
+    if (map16_low == 0x1Eu) return SMW_FALCON_MAP16_TURN_BLOCK;
+    return SMW_FALCON_MAP16_UNKNOWN;
 }
 
-static int apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
-                              float facing)
+static int block_intersects_attack(const SmwFalconAabb *hit, int x, int y)
+{
+    SmwFalconAabb block = {
+        (double)x, (double)y, (double)x + 16.0, (double)y + 16.0
+    };
+    return smw_falcon_aabb_overlaps(*hit, block);
+}
+
+static int clean_break_block_at(CpuState *cpu, int x, int y)
+{
+    write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
+    write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
+    cpu->ram[SMW_MAP16_GENERATE] = 1;
+    prepare_bank00_call(cpu);
+    invoke_native_jsl(cpu, 0, GenerateTile);
+    return 1;
+}
+
+static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
+                               float facing)
 {
     SmwFalconCpuSnapshot saved;
     uint8_t scratch[SMW_SCRATCH_COUNT];
     uint8_t interaction[5];
-    SmwFalconMap16Class map16_class = native_collision_block_class(cpu);
     uint8_t player_y_speed[2];
-    if (!smw_falcon_can_break_map16(attack, map16_class) ||
-        !attack_touches_native_collision_block(cpu, attack, facing)) return 0;
+    uint8_t map16_current;
+    SmwFalconAabb hit;
+    int start_x, end_x, start_y, end_y;
+    int x, y, broken = 0;
+
+    if (attack == NULL ||
+        (attack->flags & FOREIGN_ATTACK_BREAK_BLOCKS) == 0)
+        return 0;
 
     memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
     memcpy(interaction, cpu->ram + SMW_TOUCH_Y, sizeof(interaction));
     memcpy(player_y_speed, cpu->ram + 0x007Cu, sizeof(player_y_speed));
+    map16_current = cpu->ram[SMW_MAP16_CURRENT];
     save_cpu(cpu, &saved);
-    /* Preserve $04 and $98-$9C from $00:E92B.  Do not run the bounce-sprite
-     * block activation path here: content blocks can legitimately spawn
-     * items/enemies/keys there. Falcon specials are a Smash-style destructive
-     * hit, so use GenerateTile command 1 (sub_C074) to write the clean blank
-     * tile at the already-admitted native collision coordinate. */
-    cpu->ram[SMW_MAP16_GENERATE] = 1;
-    prepare_bank00_call(cpu);
-    invoke_native_jsl(cpu, 0, GenerateTile);
+
+    hit = smw_falcon_attack_world_aabb(
+        attack, ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
+    start_x = ((int)floor(hit.left)) & ~15;
+    end_x = ((int)floor(hit.right - 0.001)) & ~15;
+    start_y = ((int)floor(hit.top)) & ~15;
+    end_y = ((int)floor(hit.bottom - 0.001)) & ~15;
+
+    /* A Falcon special is an authored destructive volume, not Mario's single
+     * collision probe.  Scan every overlapped 16px tile and blank only the
+     * confirmed destructible turn-block class.  Re-query Map16 after each
+     * GenerateTile call so adjacent blocks observe the mutated level state. */
+    for (y = start_y; y <= end_y; y += 16) {
+        for (x = start_x; x <= end_x; x += 16) {
+            SmwFalconMap16Class cls;
+            if (x < 0 || y < 0 || y >= 0x01B0 ||
+                !block_intersects_attack(&hit, x, y))
+                continue;
+            write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
+            write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
+            invoke_native_map16_lookup(cpu);
+            cls = map16_low_class(cpu->ram[SMW_MAP16_CURRENT]);
+            if (!smw_falcon_can_break_map16(attack, cls)) continue;
+            broken += clean_break_block_at(cpu, x, y);
+        }
+    }
+
+    if (broken == 0) {
+        SmwFalconMap16Class cls;
+        unsigned cx, cy;
+        memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
+        memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
+        memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
+        cpu->ram[SMW_MAP16_CURRENT] = map16_current;
+        restore_cpu(cpu, &saved);
+        cls = native_collision_block_class(cpu);
+        cx = ram16(cpu, SMW_TOUCH_X) & ~15u;
+        cy = ram16(cpu, SMW_TOUCH_Y) & ~15u;
+        if (smw_falcon_can_break_map16(attack, cls) &&
+            block_intersects_attack(&hit, (int)cx, (int)cy))
+            broken += clean_break_block_at(cpu, (int)cx, (int)cy);
+    }
+
     memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
     memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
     memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
+    cpu->ram[SMW_MAP16_CURRENT] = map16_current;
     restore_cpu(cpu, &saved);
-    return 1;
+    return broken;
 }
 
 void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
@@ -484,8 +550,8 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
          * group may all receive it, but the block route remains separate. */
         return sprite_contacts;
     }
-    if (ledger->had_sprite_contact || ledger->block_applied) return 0;
-    if (apply_native_block(cpu, attack, facing)) {
+    if (ledger->had_sprite_contact) return 0;
+    if (apply_native_blocks(cpu, attack, facing)) {
         ledger->block_applied = 1;
         return 1;
     }

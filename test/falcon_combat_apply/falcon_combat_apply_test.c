@@ -7,7 +7,16 @@
 static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_star_kill_calls, s_block_calls;
-static int s_bounce_block_calls;
+static int s_bounce_block_calls, s_map16_lookup_calls;
+
+typedef struct MockMap16Tile {
+    uint16_t x;
+    uint16_t y;
+    uint8_t low;
+} MockMap16Tile;
+
+static MockMap16Tile s_map16_tiles[32];
+static int s_map16_tile_count;
 
 void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
 {
@@ -86,6 +95,57 @@ void SpawnBounceSprite(CpuState *cpu)
     ++s_bounce_block_calls;
     fprintf(stderr, "unexpected bounce block activation\n");
 }
+static uint16_t read16(unsigned p)
+{
+    return (uint16_t)(s_ram[p] | ((uint16_t)s_ram[p + 1] << 8));
+}
+static void mock_map16_clear(void)
+{
+    memset(s_map16_tiles, 0, sizeof(s_map16_tiles));
+    s_map16_tile_count = 0;
+}
+static void mock_map16_set(uint16_t x, uint16_t y, uint8_t low)
+{
+    if (s_map16_tile_count >=
+        (int)(sizeof(s_map16_tiles) / sizeof(s_map16_tiles[0]))) {
+        fprintf(stderr, "mock map16 overflow\n");
+        return;
+    }
+    s_map16_tiles[s_map16_tile_count].x = x;
+    s_map16_tiles[s_map16_tile_count].y = y;
+    s_map16_tiles[s_map16_tile_count].low = low;
+    ++s_map16_tile_count;
+}
+static uint8_t mock_map16_get(uint16_t x, uint16_t y)
+{
+    int i;
+    for (i = 0; i < s_map16_tile_count; ++i)
+        if (s_map16_tiles[i].x == x && s_map16_tiles[i].y == y)
+            return s_map16_tiles[i].low;
+    return 0;
+}
+static void mock_map16_delete(uint16_t x, uint16_t y)
+{
+    int i;
+    for (i = 0; i < s_map16_tile_count; ++i) {
+        if (s_map16_tiles[i].x == x && s_map16_tiles[i].y == y) {
+            s_map16_tiles[i] = s_map16_tiles[s_map16_tile_count - 1];
+            --s_map16_tile_count;
+            return;
+        }
+    }
+}
+void GetPlayerLevelCollisionMap16ID_Entry2(CpuState *cpu)
+{
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 0 ||
+        cpu->D != 0) {
+        fprintf(stderr, "bad map16 lookup contract\n"); return;
+    }
+    if (!consume_native_frame(cpu, 2, 0, "map16 lookup")) return;
+    ++s_map16_lookup_calls;
+    cpu->ram[0x1693] = mock_map16_get(read16(0x9a), read16(0x98));
+    cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
+}
 void GenerateTile(CpuState *cpu)
 {
     if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 0 ||
@@ -94,6 +154,7 @@ void GenerateTile(CpuState *cpu)
     }
     if (!consume_native_frame(cpu, 3, 0, "clean block")) return;
     ++s_block_calls;
+    mock_map16_delete(read16(0x9a), read16(0x98));
     /* Command 1 is the blank-tile path; it should not run content/bounce
      * behavior or alter Mario's Y speed. */
     cpu->ram[0x1693] = 0;
@@ -109,6 +170,7 @@ static CpuState fresh(void) {
     c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30; c.S=0x01ff;
     s_sprite_calls=s_spin_kill_calls=s_spin_star_calls=s_spin_score_calls=0;
     s_star_kill_calls=s_block_calls=s_bounce_block_calls=0;
+    s_map16_lookup_calls=0; mock_map16_clear();
     return c;
 }
 static ForeignAttackHitbox punch(void) {
@@ -355,6 +417,40 @@ int main(void) {
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==1 &&
           s_block_calls==1 && s_bounce_block_calls==0 &&
           s_ram[0x1693]==0 && s_ram[0x9c]==0);
+
+    /* Falcon specials break the whole authored volume, not only SMW's single
+     * touched block.  A grounded Kick carves a horizontal/vertical contact
+     * strip across every overlapped turn block and leaves non-turn Map16
+     * tiles alone. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    mock_map16_set(112,112,0x1e); mock_map16_set(128,112,0x1e);
+    mock_map16_set(144,112,0x1e); mock_map16_set(160,112,0x1e);
+    mock_map16_set(128,128,0x30); /* not a Falcon-breakable block class */
+    begin(&ledger,FL_FALCON_KICK_GROUND);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==4 &&
+          s_block_calls==4 && s_bounce_block_calls==0 &&
+          mock_map16_get(112,112)==0 && mock_map16_get(128,112)==0 &&
+          mock_map16_get(144,112)==0 && mock_map16_get(160,112)==0 &&
+          mock_map16_get(128,128)==0x30 && s_map16_lookup_calls > 4);
+
+    /* Because a Falcon Punch/Kick lingers, each active frame may destroy a
+     * newly-overlapped set of blocks.  The ledger records that a block hit
+     * occurred but must not suppress later block-volume scans. */
+    mock_map16_set(112,128,0x1e); mock_map16_set(128,128,0x1e);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==2 &&
+          s_block_calls==6 && ledger.block_applied &&
+          mock_map16_get(112,128)==0 && mock_map16_get(128,128)==0);
+
+    /* Falcon Punch has a wider authored range and should blank several blocks
+     * in front of him in one frame. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    mock_map16_set(112,96,0x1e); mock_map16_set(128,96,0x1e);
+    mock_map16_set(144,96,0x1e); mock_map16_set(112,112,0x1e);
+    mock_map16_set(128,112,0x1e); mock_map16_set(144,112,0x1e);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
+          s_block_calls==6 && s_bounce_block_calls==0);
+
     smw_falcon_combat_ledger_update(&ledger,FL_FALCON_PUNCH_GROUND,0);
     CHECK(!ledger.active && ledger.hit_slots==0);
     puts("falcon_combat_apply_test: PASS"); return 0;
