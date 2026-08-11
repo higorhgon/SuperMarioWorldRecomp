@@ -63,9 +63,10 @@ typedef struct {
  * $91: B=$0D/C=$0B/D=$F9. B is masked with $3F by GetSpriteClippingA, so
  * Banzai selects index $36 rather than index $00. These are interaction
  * bounds, not drawn tile dimensions. Keep this deliberately small: only the
- * two newly admitted source signatures consume this table in the Falcon host
+ * explicitly admitted exceptional source signatures consume this table in the Falcon host
  * boundary. */
 static const SmwFalconNativeSpriteClip k_big_target_clips[] = {
+    { 0x01u,  2,  3, 12, 21 }, /* Rex ($1F), $81 & $3F */
     { 0x36u,  8,  8, 52, 46 }, /* Banzai Bill ($9F), $B6 & $3F */
     { 0x0Du,  0, -4, 15, 16 }, /* Chargin' Chuck ($91) */
 };
@@ -187,6 +188,9 @@ static SmwFalconSpriteConsequence sprite_target_consequence(const CpuState *cpu,
     if (status == 8 && id == 0x91u && tweaker_b == 0x0Du &&
         tweaker_c == 0x0Bu && tweaker_d == 0xF9u)
         return SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL;
+    if (status == 8 && id == 0x1Fu && tweaker_b == 0x81u &&
+        tweaker_c == 0x4Fu && tweaker_d == 0x02u)
+        return SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL;
 
     if ((status != 8 && status != 9 && status != 10) ||
         (tweaker_c & 0x20u) != 0 || (tweaker_d & 0x02u) != 0)
@@ -272,7 +276,8 @@ static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
     for (i = 0; i < sizeof(k_big_target_clips) / sizeof(k_big_target_clips[0]); ++i) {
         const SmwFalconNativeSpriteClip *clip = &k_big_target_clips[i];
         if (clip->index == clip_index &&
-            ((id == 0x9Fu && clip_index == 0x36u) ||
+            ((id == 0x1Fu && clip_index == 0x01u) ||
+             (id == 0x9Fu && clip_index == 0x36u) ||
              (id == 0x91u && clip_index == 0x0Du))) {
             SmwFalconAabb result = {
                 (double)(int32_t)x + clip->x_offset,

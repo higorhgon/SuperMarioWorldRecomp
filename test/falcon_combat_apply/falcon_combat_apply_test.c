@@ -252,6 +252,23 @@ int main(void) {
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==0 && s_ram[0x14ce]==8 && ledger.new_hit_slots==0);
 
+    /* Rex ($1F) is a special case for user-facing combat: native stomp-style
+     * interaction can leave it squished/compressed, but Falcon Punch/Kick are
+     * meant to be decisive Smash hits.  Admit only the vanilla oracle row
+     * $1662/$166E/$167A = $81/$4F/$02, use source clip index $01
+     * [x+2,x+14) x [y+3,y+24), and route to the guaranteed star-kill
+     * endpoint rather than Rex's ordinary squish lifecycle. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100);
+    install_big_target(7,0x1f,162,120,0x81,0x4f,0x02);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND); memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
+          s_sprite_calls==0 && s_ram[0x14cf]==8);
+    s_ram[0x00e4 + 7]=150;
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
+          s_star_kill_calls==1 && s_spin_kill_calls==0 &&
+          s_ram[0x14cf]==2 && ledger.new_hit_slots==(1u<<7));
+
     /* Falcon Dive's hitbox is a one-target catch search.  BattleShip keeps
      * search_gobj as catch_gobj through Catch; there is no damage/status
      * transaction until FalconDiveEnd1 begins Throw.  A loose shell is not a

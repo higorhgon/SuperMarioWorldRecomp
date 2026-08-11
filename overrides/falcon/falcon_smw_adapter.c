@@ -22,6 +22,7 @@
 #define SMW_FALCON_WATER_TERMINAL_FALL 42.0
 #define SMW_FALCON_DASH_DOUBLE_TAP_FRAMES 15
 #define SMW_FALCON_DIVE_IFRAME_GRACE_FRAMES 8u
+#define SMW_FALCON_WALL_SAFETY_FRAMES 12u
 /* Approved owner cache FalconDive TransN is subpixel through source frame 13
  * and first produces an upward SMW speed at frame 14.  The source resolver
  * itself preserves grounded-Dive air kinetics through frame 15. */
@@ -69,6 +70,14 @@ static uint8_t s_step_wall_sub_y;
 static uint8_t s_step_wall_in_air;
 static uint8_t s_step_wall_blocked;
 static uint8_t s_step_wall_facing;
+static unsigned s_wall_safety_recent_frames;
+static int s_wall_safety_valid;
+static uint16_t s_wall_safety_x;
+static uint16_t s_wall_safety_y;
+static uint8_t s_wall_safety_sub_x;
+static uint8_t s_wall_safety_sub_y;
+static uint8_t s_wall_safety_facing;
+static uint8_t s_wall_safety_blocked;
 static ForeignMoveResult s_last_move;
 static struct {
     uint8_t hold1;
@@ -82,6 +91,9 @@ static struct {
 } s_foreign_pad;
 
 static int signed8(uint8_t value) { return (int)(int8_t)value; }
+
+static int smw_falcon_ground_run_wall_state(int state);
+static void smw_falcon_reseed(ForeignState *state);
 
 static void smw_falcon_reset_dash_taps(void)
 {
@@ -142,6 +154,100 @@ static void smw_falcon_install_current_step_wall_latch(int direction,
     s_step_wall_facing = player_facing_direction;
     s_step_wall_blocked = (uint8_t)((blocked_flags & 0x03u) | 0x04u);
     smw_falcon_restore_step_wall_latch();
+}
+
+static void smw_falcon_note_wall_safety_context(const ForeignState *state)
+{
+    if (s_wall_safety_recent_frames != 0)
+        --s_wall_safety_recent_frames;
+    if (state == NULL) return;
+    if (player_in_air_flag == 0 &&
+        (smw_falcon_ground_run_wall_state(state->state) ||
+         (player_blocked_flags & 0x03u) != 0))
+        s_wall_safety_recent_frames = SMW_FALCON_WALL_SAFETY_FRAMES;
+}
+
+static void smw_falcon_remember_wall_safe_ground(void)
+{
+    if (!snes_foreign_active() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        misc_game_mode != 0x14 || player_current_state != 0 ||
+        player_in_air_flag != 0 || (player_blocked_flags & 0x04u) == 0)
+        return;
+    s_wall_safety_valid = 1;
+    s_wall_safety_x = player_xpos;
+    s_wall_safety_y = player_ypos;
+    s_wall_safety_sub_x = player_sub_xpos;
+    s_wall_safety_sub_y = player_sub_ypos;
+    s_wall_safety_facing = player_facing_direction;
+    s_wall_safety_blocked = (uint8_t)((player_blocked_flags & 0x03u) | 0x04u);
+}
+
+static int smw_falcon_wall_safety_should_restore(void)
+{
+    int16_t dy;
+    if (!s_wall_safety_valid || !snes_foreign_active() ||
+        misc_game_mode != 0x14)
+        return 0;
+    dy = (int16_t)(player_ypos - s_wall_safety_y);
+    /* $00:E9FB false-crush and $00:F595 pit/OOB both converge on native
+     * state $09. Once native has entered that terminal path, restore the last
+     * Falcon-owned grounded coordinate unconditionally; a short wall-TTL can
+     * expire before the pit/OOB check crosses its threshold. */
+    if (player_current_state == 9)
+        return 1;
+    if (s_wall_safety_recent_frames == 0)
+        return 0;
+    if (dy > 24 && player_in_air_flag != 0)
+        return 1;
+    if (player_in_air_flag != 0 && (player_blocked_flags & 0x03u) != 0)
+        return 1;
+    return 0;
+}
+
+static int smw_falcon_restore_wall_safe_ground(void)
+{
+    ForeignCollisionResult wall;
+    ForeignState *state;
+    int direction;
+
+    if (!smw_falcon_wall_safety_should_restore())
+        return 0;
+
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = s_wall_safety_x;
+    player_ypos = s_wall_safety_y;
+    player_sub_xpos = s_wall_safety_sub_x;
+    player_sub_ypos = s_wall_safety_sub_y;
+    player_xspeed = player_yspeed = 0;
+    player_sub_xspeed = player_sub_yspeed = 0;
+    player_facing_direction = s_wall_safety_facing;
+    player_blocked_flags = s_wall_safety_blocked;
+    if (timer_player_hurt == 1)
+        timer_player_hurt = 0;
+
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
+        snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
+    state = snes_foreign_state();
+    if (state != NULL) {
+        smw_falcon_reseed(state);
+        memset(&wall, 0, sizeof(wall));
+        wall.grounded = 1;
+        wall.hit_floor = 1;
+        wall.hit_wall = 1;
+        snes_foreign_resolve(&wall);
+    }
+
+    direction = (s_wall_safety_blocked & 0x01u) ? 1 :
+                (s_wall_safety_blocked & 0x02u) ? -1 :
+                (s_wall_safety_facing ? 1 : -1);
+    smw_falcon_install_current_step_wall_latch(direction, s_wall_safety_blocked);
+    s_pending = 0;
+    s_force_airborne_pending = 0;
+    s_force_airborne_frames = 0;
+    s_wall_safety_recent_frames = SMW_FALCON_WALL_SAFETY_FRAMES;
+    return 1;
 }
 
 static void smw_falcon_clear_stomp_contact_guard(void)
@@ -555,6 +661,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     s_stomp_bounce_armed = 0;
     s_stomp_bounce_consumed = 0;
     s_stomp_contact_guard = 0;
+    smw_falcon_restore_wall_safe_ground();
     if (!snes_foreign_active()) {
         /* A deselected mod has no controller tick in which to age a Catch.
          * Drop the host-only catch identity rather than allowing a later
@@ -564,6 +671,8 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_dive_catch_slot_guard = 0;
         smw_falcon_reset_dive_iframes();
         smw_falcon_clear_step_wall_latch();
+        s_wall_safety_recent_frames = 0;
+        s_wall_safety_valid = 0;
         return;
     }
     if (!smw_falcon_playable()) {
@@ -593,6 +702,9 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         smw_falcon_reseed(state);
         snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
     }
+
+    smw_falcon_note_wall_safety_context(state);
+    smw_falcon_remember_wall_safe_ground();
 
     /* Smash CaptureCaptain moves both bodies toward the capture anchor.
      * Apply the bounded Falcon-side convergence before native physics so
@@ -660,6 +772,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     smw_falcon_advance_dive_iframes(s_last_move.state);
     smw_falcon_combat_ledger_update(&s_combat_ledger, s_last_move.state,
                                     s_last_move.attack.active);
+    smw_falcon_note_wall_safety_context(state);
     /* An opposite-facing first press starts a source Turn, not a completed
      * SMW D-pad tap. Suppress it until its eventual neutral release. */
     if (state->state == FL_TURN || state->state == FL_TURN_RUN)
@@ -879,6 +992,8 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     s_stomp_bounce_armed = 1;
     snes_foreign_resolve(&hit);
     snes_foreign_trace_note_native(player_xpos, player_ypos);
+    smw_falcon_restore_wall_safe_ground();
+    smw_falcon_remember_wall_safe_ground();
     s_pending = 0;
 }
 
@@ -970,6 +1085,7 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 {
     unsigned slot = 12u;
     ForeignCollisionResult skipped_cd36_hit;
+    smw_falcon_restore_wall_safe_ground();
     smw_falcon_finish_skipped_direct_air_kick_landing();
     /* Some player-collision branches return before the inline $00:CD36
      * callback.  A pending foreign tick still reaches this guaranteed
@@ -1106,6 +1222,8 @@ void SmwFalconOnStateLoaded(void)
     s_combat_apply_frame = -1;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
+    s_wall_safety_recent_frames = 0;
+    s_wall_safety_valid = 0;
     smw_falcon_clear_step_wall_latch();
     smw_falcon_reset_dash_taps();
     s_foreign_pad.valid = 0;

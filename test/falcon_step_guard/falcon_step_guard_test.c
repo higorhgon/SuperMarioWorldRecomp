@@ -365,6 +365,47 @@ int main(void)
         }
     }
 
+    /* UX safety net: taller/awkward walls can skip both the false-crush hook
+     * and CD36 before native WRAM has already entered the death/fallthrough
+     * state.  A recent Falcon wall-run context must restore the last safe
+     * grounded coordinate at the guaranteed normal-sprite seam. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for wall safety rollback");
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x0800;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x12;
+    player_sub_ypos = 0x34;
+    player_blocked_flags = 0x04;
+    player_facing_direction = 1;
+    state = snes_foreign_state();
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = 1.0f;
+    io_controller_hold1 = 0x01;
+    io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    player_current_state = 9;
+    player_in_air_flag = 1;
+    player_xpos = 0x0838;
+    player_ypos = 0x0184;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x65;
+    player_yspeed = 0x96;
+    player_blocked_flags = 0;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (player_current_state != 0 || player_xpos != 0x0800 ||
+        player_ypos != 0x0160 || player_sub_xpos != 0x12 ||
+        player_sub_ypos != 0x34 || player_in_air_flag != 0 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x04)
+        return fail("wall safety rollback restores last safe grounded Falcon");
+
     /* A player-collision nonlocal return can omit CD36/AfterPhysics.  The
      * first guaranteed normal-sprite seam must still arm the observer which
      * adopts SMW's exact successful stomp impulse from $01:AA33. */
