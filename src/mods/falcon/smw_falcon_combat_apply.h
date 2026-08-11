@@ -30,8 +30,8 @@ void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
 
 /*
  * Apply every previously-unhit eligible ordinary target, then (only if this
- * move has not touched a sprite) the one native collision block currently
- * under $98/$9A. This runs at M1X1 PlayerState00_00CD36, after native player
+ * move has not touched a sprite) the Falcon-authored destructible block
+ * volume. This runs at M1X1 PlayerState00_00CD36, after native player
  * collision and before foreign resolve. Returns the number of sprite contacts
  * plus any native block consequence.
  */

@@ -15,7 +15,7 @@ typedef struct MockMap16Tile {
     uint8_t low;
 } MockMap16Tile;
 
-static MockMap16Tile s_map16_tiles[32];
+static MockMap16Tile s_map16_tiles[64];
 static int s_map16_tile_count;
 
 void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
@@ -468,6 +468,38 @@ int main(void) {
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
           s_block_calls==6 && s_brick_piece_calls==6 && s_bounce_block_calls==0);
+
+    /* Standing on a destructible block must not collapse the whole special
+     * into only the native foot collision.  Falcon may break the block below
+     * him, but Punch also needs to sweep the lower forward row. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
+    mock_map16_set(96,160,0x1e);   /* under/near Falcon's feet */
+    mock_map16_set(112,160,0x1e);  /* forward floor row */
+    mock_map16_set(128,160,0x1e);
+    mock_map16_set(144,160,0x1e);
+    mock_map16_set(160,160,0x1e);
+    mock_map16_set(176,160,0x1e);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
+          s_block_calls==6 && s_brick_piece_calls==6 &&
+          mock_map16_get(96,160)==0 && mock_map16_get(112,160)==0 &&
+          mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
+          mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0);
+
+    /* Grounded Falcon Kick gets the same clean platformer row treatment with
+     * a longer block-only sweep so he does not get caught after one tile. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
+    mock_map16_set(96,160,0x1e); mock_map16_set(112,160,0x1e);
+    mock_map16_set(128,160,0x1e); mock_map16_set(144,160,0x1e);
+    mock_map16_set(160,160,0x1e); mock_map16_set(176,160,0x1e);
+    mock_map16_set(192,160,0x1e); mock_map16_set(208,160,0x1e);
+    begin(&ledger,FL_FALCON_KICK_GROUND);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==8 &&
+          s_block_calls==8 && s_brick_piece_calls==8 &&
+          mock_map16_get(96,160)==0 && mock_map16_get(112,160)==0 &&
+          mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
+          mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0 &&
+          mock_map16_get(192,160)==0 && mock_map16_get(208,160)==0);
 
     /* Direct aerial Falcon Kick gets a block-only down-forward crater volume.
      * The compact sprite hitbox remains unchanged, but yellow blocks beneath

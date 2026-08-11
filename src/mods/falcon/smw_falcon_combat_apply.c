@@ -419,23 +419,47 @@ static int block_intersects_attack(const SmwFalconAabb *hit, int x, int y)
     return smw_falcon_aabb_overlaps(*hit, block);
 }
 
-static SmwFalconAabb block_break_volume(const ForeignAttackHitbox *attack,
-                                        int move_state,
-                                        double player_x, double player_y,
-                                        double facing)
+static SmwFalconAabb make_aabb(double left, double top,
+                               double right, double bottom)
+{
+    SmwFalconAabb box;
+    box.left = left;
+    box.top = top;
+    box.right = right;
+    box.bottom = bottom;
+    return box;
+}
+
+static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
+                                    int move_state,
+                                    double player_x, double player_y,
+                                    double facing,
+                                    SmwFalconAabb out[4])
 {
     SmwFalconAabb hit = smw_falcon_attack_world_aabb(
         attack, player_x, player_y, facing);
+    unsigned count = 0;
+    const double dir = facing < 0.0 ? -1.0 : 1.0;
+
     if (move_state == FL_FALCON_KICK_AIR ||
         move_state == FL_FALCON_KICK_GROUND_AIR) {
-        const double forward = facing < 0.0 ? -32.0 : 32.0;
         /* Block breaking follows the fiery boot's platformer path, not the
          * compact enemy hitbox.  A short-hop DownSpecialAir should carve the
-         * next few down-forward tiles it visibly passes through, producing a
-         * diagonal crater without re-widening sprite damage. */
-        if (forward > 0.0) hit.right += forward;
-        else hit.left += forward;
-        hit.bottom += 48.0;
+         * next few down-forward tiles it visibly passes through.  Use two
+         * lower forward slabs so it behaves like a crater instead of a giant
+         * rectangular enemy hitbox. */
+        out[count++] = hit;
+        if (dir > 0.0) {
+            out[count++] = make_aabb(player_x + 4.0, player_y + 16.0,
+                                     player_x + 80.0, player_y + 56.0);
+            out[count++] = make_aabb(player_x + 32.0, player_y + 48.0,
+                                     player_x + 112.0, player_y + 104.0);
+        } else {
+            out[count++] = make_aabb(player_x - 64.0, player_y + 16.0,
+                                     player_x + 12.0, player_y + 56.0);
+            out[count++] = make_aabb(player_x - 96.0, player_y + 48.0,
+                                     player_x - 16.0, player_y + 104.0);
+        }
     } else if (move_state == FL_FALCON_PUNCH_GROUND ||
                move_state == FL_FALCON_PUNCH_AIR ||
                move_state == FL_FALCON_KICK_GROUND) {
@@ -444,8 +468,29 @@ static SmwFalconAabb block_break_volume(const ForeignAttackHitbox *attack,
          * one pixel above or below the tile edge. */
         hit.top -= 8.0;
         hit.bottom += 8.0;
+        out[count++] = hit;
+        /* The authored sprite hitboxes are intentionally tuned for enemies.
+         * Destructible blocks need a broader platformer contact sweep: when
+         * Falcon is standing on yellow blocks, the floor row can sit below
+         * the fist/boot AABB, but the special should still clear the forward
+         * row rather than just the block under his feet. */
+        if (dir > 0.0) {
+            const double reach = move_state == FL_FALCON_KICK_GROUND
+                ? 128.0 : 112.0;
+            out[count++] = make_aabb(player_x + 4.0, player_y + 8.0,
+                                     player_x + reach, player_y + 72.0);
+        } else {
+            const double reach = move_state == FL_FALCON_KICK_GROUND
+                ? 112.0 : 96.0;
+            out[count++] = make_aabb(player_x - reach, player_y + 8.0,
+                                     player_x + 12.0, player_y + 72.0);
+        }
+        out[count++] = make_aabb(player_x - 16.0, player_y + 24.0,
+                                 player_x + 32.0, player_y + 72.0);
+    } else {
+        out[count++] = hit;
     }
-    return hit;
+    return count;
 }
 
 static int clean_break_block_at(CpuState *cpu, int x, int y)
@@ -467,7 +512,8 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     uint8_t interaction[5];
     uint8_t player_y_speed[2];
     uint8_t map16_current;
-    SmwFalconAabb hit;
+    SmwFalconAabb volumes[4];
+    unsigned volume_count, volume;
     int start_x, end_x, start_y, end_y;
     int x, y, broken = 0;
 
@@ -481,29 +527,32 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     map16_current = cpu->ram[SMW_MAP16_CURRENT];
     save_cpu(cpu, &saved);
 
-    hit = block_break_volume(attack, move_state,
-        ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
-    start_x = ((int)floor(hit.left)) & ~15;
-    end_x = ((int)floor(hit.right - 0.001)) & ~15;
-    start_y = ((int)floor(hit.top)) & ~15;
-    end_y = ((int)floor(hit.bottom - 0.001)) & ~15;
+    volume_count = block_break_volumes(attack, move_state,
+        ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing, volumes);
 
     /* A Falcon special is an authored destructive volume, not Mario's single
      * collision probe.  Scan every overlapped 16px tile and blank only the
      * confirmed destructible turn-block class.  Re-query Map16 after each
      * GenerateTile call so adjacent blocks observe the mutated level state. */
-    for (y = start_y; y <= end_y; y += 16) {
-        for (x = start_x; x <= end_x; x += 16) {
-            SmwFalconMap16Class cls;
-            if (x < 0 || y < 0 || y >= 0x01B0 ||
-                !block_intersects_attack(&hit, x, y))
-                continue;
-            write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
-            write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
-            invoke_native_map16_lookup(cpu);
-            cls = map16_low_class(cpu->ram[SMW_MAP16_CURRENT]);
-            if (!smw_falcon_can_break_map16(attack, cls)) continue;
-            broken += clean_break_block_at(cpu, x, y);
+    for (volume = 0; volume < volume_count; ++volume) {
+        const SmwFalconAabb *hit = &volumes[volume];
+        start_x = ((int)floor(hit->left)) & ~15;
+        end_x = ((int)floor(hit->right - 0.001)) & ~15;
+        start_y = ((int)floor(hit->top)) & ~15;
+        end_y = ((int)floor(hit->bottom - 0.001)) & ~15;
+        for (y = start_y; y <= end_y; y += 16) {
+            for (x = start_x; x <= end_x; x += 16) {
+                SmwFalconMap16Class cls;
+                if (x < 0 || y < 0 || y >= 0x01B0 ||
+                    !block_intersects_attack(hit, x, y))
+                    continue;
+                write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
+                write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
+                invoke_native_map16_lookup(cpu);
+                cls = map16_low_class(cpu->ram[SMW_MAP16_CURRENT]);
+                if (!smw_falcon_can_break_map16(attack, cls)) continue;
+                broken += clean_break_block_at(cpu, x, y);
+            }
         }
     }
 
@@ -518,9 +567,15 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
         cls = native_collision_block_class(cpu);
         cx = ram16(cpu, SMW_TOUCH_X) & ~15u;
         cy = ram16(cpu, SMW_TOUCH_Y) & ~15u;
-        if (smw_falcon_can_break_map16(attack, cls) &&
-            block_intersects_attack(&hit, (int)cx, (int)cy))
-            broken += clean_break_block_at(cpu, (int)cx, (int)cy);
+        if (smw_falcon_can_break_map16(attack, cls)) {
+            for (volume = 0; volume < volume_count; ++volume) {
+                if (block_intersects_attack(&volumes[volume], (int)cx,
+                                            (int)cy)) {
+                    broken += clean_break_block_at(cpu, (int)cx, (int)cy);
+                    break;
+                }
+            }
+        }
     }
 
     memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
