@@ -838,8 +838,8 @@ int main(void)
     /* Kick's native $02:9404 consequence can leave a multi-hit target in
      * status $08, after which the later normal-sprite side-damage route would
      * ordinarily hurt Falcon.  Exercise the real adapter sequence through
-     * active frame 12 and prove its one-pass $1497 guard protects only that
-     * following pass, then clears at the next early player seam. */
+     * active frame 12 and prove its per-slot $1497 guard protects only the
+     * connected slot, then clears before the next slot. */
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for Kick contact guard");
     snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
@@ -865,14 +865,19 @@ int main(void)
         adapter_frame_cpu(special, special, 0, 0, &attack_cpu);
     }
     if (!smw_falcon_last_attack()->active || s_native_attack_contacts != 1 ||
-        timer_player_hurt != 1 || player_current_state != 0)
-        return fail("active Kick contact arms exactly one native side-damage guard");
+        timer_player_hurt != 0 || player_current_state != 0)
+        return fail("active Kick contact records only its connected slot");
+    attack_cpu.X = 0;
+    SmwFalconBeforeNormalSprites(&attack_cpu);
+    if (timer_player_hurt != 1)
+        return fail("connected Kick slot arms its native side-damage guard");
     model_native_later_side_damage();
     if (player_current_state != 0)
-        return fail("active Kick contact blocks same-pass side damage only");
-    SmwFalconBeforePlayerPhysics(NULL);
+        return fail("connected Kick slot blocks same-pass side damage only");
+    attack_cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&attack_cpu);
     if (timer_player_hurt != 0)
-        return fail("Kick contact guard clears before the next normal-sprite pass");
+        return fail("Kick contact guard clears before the next unhit slot");
 
     /* Live slot 0 reproduced this exact native condition while a small
      * Falcon (powerup $00) ran into a one-block step: after collision, $77

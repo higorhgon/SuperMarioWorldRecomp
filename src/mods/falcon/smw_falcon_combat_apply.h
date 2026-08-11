@@ -15,6 +15,10 @@ typedef struct {
     int had_sprite_contact;
     int block_applied;
     uint16_t hit_slots;
+    /* Newly accepted sprite slots from the latest apply call.  The adapter
+     * consumes this exact per-frame mask at ProcessNormalSprites; it is never
+     * a blanket player invulnerability request. */
+    uint16_t new_hit_slots;
 } SmwFalconCombatLedger;
 
 void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,

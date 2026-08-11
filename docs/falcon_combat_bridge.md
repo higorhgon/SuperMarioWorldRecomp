@@ -66,9 +66,12 @@ the native `$1497` IFrameTimer to `1` only if it was zero. That is the exact
 native no-hurt guard tested by `$01:A8E6`; it blocks only the remaining
 same-frame contact path. The next `$00:D5F2` seam clears only that unchanged
 one-frame value, so it is neither a synthetic kill nor broad invulnerability.
-The identical one-pass `$1497` guard is armed only after an active grounded or
-aerial Falcon Kick receives a confirmed native target consequence; a miss or a
-target behind Falcon leaves native contact damage untouched.
+Kick is stricter: `AfterPhysics` records only freshly accepted Kick sprite
+slots. `$01:80D2` executes per ordinary slot with X preserved and before its
+later `$01:A7E4` collision call; it clears the prior slot's exact `$1497=1`
+then sets it only for a recorded slot. Consequently a connected retained
+status-$08 target is protected, while an unhit/behind slot later in the same
+pass sees zero and remains native-dangerous.
 
 Run `test\falcon_combat\build.bat`, `test\falcon_combat_apply\build.bat`,
 `test\falcon_kick_guard\build.bat`, and `test\falcon_step_guard\build.bat`

@@ -71,13 +71,15 @@ int main(void) {
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==2);
     CHECK(s_sprite_calls==2 && s_native_contact_effects==2 &&
           s_ram[0x14ca]==2 && s_ram[0x14cd]==2 && s_ram[0x14cf]==11 &&
-          hit.attack_connected && ledger.hit_slots==((1u<<2)|(1u<<5)));
+          hit.attack_connected && ledger.hit_slots==((1u<<2)|(1u<<5)) &&
+          ledger.new_hit_slots==((1u<<2)|(1u<<5)));
     CHECK(memcmp(s_ram,scratch,16)==0 && cpu.DB==0 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */
     calls=s_sprite_calls; memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
-          s_sprite_calls==calls && !hit.attack_connected);
+          s_sprite_calls==calls && !hit.attack_connected &&
+          ledger.new_hit_slots==0);
 
     /* An aerial Punch that lands during its active window keeps one source
      * move identity. The air->ground continuation must not re-hit a native

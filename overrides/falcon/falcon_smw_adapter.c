@@ -38,7 +38,8 @@ static unsigned s_dash_tap_age;
 static int s_stomp_bounce_armed;
 static int s_stomp_contact_guard;
 static SmwFalconCombatLedger s_combat_ledger;
-static int s_kick_contact_guard;
+static uint16_t s_kick_contact_slots;
+static int s_kick_slot_guard;
 static int s_last_input_direction;
 static int s_step_wall_latched;
 static int s_step_wall_direction;
@@ -106,11 +107,9 @@ static void smw_falcon_clear_stomp_contact_guard(void)
      * side-damage path. We write only its one-frame value and remove exactly
      * that value at the next early player seam. A real native timer update is
      * never overwritten. */
-    if ((s_stomp_contact_guard || s_kick_contact_guard) &&
-        timer_player_hurt == 1)
+    if (s_stomp_contact_guard && timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_stomp_contact_guard = 0;
-    s_kick_contact_guard = 0;
 }
 
 static int smw_falcon_active_kick_state(int state)
@@ -384,6 +383,13 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
 {
     (void)cpu;
     smw_falcon_clear_stomp_contact_guard();
+    /* ProcessNormalSprites is wholly within the preceding player frame. A
+     * missing/aborted pass must never carry a pending Kick slot into the next
+     * one, and the old exact guard value is safe to remove at D5F2. */
+    if (s_kick_slot_guard && timer_player_hurt == 1)
+        timer_player_hurt = 0;
+    s_kick_slot_guard = 0;
+    s_kick_contact_slots = 0;
     s_foreign_pad.valid = 0;
     s_foreign_pad.carry_valid = 0;
 
@@ -598,16 +604,12 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
         const int contacts = smw_falcon_combat_apply(
             cpu, &s_last_move.attack, state != NULL ? state->facing : 1.0f,
             &s_combat_ledger, &hit);
-        /* The exact native contact transaction can retain a multi-hit enemy
-         * at status $08. Protect Falcon only for this immediately following
-         * normal-sprite pass; the early next-frame seam removes our one-frame
-         * $1497 value before any later pass, leaving misses/behind contacts
-         * fully native-dangerous. */
-        if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state) &&
-            timer_player_hurt == 0) {
-            timer_player_hurt = 1;
-            s_kick_contact_guard = 1;
-        }
+        /* $01:80D2 executes once for each ordinary sprite with X still its
+         * current slot, before this routine reaches the later $01:A7E4
+         * CheckPlayerToNormalSpriteCollision call.  Defer the exact newly
+         * accepted slots to that seam; never publish a global $1497 here. */
+        if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state))
+            s_kick_contact_slots |= s_combat_ledger.new_hit_slots;
     }
     /* Native normal-sprite collision has not run at $00:CD36 yet. Arm the
      * post-write observer for this one frame so an accepted native stomp can
@@ -655,12 +657,31 @@ void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
 
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 {
-    (void)cpu;
-    /* ProcessNormalSprites begins at $01:808C. Its first generated entry is
-     * $01:80D2, which follows all player input/physics and enters
-     * CheckPlayerToNormalSpriteColl ($01:AA42) plus status-$0B carry handlers.
-     * It is the first safe bridge point: $00:CD36 is earlier than native
-     * climb/door/player interactions, so Down must not be emitted there. */
+    unsigned slot = 12u;
+    /* ProcessNormalSprites calls $01:80D2 once per ordinary sprite. Its first
+     * instruction saves the current X; later in the same per-slot body it
+     * invokes $01:A7E4 CheckPlayerToNormalSpriteCollision. Thus hook entry
+     * has the unmodified current slot and is before that slot's hurt test.
+     * Clear only our prior-slot exact value, then guard only a newly accepted
+     * Kick slot. An untouched/behind slot receives $1497==0. */
+    if (s_kick_slot_guard && timer_player_hurt == 1)
+        timer_player_hurt = 0;
+    s_kick_slot_guard = 0;
+    if (!snes_foreign_active() || !smw_falcon_playable() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
+        s_kick_contact_slots = 0;
+    } else if (cpu != NULL && cpu->x_flag == 1) {
+        slot = cpu->X & 0xffu;
+    }
+    if (slot < 12u &&
+        (s_kick_contact_slots & (uint16_t)(1u << slot)) != 0 &&
+        timer_player_hurt == 0) {
+        timer_player_hurt = 1;
+        s_kick_slot_guard = 1;
+    }
+    /* $01:80D2 remains the first safe carry-input bridge point: $00:CD36 is
+     * earlier than native climb/door/player interactions, so Down must not
+     * be emitted there. */
     if (snes_foreign_active() != NULL && misc_game_mode == 0x07) {
         /* GameMode07 retains its own mode value while it JMPs into the title
          * demo's level handler.  The demo's recorded side-hit otherwise
@@ -714,7 +735,8 @@ void SmwFalconOnStateLoaded(void)
     s_force_airborne_frames = 0;
     s_stomp_bounce_armed = 0;
     s_stomp_contact_guard = 0;
-    s_kick_contact_guard = 0;
+    s_kick_contact_slots = 0;
+    s_kick_slot_guard = 0;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
     smw_falcon_clear_step_wall_latch();

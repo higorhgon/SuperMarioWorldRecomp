@@ -172,6 +172,7 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
             ram_effect_hash(cpu) == effects_before)
             continue;
         ledger->hit_slots |= (uint16_t)(1u << slot);
+        ledger->new_hit_slots |= (uint16_t)(1u << slot);
         ++contacts;
     }
     return contacts;
@@ -254,6 +255,7 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
     if (out_collision == NULL || !hook_contract_is_valid(cpu) ||
         attack == NULL || !attack->active || ledger == NULL || !ledger->active)
         return 0;
+    ledger->new_hit_slots = 0;
     sprite_contacts = apply_sprite_targets(cpu, attack, facing, ledger);
     if (sprite_contacts != 0) {
         out_collision->attack_connected = 1;

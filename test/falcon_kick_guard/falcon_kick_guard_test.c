@@ -93,18 +93,27 @@ int main(void)
     for (int i = 0; i != 13; ++i)
         frame(i == 0 ? 0x44 : 0, i == 0 ? 0x44 : 0, &cpu);
     if (!smw_falcon_last_attack()->active || s_native_contacts != 1 ||
-        spr_current_status[0] != 8 || timer_player_hurt != 1)
-        return fail("accepted active Kick arms one-pass guard for retained $08");
+        spr_current_status[0] != 8 || timer_player_hurt != 0)
+        return fail("active Kick records only its accepted retained $08 slot");
+    /* $01:80D2 is re-entered once per ordinary slot before that slot's
+     * collision check. X=0 is the connected multi-hit target. */
+    cpu.X = 0;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (timer_player_hurt != 1)
+        return fail("connected $08 slot receives its own collision guard");
     model_later_side_damage();
     if (player_current_state != 0)
-        return fail("Kick guard prevents only same-pass side damage");
+        return fail("connected Kick slot prevents its same-pass side damage");
 
-    SmwFalconBeforePlayerPhysics(NULL);
+    /* The next slot is behind/unhit. Its entry removes exactly the previous
+     * guard, so this later native collision stays dangerous. */
+    cpu.X = 1;
+    SmwFalconBeforeNormalSprites(&cpu);
     if (timer_player_hurt != 0)
-        return fail("Kick guard clears before the next normal-sprite pass");
+        return fail("Kick guard clears before the following unhit slot");
     model_later_side_damage();
     if (player_current_state != 9)
-        return fail("post-pass contact remains native-dangerous");
+        return fail("unhit/behind same-pass slot remains native-dangerous");
     puts("falcon_kick_guard_test: PASS");
     return 0;
 }
