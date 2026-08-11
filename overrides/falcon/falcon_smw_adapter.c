@@ -56,6 +56,7 @@ static int s_dive_iframe_timer_guard;
  * global to the frame, not to each slot, so remember the one pass which
  * committed it. */
 static int s_combat_apply_frame = -1;
+static int s_block_apply_frame = -1;
 static int s_last_input_direction;
 static int s_step_wall_latched;
 static int s_step_wall_direction;
@@ -972,6 +973,30 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
         s_dive_catch_slots |= s_combat_ledger.new_hit_slots;
 }
 
+void SmwFalconOnPlayerBlockCode(struct CpuState *cpu)
+{
+    const ForeignState *state;
+    if (cpu == NULL || !snes_foreign_active() || !smw_falcon_playable() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        !s_last_move.attack.active ||
+        (s_last_move.attack.flags & FOREIGN_ATTACK_BREAK_BLOCKS) == 0 ||
+        s_block_apply_frame == snes_frame_counter || cpu->m_flag != 1 ||
+        cpu->x_flag != 1 || (cpu->DB != 0 && cpu->DB != 1) || cpu->D != 0)
+        return;
+    state = snes_foreign_state();
+    s_block_apply_frame = snes_frame_counter;
+    if (smw_falcon_combat_apply_blocks_only(
+            cpu, &s_last_move.attack, state != NULL ? state->facing : 1.0f,
+            &s_combat_ledger)) {
+        /* Falcon's authored sweep owns this block contact.  Prevent the
+         * native single-tile Mario block route from immediately repeating the
+         * underfoot/support break or running content/bounce behavior. */
+        cpu->ram[0x0004] = 0;
+        cpu->ram[0x009C] = 0;
+        cpu->ram[0x1693] = 0;
+    }
+}
+
 void SmwFalconAfterPhysics(struct CpuState *cpu)
 {
     ForeignCollisionResult hit;
@@ -1251,6 +1276,7 @@ void SmwFalconOnStateLoaded(void)
      * been restored from the save. Forget ownership without writing WRAM. */
     smw_falcon_forget_dive_iframes();
     s_combat_apply_frame = -1;
+    s_block_apply_frame = -1;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;
     s_wall_safety_recent_frames = 0;

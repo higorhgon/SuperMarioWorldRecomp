@@ -8,6 +8,7 @@ static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_star_kill_calls, s_block_calls;
 static int s_bounce_block_calls, s_brick_piece_calls, s_map16_lookup_calls;
+static uint16_t s_block_x[128], s_block_y[128];
 
 typedef struct MockMap16Tile {
     uint16_t x;
@@ -170,6 +171,10 @@ void GenerateTile(CpuState *cpu)
     }
     if (!consume_native_frame(cpu, 3, 0, "clean block")) return;
     ++s_block_calls;
+    if (s_block_calls <= (int)(sizeof(s_block_x) / sizeof(s_block_x[0]))) {
+        s_block_x[s_block_calls - 1] = read16(0x9a);
+        s_block_y[s_block_calls - 1] = read16(0x98);
+    }
     mock_map16_delete(read16(0x9a), read16(0x98));
     /* Command 1 is the blank-tile path; it should not run content/bounce
      * behavior or alter Mario's Y speed. */
@@ -188,6 +193,8 @@ static CpuState fresh(void) {
     s_star_kill_calls=s_block_calls=s_bounce_block_calls=0;
     s_brick_piece_calls=0;
     s_map16_lookup_calls=0; mock_map16_clear();
+    memset(s_block_x,0,sizeof(s_block_x));
+    memset(s_block_y,0,sizeof(s_block_y));
     return c;
 }
 static ForeignAttackHitbox punch(void) {
@@ -218,6 +225,15 @@ static void install_big_target(unsigned slot, uint8_t id, uint16_t x,
     s_ram[0x1662 + slot] = clip;
     s_ram[0x166e + slot] = tweaker_c;
     s_ram[0x167a + slot] = tweaker_d;
+}
+static int saw_block_call(uint16_t x, uint16_t y)
+{
+    int i;
+    for (i = 0; i < s_block_calls &&
+                i < (int)(sizeof(s_block_x) / sizeof(s_block_x[0])); ++i)
+        if (s_block_x[i] == x && s_block_y[i] == y)
+            return 1;
+    return 0;
 }
 static void begin(SmwFalconCombatLedger *ledger, int state) {
     smw_falcon_combat_ledger_update(ledger,state,1);
@@ -475,7 +491,7 @@ int main(void) {
      * into only the native foot collision.  Falcon may break the block below
      * him, but Punch also needs to sweep the lower forward row. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
-    mock_map16_set(96,160,0x1e);   /* under/near Falcon's feet */
+    mock_map16_set(96,160,0x1e);   /* slot-F4 yellow block underfoot */
     mock_map16_set(112,160,0x1e);  /* forward lower rows */
     mock_map16_set(128,160,0x1e);
     mock_map16_set(144,160,0x1e);
@@ -508,6 +524,36 @@ int main(void) {
           mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
           mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0 &&
           mock_map16_get(192,160)==0 && mock_map16_get(208,160)==0);
+
+    /* The live RunPlayerBlockCode seam uses a block-only entry because
+     * native block handling can skip CD36 and the level may not reach a
+     * useful normal-sprite fallback.  It must run the same volume while
+     * refusing to widen/re-run sprite contacts. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
+    mock_map16_set(112,160,0x1e); mock_map16_set(128,160,0x1e);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          s_block_calls==2 && s_sprite_calls==0 &&
+          mock_map16_get(112,160)==0 && mock_map16_get(128,160)==0);
+    mock_map16_set(144,160,0x1e); ledger.had_sprite_contact=1;
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==0 &&
+          mock_map16_get(144,160)==0x1e);
+
+    /* Live slot-F5 regression: in RunPlayerBlockCode the native Map16
+     * context can only prove the underfoot yellow block, so Falcon must use
+     * that proven contact to sweep the same row in front of him instead of
+     * drilling one one-tile hole and falling into it. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,368); put16(0x96,448); put16(0x9a,368); put16(0x98,480);
+    s_ram[0x1693]=0x1e; mock_map16_set(368,480,0x1e);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==1 &&
+          s_block_calls>=6 && !saw_block_call(368,480) &&
+          !saw_block_call(384,480) && saw_block_call(352,480) &&
+          saw_block_call(272,480));
+    calls=s_block_calls;
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==0 &&
+          s_block_calls==calls);
 
     /* Direct aerial Falcon Kick gets a block-only down-forward crater volume.
      * The compact sprite hitbox remains unchanged, but yellow blocks beneath

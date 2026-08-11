@@ -39,6 +39,15 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
                             float facing, SmwFalconCombatLedger *ledger,
                             ForeignCollisionResult *out_collision);
 
+/* Player block processing can return before the post-physics and
+ * normal-sprite seams.  This block-only entry lets the live RunPlayerBlockCode
+ * path apply Falcon's authored destructive volume without widening or
+ * re-running sprite contacts. */
+int smw_falcon_combat_apply_blocks_only(CpuState *cpu,
+                                        const ForeignAttackHitbox *attack,
+                                        float facing,
+                                        SmwFalconCombatLedger *ledger);
+
 /* Release the one ordinary target accepted by a Falcon Dive catch.  This is
  * deliberately separate from the contact-only search: the native defeat is
  * authored by FalconDiveEnd1's Throw transition, never by contact. */

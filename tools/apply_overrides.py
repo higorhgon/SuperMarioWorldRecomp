@@ -311,6 +311,22 @@ BLOCK_PATCHES = [
             " SmwFalconAfterPhysics(cpu); }"
         ),
     },
+    # FALCON-BLOCK-SWEEP: destructible block handling can return before the
+    # post-physics CD36 seam, and levels without normal sprites do not provide
+    # a useful 80D2 fallback.  Patch the live RunPlayerBlockCode entry so an
+    # active Falcon Punch/Kick applies its authored block-only volume before
+    # native single-contact block handling breaks just the underfoot tile.
+    {
+        "marker": "/*FALCON-BLOCK-SWEEP*/",
+        "check_exactly_once": True,
+        "func_match": "RunPlayerBlockCode_00EE3A_M1X1",
+        "anchor": "cpu_trace_block(cpu, 0x00EE3A)",
+        "snippet": (
+            " /*FALCON-BLOCK-SWEEP*/ {"
+            " extern void SmwFalconOnPlayerBlockCode(CpuState *cpu);"
+            " SmwFalconOnPlayerBlockCode(cpu); }"
+        ),
+    },
     # FALCON-STEP-CRUSH: the live $00:E92B collision routine contains the
     # $00:E9FB block inline.  The separately emitted E9FB entry is only used
     # by external dispatches, so an @hook on that symbol does not guard the
