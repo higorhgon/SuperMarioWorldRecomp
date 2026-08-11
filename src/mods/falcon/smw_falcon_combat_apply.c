@@ -84,11 +84,13 @@ static void restore_cpu(CpuState *cpu, const SmwFalconCpuSnapshot *saved)
 
 static int hook_contract_is_valid(const CpuState *cpu)
 {
-    /* The override manifest restricts $00:CD36 to M1X1.  This is after
-     * $00:E92B, where SMW's DB and DP remain reset values. Do not synthesize
-     * a consequence from an unproven entry state. */
+    /* $00:CD36 reaches us with DB=$00, while the durable normal-sprite seam
+     * at $01:80D2 executes after bank $01's PHK/PLB prologue and has DB=$01.
+     * Both are WRAM mirrors; $02 is reserved for the temporary native
+     * consequence call below. Do not synthesize a consequence from any other
+     * unproven entry state. */
     return cpu != NULL && cpu->ram != NULL && cpu->m_flag == 1 &&
-           cpu->x_flag == 1 && cpu->DB == 0 && cpu->D == 0;
+           cpu->x_flag == 1 && (cpu->DB == 0 || cpu->DB == 1) && cpu->D == 0;
 }
 
 static void prepare_bank02_call(CpuState *cpu, unsigned slot)

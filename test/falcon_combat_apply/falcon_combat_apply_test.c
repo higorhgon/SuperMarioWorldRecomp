@@ -62,6 +62,9 @@ int main(void) {
     CpuState cpu=fresh(); ForeignAttackHitbox a=punch(); ForeignCollisionResult hit;
     SmwFalconCombatLedger ledger; int calls; uint8_t scratch[16];
     memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    /* `$01:80D2` reaches the adapter with bank $01 selected by its PHK/PLB
+     * prologue. The native $02 route must preserve that exact mirror bank. */
+    cpu.DB=1;
 
     /* save1's front pair is a status-$08 Koopa and a status-$09 loose shell,
      * both ID $05. Punch must submit both to $02:9404; only carried $0B is
@@ -74,7 +77,7 @@ int main(void) {
           s_ram[0x14d0]==2 && s_ram[0x14d1]==2 && s_ram[0x14cf]==11 &&
           hit.attack_connected && ledger.hit_slots==((1u<<8)|(1u<<9)) &&
           ledger.new_hit_slots==((1u<<8)|(1u<<9)));
-    CHECK(memcmp(s_ram,scratch,16)==0 && cpu.DB==0 && cpu.A==0);
+    CHECK(memcmp(s_ram,scratch,16)==0 && cpu.DB==1 && cpu.A==0);
 
     /* Linger frames never replay native score/SFX/contact on the same shell. */
     calls=s_sprite_calls; memset(&hit,0,sizeof(hit));

@@ -112,11 +112,13 @@ int main(void)
     if (!smw_falcon_last_attack()->active || s_native_contacts != 0)
         return fail("active Kick reaches the normal-sprite seam without CD36");
     /* $01:80D2 is re-entered once per ordinary slot before that slot's
-     * collision check. X=8 is the connected retained multi-hit target. */
+     * collision check. Its bank-$01 PHK/PLB prologue leaves DB=$01; the
+     * native $02:9404 consequence must restore that exact caller bank. */
+    cpu.DB = 1;
     cpu.X = 8;
     SmwFalconBeforeNormalSprites(&cpu);
     if (s_native_contacts != 2 || spr_current_status[8] != 8 ||
-        spr_current_status[9] != 2 || timer_player_hurt != 1)
+        spr_current_status[9] != 2 || timer_player_hurt != 1 || cpu.DB != 1)
         return fail("normal-sprite seam destroys shell and guards its Koopa");
     model_later_side_damage();
     if (player_current_state != 0)

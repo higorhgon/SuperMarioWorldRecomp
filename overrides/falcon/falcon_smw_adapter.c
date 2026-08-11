@@ -620,10 +620,10 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
 
 /* A full player collision can return nonlocally before reaching inline
  * $00:CD36.  The normal-sprite pass is nevertheless guaranteed afterwards;
- * use its first $01:80D2 entry as the durable combat consequence seam.  The
- * generated body reaches it in M1X1 with DB/D still mirroring bank $00, the
- * exact contract expected by smw_falcon_combat_apply before it temporarily
- * enters the native $02:9404 accepted-consequence route. */
+ * use its first $01:80D2 entry as the durable combat consequence seam. The
+ * generated body reaches it in M1X1 with DB=$01 after bank $01's PHK/PLB
+ * prologue (D remains zero). $00 and $01 are proven WRAM mirrors; the native
+ * transaction temporarily enters DB=$02 and restores the caller's exact DB. */
 static void smw_falcon_apply_combat_once(CpuState *cpu,
                                          ForeignCollisionResult *collision)
 {
@@ -636,7 +636,7 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         !s_last_move.attack.active ||
         s_combat_apply_frame == snes_frame_counter || cpu->m_flag != 1 ||
-        cpu->x_flag != 1 || cpu->DB != 0 || cpu->D != 0)
+        cpu->x_flag != 1 || (cpu->DB != 0 && cpu->DB != 1) || cpu->D != 0)
         return;
     s_combat_apply_frame = snes_frame_counter;
     memset(&ignored, 0, sizeof(ignored));
