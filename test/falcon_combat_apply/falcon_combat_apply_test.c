@@ -8,6 +8,18 @@ static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_dive_throw_calls, s_block_calls;
 
+static int consume_native_frame(CpuState *cpu, uint8_t frame_size,
+                                uint8_t expected_pb, const char *name)
+{
+    if (cpu->host_return_valid != frame_size || cpu->PB != expected_pb) {
+        fprintf(stderr, "bad %s return frame: hrv=%u PB=%02x\n", name,
+                (unsigned)cpu->host_return_valid, (unsigned)cpu->PB);
+        return 0;
+    }
+    cpu->S = (uint16_t)(cpu->S + frame_size);
+    return 1;
+}
+
 void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
 {
     const unsigned slot = cpu->X & 0xffu;
@@ -15,6 +27,7 @@ void SprStatus02_Dead_SetNorSprStatus04(CpuState *cpu)
         cpu->D != 0 || cpu->ram[0x15e9] != slot) {
         fprintf(stderr, "bad spin-kill contract\n"); return;
     }
+    if (!consume_native_frame(cpu, 2, 1, "spin-kill")) return;
     ++s_sprite_calls; ++s_spin_kill_calls;
     /* Exact $01:9ACB native spin-jump state transition. */
     cpu->ram[0x14c8 + slot] = 4;
@@ -28,6 +41,7 @@ void SpawnSpinJumpStars(CpuState *cpu)
         cpu->D != 0 || cpu->ram[0x15e9] != slot) {
         fprintf(stderr, "bad spin-star contract\n"); return;
     }
+    if (!consume_native_frame(cpu, 3, 7, "spin-stars")) return;
     ++s_spin_star_calls;
     /* The source star spawner consumes $15E9, not a host-made particle. */
     cpu->ram[0x170b] = 16;
@@ -41,9 +55,9 @@ void CheckPlayerToNormalSpriteColl_01AB46(CpuState *cpu)
         cpu->D != 0 || cpu->ram[0x15e9] != slot) {
         fprintf(stderr, "bad spin-score contract\n"); return;
     }
+    if (!consume_native_frame(cpu, 2, 1, "spin-score")) return;
     ++s_spin_score_calls;
     ++cpu->ram[0x1697];
-    cpu->ram[0x1df9] = 8;
     ++cpu->ram[0x1dfc];
     cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
 }
@@ -53,6 +67,7 @@ void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
     if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 || cpu->D != 0) {
         fprintf(stderr, "bad Dive throw contract\n"); return;
     }
+    if (!consume_native_frame(cpu, 2, 2, "Dive throw")) return;
     ++s_sprite_calls; ++s_dive_throw_calls;
     cpu->ram[0x14c8 + slot] = 2;
     ++cpu->ram[0x1dfc];
@@ -63,6 +78,7 @@ void SpawnBounceSprite(CpuState *cpu)
     if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 || cpu->D != 0) {
         fprintf(stderr, "bad block contract\n"); return;
     }
+    if (!consume_native_frame(cpu, 3, 2, "block")) return;
     ++s_block_calls;
     cpu->ram[0x1dfc] = 7; cpu->ram[0x9c] = 2; cpu->ram[0x7d] = 0xd0;
     cpu->Y = 0xdead; cpu->ram[4] = 0xee;
@@ -72,7 +88,7 @@ static int failed(const char *x, int n) { fprintf(stderr,"FAIL %d: %s\n",n,x); r
 static void put16(unsigned p, uint16_t x) { s_ram[p]=(uint8_t)x; s_ram[p+1]=(uint8_t)(x>>8); }
 static CpuState fresh(void) {
     CpuState c; memset(&c,0,sizeof(c)); memset(s_ram,0,sizeof(s_ram));
-    c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30;
+    c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30; c.S=0x01ff;
     s_sprite_calls=s_spin_kill_calls=s_spin_star_calls=s_spin_score_calls=0;
     s_dive_throw_calls=0;
     return c;

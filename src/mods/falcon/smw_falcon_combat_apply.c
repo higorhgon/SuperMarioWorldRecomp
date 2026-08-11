@@ -25,6 +25,7 @@
 #define SMW_SPR_TWEAKER_D 0x167Au
 #define SMW_MINOR_SPRITE_PROC_INDEX 0x15E9u
 #define SMW_MAP16_CURRENT 0x1693u
+#define SMW_IO_SFX_1DF9 0x1DF9u
 
 #define SMW_SPRITE_SLOTS 12u
 #define SMW_RAM_SIZE 0x20000u
@@ -36,6 +37,8 @@ typedef struct {
     uint8_t flag_n, flag_v, flag_z, flag_c, flag_i, flag_d;
     uint8_t open_bus;
 } SmwFalconCpuSnapshot;
+
+typedef void (*SmwFalconNativeEntry)(CpuState *cpu);
 
 static uint8_t ram8(const CpuState *cpu, unsigned address)
 {
@@ -115,6 +118,27 @@ static void prepare_bank02_call(CpuState *cpu, unsigned slot)
     cpu->X = (uint16_t)slot;
 }
 
+static void invoke_native_jsr(CpuState *cpu, uint8_t target_bank,
+                              SmwFalconNativeEntry entry)
+{
+    /* A generated void alias still executes the guest RTS. Host glue must
+     * supply the two-byte frame that a real bank-local JSR would have pushed;
+     * otherwise the alias consumes the live normal-sprite caller's frame. */
+    cpu->PB = target_bank;
+    cpu_push_jsr_return_frame(cpu);
+    entry(cpu);
+}
+
+static void invoke_native_jsl(CpuState *cpu, uint8_t target_bank,
+                              SmwFalconNativeEntry entry)
+{
+    /* Cross-bank aliases end in RTL and require their own three-byte frame.
+     * In particular, SpawnSpinJumpStars is a $01->$07 JSL in the ROM. */
+    cpu->PB = target_bank;
+    cpu_push_jsl_return_frame(cpu);
+    entry(cpu);
+}
+
 static int sprite_is_supported_target(const CpuState *cpu, unsigned slot)
 {
     const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
@@ -146,11 +170,13 @@ static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot)
      * shells. $15E9 is the source slot selector used by the star spawner. */
     cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = (uint8_t)slot;
     prepare_bank01_call(cpu, slot);
-    SprStatus02_Dead_SetNorSprStatus04(cpu);
+    invoke_native_jsr(cpu, 1, SprStatus02_Dead_SetNorSprStatus04);
     prepare_bank01_call(cpu, slot);
-    SpawnSpinJumpStars(cpu);
+    invoke_native_jsl(cpu, 7, SpawnSpinJumpStars);
     prepare_bank01_call(cpu, slot);
-    CheckPlayerToNormalSpriteColl_01AB46(cpu);
+    invoke_native_jsr(cpu, 1, CheckPlayerToNormalSpriteColl_01AB46);
+    /* Exact continuation at $01:A93F after the three framed calls. */
+    cpu->ram[SMW_IO_SFX_1DF9] = 8;
 }
 
 /* Falcon Dive's source catch category is a fighter/enemy capture. A loose
@@ -286,7 +312,7 @@ static int apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
      * exactly these native collision products, does score/debris/sound and
      * Map16 mutation itself, then we restore transient scratch for CD36. */
     prepare_bank02_call(cpu, 0);
-    SpawnBounceSprite(cpu);
+    invoke_native_jsl(cpu, 2, SpawnBounceSprite);
     memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
     memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
     memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
@@ -388,7 +414,7 @@ int smw_falcon_combat_release_dive(CpuState *cpu,
          * It provides the one host-native consequence corresponding to
          * Falcon Dive's authored 20-damage Throw release. */
         prepare_bank02_call(cpu, (unsigned)latched_slot);
-        KillNormalSprite_AcceptedConsequence(cpu);
+        invoke_native_jsr(cpu, 2, KillNormalSprite_AcceptedConsequence);
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = current_sprite;
         restore_cpu(cpu, &saved);
