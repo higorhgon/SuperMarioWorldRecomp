@@ -648,6 +648,8 @@ static ForeignInput smw_falcon_input(void)
         s_special_grace_pending = 0;
     }
     input.raw_buttons = (int)hold1 | ((int)hold2 << 8);
+    if (flag_underwater_level != 0)
+        input.raw_buttons |= 0x10000000;
     s_foreign_pad.valid = 0;
     return input;
 }

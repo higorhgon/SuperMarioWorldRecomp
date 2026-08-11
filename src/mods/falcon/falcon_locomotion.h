@@ -80,6 +80,7 @@ typedef struct {
     int jump_pressed;   /* jump button newly pressed this frame */
     int attack_pressed; /* primary/normal attack newly pressed */
     int special_pressed;/* special attack newly pressed */
+    int unlimited_jumps;/* host adaptation: water/low-gravity jump budget */
 } FalconInputRaw;
 
 /* What the host's collision permitted, in source units. */

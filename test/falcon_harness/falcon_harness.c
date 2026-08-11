@@ -261,6 +261,9 @@ static int run_script(const char *path)
             attack_is_down = !strncmp(arg, "down", 4);
         } else if (!strcmp(cmd, "special")) {
             special_is_down = !strncmp(arg, "down", 4);
+        } else if (!strcmp(cmd, "unlimited_jumps")) {
+            in.unlimited_jumps = !strncmp(arg, "on", 2) ||
+                                 !strncmp(arg, "1", 1);
         } else if (!strcmp(cmd, "neutral")) {
             in.stick_x = in.stick_y = 0;
             in.jump_held = 0;

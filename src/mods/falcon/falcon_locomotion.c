@@ -836,7 +836,7 @@ static int check_kneebend(FalconFighter *f, const FalconInputRaw *in,
  * aerial jump after a grounded launch (or after walking off a ledge). */
 static int check_jump_aerial(FalconFighter *f, const FalconInputRaw *in)
 {
-    if (f->jumps_used >= A_JUMPS_MAX) return 0;
+    if (!in->unlimited_jumps && f->jumps_used >= A_JUMPS_MAX) return 0;
     if ((in->stick_y >= C_KNEEBEND_STICK_MIN &&
          f->tap_stick_y <= C_KNEEBEND_BUFFER_TICS) || in->jump_pressed) {
         enter_jump_aerial(f, in);

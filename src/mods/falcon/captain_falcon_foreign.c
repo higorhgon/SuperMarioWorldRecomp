@@ -64,6 +64,7 @@ static void cf_tick(ForeignState *state, const ForeignInput *input,
     raw.jump_pressed = input->jump_pressed;
     raw.attack_pressed = input->attack_pressed;
     raw.special_pressed = input->special_pressed;
+    raw.unlimited_jumps = (input->raw_buttons & 0x10000000) != 0;
     s_fighter.grounded = state->grounded;
     s_fighter.host_air_cause = (int)state->air_cause;
 

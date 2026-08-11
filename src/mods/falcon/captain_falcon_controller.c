@@ -35,6 +35,7 @@ void smw_captain_falcon_tick(SMWCaptainFalconController *controller,
     raw.jump_pressed = input->jump_pressed;
     raw.attack_pressed = input->attack_pressed;
     raw.special_pressed = input->special_pressed;
+    raw.unlimited_jumps = input->unlimited_jumps;
     fighter->grounded = state->grounded;
     fighter->host_air_cause = state->air_cause;
     falcon_tick(fighter, &raw, &motion);

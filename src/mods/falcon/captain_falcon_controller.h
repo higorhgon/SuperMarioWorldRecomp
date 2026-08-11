@@ -15,6 +15,7 @@ typedef struct {
     int jump_pressed;
     int attack_pressed;
     int special_pressed;
+    int unlimited_jumps;
 } SMWForeignInput;
 
 typedef enum {

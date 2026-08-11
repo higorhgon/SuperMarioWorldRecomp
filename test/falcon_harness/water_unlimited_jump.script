@@ -1,0 +1,34 @@
+# Water adaptation: the host can explicitly bypass Captain's ordinary
+# two-jump limit while underwater. Non-water remains covered by double_jump.
+stick_x 1
+jump down
+frames 4
+jump up
+frames 34
+expect_state FALL
+
+# First aerial jump is source-normal.
+jump down
+frames 1
+expect_state JUMPAERIAL_F
+jump up
+frames 8
+expect_state FALL_AERIAL
+
+# Enable the water host flag; a third press must be accepted instead of
+# remaining in exhausted FALL_AERIAL.
+unlimited_jumps on
+jump down
+frames 1
+expect_state JUMPAERIAL_F
+jump up
+frames 8
+expect_state FALL_AERIAL
+
+# And it remains repeatable while the host is still underwater.
+jump down
+frames 1
+expect_state JUMPAERIAL_F
+jump up
+frames 8
+expect_state FALL_AERIAL
