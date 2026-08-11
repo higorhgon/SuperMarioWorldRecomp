@@ -207,6 +207,11 @@ static ForeignAttackHitbox kick(void) {
     a.offset_x=336; a.offset_y=40; a.width=630; a.height=600;
     a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
 }
+static ForeignAttackHitbox kick_landing(void) {
+    ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
+    a.offset_x=0; a.offset_y=140; a.width=400; a.height=280;
+    a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
+}
 static ForeignAttackHitbox dive(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
     a.offset_x=350; a.offset_y=100; a.width=700; a.height=650;
@@ -548,9 +553,10 @@ int main(void) {
     s_ram[0x1693]=0x1e; mock_map16_set(368,480,0x1e);
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==1 &&
-          s_block_calls>=6 && !saw_block_call(368,480) &&
+          s_block_calls>=18 && !saw_block_call(368,480) &&
           !saw_block_call(384,480) && saw_block_call(352,480) &&
-          saw_block_call(272,480));
+          saw_block_call(272,480) && !saw_block_call(352,464) &&
+          saw_block_call(320,528) && !saw_block_call(272,528));
     calls=s_block_calls;
     CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==0 &&
           s_block_calls==calls);
@@ -566,6 +572,46 @@ int main(void) {
           s_block_calls==3 && s_brick_piece_calls==3 &&
           mock_map16_get(128,144)==0 && mock_map16_get(144,160)==0 &&
           mock_map16_get(160,176)==0);
+
+    /* Live short-hop Down+Y regression: native may report a non-yellow
+     * current block after the first overlap, while the Map16 volume scan still
+     * finds only one or two yellow blocks.  Any confirmed Kick block contact
+     * must promote the same frame into the direct diagonal crater. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100); put16(0x9a,144); put16(0x98,160);
+    s_ram[0x1693]=0x25;
+    mock_map16_set(144,160,0x1e); mock_map16_set(160,176,0x1e);
+    begin(&ledger,FL_FALCON_KICK_LANDING);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          s_block_calls>=10 && saw_block_call(144,160) &&
+          saw_block_call(160,176) && saw_block_call(192,192) &&
+          saw_block_call(224,240));
+
+    /* The live block seam may arrive after the controller has already left
+     * the Kick enum, even though the active break-block hitbox is still the
+     * Falcon Kick.  The exact hitbox must retain Kick crater behavior. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,360); put16(0x96,416); put16(0x9a,352); put16(0x98,416);
+    s_ram[0x1693]=0x25;
+    mock_map16_set(352,416,0x1e); /* tempting upper-row contact */
+    mock_map16_set(352,448,0x1e); mock_map16_set(368,464,0x1e);
+    begin(&ledger,FL_WAIT);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          !saw_block_call(352,416) && saw_block_call(352,448) &&
+          saw_block_call(368,464) && saw_block_call(400,496));
+
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100); put16(0x9a,144); put16(0x98,160);
+    s_ram[0x1693]=0x1e;
+    begin(&ledger,FL_FALCON_KICK_AIR);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          s_block_calls>=12 && saw_block_call(144,160) &&
+          saw_block_call(160,176) && saw_block_call(192,192));
+    calls=s_block_calls;
+    put16(0x94,116); put16(0x96,116); put16(0x9a,176); put16(0x98,192);
+    s_ram[0x1693]=0x25;
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          s_block_calls>calls && saw_block_call(208,208));
 
     smw_falcon_combat_ledger_update(&ledger,FL_FALCON_PUNCH_GROUND,0);
     CHECK(!ledger.active && ledger.hit_slots==0);

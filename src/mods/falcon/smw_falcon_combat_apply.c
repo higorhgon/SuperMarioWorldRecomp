@@ -28,10 +28,12 @@
 #define SMW_MINOR_SPRITE_PROC_INDEX 0x15E9u
 #define SMW_MAP16_CURRENT 0x1693u
 #define SMW_IO_SFX_1DF9 0x1DF9u
+#define SMW_FALCON_BLOCK_MAX_Y 0x1F00
 
 #define SMW_SPRITE_SLOTS 12u
 #define SMW_RAM_SIZE 0x20000u
 #define SMW_FALCON_DIVE_SNAP_MAX_PX 4.0
+#define SMW_FALCON_KICK_BLOCK_FIELD_FRAMES 12
 
 typedef struct {
     uint16_t A, X, Y, S, D;
@@ -442,7 +444,8 @@ static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
     const double dir = facing < 0.0 ? -1.0 : 1.0;
 
     if (move_state == FL_FALCON_KICK_AIR ||
-        move_state == FL_FALCON_KICK_GROUND_AIR) {
+        move_state == FL_FALCON_KICK_GROUND_AIR ||
+        move_state == FL_FALCON_KICK_LANDING) {
         /* Block breaking follows the fiery boot's platformer path, not the
          * compact enemy hitbox.  A short-hop DownSpecialAir should carve the
          * next few down-forward tiles it visibly passes through.  Use two
@@ -550,17 +553,102 @@ static int is_ground_punch_support_block(int move_state, double player_y,
     return (double)y >= player_y + 24.0 && x >= 0;
 }
 
-static int is_forward_row_tile(int move_state, double player_x, double facing,
-                               int x)
+static int block_sweep_can_repeat(int move_state)
 {
+    return move_state == FL_FALCON_KICK_GROUND ||
+           move_state == FL_FALCON_KICK_GROUND_AIR ||
+           move_state == FL_FALCON_KICK_AIR ||
+           move_state == FL_FALCON_KICK_LANDING;
+}
+
+static int attack_is_falcon_kick(const ForeignAttackHitbox *attack)
+{
+    return attack != NULL &&
+           ((fabs(attack->offset_x - 336.0) < 0.001 &&
+             fabs(attack->offset_y - 40.0) < 0.001 &&
+             fabs(attack->width - 630.0) < 0.001 &&
+             fabs(attack->height - 600.0) < 0.001) ||
+            (fabs(attack->offset_x - 0.0) < 0.001 &&
+             fabs(attack->offset_y - 140.0) < 0.001 &&
+             fabs(attack->width - 400.0) < 0.001 &&
+             fabs(attack->height - 280.0) < 0.001));
+}
+
+static int attack_is_falcon_punch(const ForeignAttackHitbox *attack)
+{
+    return attack != NULL &&
+           fabs(attack->offset_x - 350.0) < 0.001 &&
+           fabs(attack->offset_y - 100.0) < 0.001 &&
+           fabs(attack->width - 700.0) < 0.001 &&
+           fabs(attack->height - 650.0) < 0.001;
+}
+
+static int block_move_state_for_attack(const ForeignAttackHitbox *attack,
+                                       int move_state)
+{
+    if (block_sweep_can_repeat(move_state) ||
+        move_state == FL_FALCON_PUNCH_GROUND ||
+        move_state == FL_FALCON_PUNCH_AIR)
+        return move_state;
+    /* Native RunPlayerBlockCode can run after the source state has already
+     * advanced through a landing/fall spelling, while the authored active
+     * hitbox is still the DownSpecial kick.  Treat that exact hitbox as the
+     * landing/block continuation so the same frame gets the crater sweep. */
+    if (attack_is_falcon_kick(attack) ||
+        (attack != NULL &&
+         (attack->flags & FOREIGN_ATTACK_BREAK_BLOCKS) != 0 &&
+         !attack_is_falcon_punch(attack)))
+        return FL_FALCON_KICK_LANDING;
+    return move_state;
+}
+
+static int is_direct_sweep_tile(int move_state, double player_x,
+                                unsigned native_touch_y, double facing,
+                                int x, int y)
+{
+    int origin_x, depth, reach;
     if (move_state != FL_FALCON_PUNCH_GROUND) return 1;
+    if (y < (int)native_touch_y || y > (int)native_touch_y + 48)
+        return 0;
+    depth = (y - (int)native_touch_y) / 16;
+    if (depth < 0 || depth > 3) return 0;
+    origin_x = ((int)floor(player_x)) & ~15;
+    reach = 96 - depth * 16;
     if (facing < 0.0)
-        return (double)(x + 16) <= player_x;
-    return (double)x >= player_x;
+        return x >= origin_x - reach && x <= origin_x - 16;
+    return x >= origin_x + 16 && x <= origin_x + reach;
+}
+
+static int is_aerial_kick_direct_tile(int move_state, unsigned native_touch_x,
+                                      unsigned native_touch_y, double facing,
+                                      int x, int y)
+{
+    int depth, reach;
+    if (!block_sweep_can_repeat(move_state)) return 0;
+    if (y < (int)native_touch_y || y > (int)native_touch_y + 80)
+        return 0;
+    depth = (y - (int)native_touch_y) / 16;
+    if (depth < 0 || depth > 5) return 0;
+    reach = 32 + depth * 16;
+    if (facing < 0.0)
+        return x <= (int)native_touch_x &&
+               x >= (int)native_touch_x - reach;
+    return x >= (int)native_touch_x &&
+           x <= (int)native_touch_x + reach;
+}
+
+static unsigned kick_direct_anchor_y(int move_state, unsigned native_touch_y,
+                                     double player_y)
+{
+    unsigned foot_row;
+    if (!block_sweep_can_repeat(move_state)) return native_touch_y;
+    foot_row = ((unsigned)floor(player_y + 32.0)) & ~15u;
+    if (native_touch_y < foot_row) return foot_row;
+    return native_touch_y;
 }
 
 static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
-                               float facing, int move_state)
+                               float facing, SmwFalconCombatLedger *ledger)
 {
     SmwFalconCpuSnapshot saved;
     uint8_t scratch[SMW_SCRATCH_COUNT];
@@ -569,8 +657,10 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     uint8_t map16_current;
     SmwFalconAabb volumes[4];
     unsigned volume_count, volume;
-    unsigned native_touch_x, native_touch_y;
+    int move_state;
+    unsigned native_touch_x, native_touch_y, kick_anchor_y;
     SmwFalconMap16Class native_cls;
+    int native_authorized, direct_authorized;
     int broken_coords[64][2];
     unsigned broken_coord_count = 0;
     double player_x, player_y;
@@ -580,6 +670,8 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     if (attack == NULL ||
         (attack->flags & FOREIGN_ATTACK_BREAK_BLOCKS) == 0)
         return 0;
+    if (ledger == NULL) return 0;
+    move_state = block_move_state_for_attack(attack, ledger->move_state);
 
     memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
     memcpy(interaction, cpu->ram + SMW_TOUCH_Y, sizeof(interaction));
@@ -588,10 +680,21 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     native_touch_x = ram16(cpu, SMW_TOUCH_X) & ~15u;
     native_touch_y = ram16(cpu, SMW_TOUCH_Y) & ~15u;
     native_cls = native_collision_block_class(cpu);
+    native_authorized = smw_falcon_can_break_map16(attack, native_cls);
+    direct_authorized = native_authorized;
+    if (block_sweep_can_repeat(move_state)) {
+        if (native_authorized) {
+            ledger->block_field_frames = SMW_FALCON_KICK_BLOCK_FIELD_FRAMES;
+        } else if (ledger->block_field_frames > 0) {
+            direct_authorized = 1;
+            --ledger->block_field_frames;
+        }
+    }
     save_cpu(cpu, &saved);
 
     player_x = ram16(cpu, SMW_PLAYER_X);
     player_y = ram16(cpu, SMW_PLAYER_Y);
+    kick_anchor_y = kick_direct_anchor_y(move_state, native_touch_y, player_y);
     volume_count = block_break_volumes(attack, move_state, player_x, player_y,
                                        facing, volumes);
 
@@ -608,7 +711,11 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
         for (y = start_y; y <= end_y; y += 16) {
             for (x = start_x; x <= end_x; x += 16) {
                 SmwFalconMap16Class cls;
-                if (x < 0 || y < 0 || y >= 0x01B0 ||
+                if (x < 0 || y < 0 || y >= SMW_FALCON_BLOCK_MAX_Y ||
+                    (block_sweep_can_repeat(move_state) &&
+                     y < (int)kick_anchor_y) ||
+                    !is_direct_sweep_tile(move_state, player_x,
+                                          native_touch_y, facing, x, y) ||
                     !block_intersects_attack(hit, x, y))
                     continue;
                 if (x == (int)native_touch_x &&
@@ -628,13 +735,18 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
         }
     }
 
+    if (broken > 0 && block_sweep_can_repeat(move_state)) {
+        ledger->block_field_frames = SMW_FALCON_KICK_BLOCK_FIELD_FRAMES;
+        direct_authorized = 1;
+    }
+
     if (broken == 0) {
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
         memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
         cpu->ram[SMW_MAP16_CURRENT] = map16_current;
         restore_cpu(cpu, &saved);
-        if (smw_falcon_can_break_map16(attack, native_cls)) {
+        if (native_authorized) {
             for (volume = 0; volume < volume_count; ++volume) {
                 if (is_ground_punch_support_block(move_state, player_y,
                                                   native_touch_y,
@@ -655,15 +767,15 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
         }
     }
 
-    if (broken < 2 && smw_falcon_can_break_map16(attack, native_cls)) {
+    if (direct_authorized) {
         /* Some RunPlayerBlockCode contexts only expose the block currently
          * touched by Mario/Falcon through GetPlayerLevelCollisionMap16ID,
-         * even when the visual row is a whole platform of the same turn
-         * blocks.  Once native collision has proven this is a destructible
-         * yellow block, sweep the attack volume across that exact row with
-         * GenerateTile command 1.  This keeps content/bounce behavior out of
-         * the path and prevents the standing-on-block case from degrading
-         * into a single underfoot hole. */
+         * even when the visual area is a stack of the same turn blocks. Once
+         * native collision has proven this is a destructible yellow block,
+         * sweep the attack volume directly with GenerateTile command 1. This
+         * keeps content/bounce behavior out of the path, lets Falcon Punch
+         * clear the forward block layer instead of the support tile, and lets
+         * down-forward Falcon Kick carve through multiple vertical rows. */
         memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
         memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
         memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
@@ -673,21 +785,51 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
             const SmwFalconAabb *hit = &volumes[volume];
             start_x = ((int)floor(hit->left)) & ~15;
             end_x = ((int)floor(hit->right - 0.001)) & ~15;
-            y = (int)native_touch_y;
-            if (y < (((int)floor(hit->top)) & ~15) ||
-                y > (((int)floor(hit->bottom - 0.001)) & ~15))
-                continue;
-            for (x = start_x; x <= end_x; x += 16) {
-                if (x < 0 || !is_forward_row_tile(move_state, player_x,
-                                                  facing, x) ||
-                    !block_intersects_attack(hit, x, y) ||
-                    (x == (int)native_touch_x &&
-                     is_ground_punch_support_block(move_state, player_y,
-                                                   native_touch_y, x, y)) ||
-                    coord_was_broken(broken_coords, broken_coord_count, x, y))
-                    continue;
-                broken += clean_break_block_at(cpu, x, y);
-                remember_broken_coord(broken_coords, &broken_coord_count, x, y);
+            start_y = ((int)floor(hit->top)) & ~15;
+            end_y = ((int)floor(hit->bottom - 0.001)) & ~15;
+            for (y = start_y; y <= end_y; y += 16) {
+                if (y < 0 || y >= SMW_FALCON_BLOCK_MAX_Y) continue;
+                for (x = start_x; x <= end_x; x += 16) {
+                    if (x < 0 ||
+                        !is_direct_sweep_tile(move_state, player_x,
+                                              native_touch_y, facing, x, y) ||
+                        !block_intersects_attack(hit, x, y) ||
+                        (x == (int)native_touch_x &&
+                         is_ground_punch_support_block(move_state, player_y,
+                                                       native_touch_y, x, y)) ||
+                        coord_was_broken(broken_coords, broken_coord_count,
+                                         x, y))
+                        continue;
+                    broken += clean_break_block_at(cpu, x, y);
+                    remember_broken_coord(broken_coords, &broken_coord_count,
+                                          x, y);
+                }
+            }
+        }
+        if (block_sweep_can_repeat(move_state)) {
+            start_y = (int)kick_anchor_y;
+            end_y = (int)kick_anchor_y + 80;
+            start_x = facing < 0.0 ? (int)native_touch_x - 112
+                                   : (int)native_touch_x;
+            end_x = facing < 0.0 ? (int)native_touch_x
+                                 : (int)native_touch_x + 112;
+            start_x &= ~15;
+            end_x &= ~15;
+            for (y = start_y; y <= end_y; y += 16) {
+                if (y < 0 || y >= SMW_FALCON_BLOCK_MAX_Y) continue;
+                for (x = start_x; x <= end_x; x += 16) {
+                    if (x < 0 ||
+                        !is_aerial_kick_direct_tile(move_state,
+                                                    native_touch_x,
+                                                    kick_anchor_y, facing,
+                                                    x, y) ||
+                        coord_was_broken(broken_coords, broken_coord_count,
+                                         x, y))
+                        continue;
+                    broken += clean_break_block_at(cpu, x, y);
+                    remember_broken_coord(broken_coords, &broken_coord_count,
+                                          x, y);
+                }
             }
         }
     }
@@ -759,8 +901,10 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
          * group may all receive it, but the block route remains separate. */
         return sprite_contacts;
     }
-    if (ledger->had_sprite_contact || ledger->block_applied) return 0;
-    if (apply_native_blocks(cpu, attack, facing, ledger->move_state)) {
+    if (ledger->had_sprite_contact ||
+        (ledger->block_applied &&
+         !block_sweep_can_repeat(ledger->move_state))) return 0;
+    if (apply_native_blocks(cpu, attack, facing, ledger)) {
         ledger->block_applied = 1;
         return 1;
     }
@@ -774,9 +918,10 @@ int smw_falcon_combat_apply_blocks_only(CpuState *cpu,
 {
     if (!hook_contract_is_valid(cpu) || attack == NULL || !attack->active ||
         ledger == NULL || !ledger->active || ledger->had_sprite_contact ||
-        ledger->block_applied)
+        (ledger->block_applied &&
+         !block_sweep_can_repeat(ledger->move_state)))
         return 0;
-    if (apply_native_blocks(cpu, attack, facing, ledger->move_state)) {
+    if (apply_native_blocks(cpu, attack, facing, ledger)) {
         ledger->block_applied = 1;
         return 1;
     }

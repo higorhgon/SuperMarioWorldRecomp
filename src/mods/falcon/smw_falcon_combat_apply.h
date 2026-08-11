@@ -14,6 +14,7 @@ typedef struct {
     int active;
     int had_sprite_contact;
     int block_applied;
+    int block_field_frames;
     uint16_t hit_slots;
     /* Newly accepted sprite slots from the latest apply call.  The adapter
      * consumes this exact per-frame mask at ProcessNormalSprites; it is never
