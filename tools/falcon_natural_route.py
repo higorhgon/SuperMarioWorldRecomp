@@ -86,6 +86,15 @@ def load_route(path: pathlib.Path) -> dict[str, Any]:
         if not isinstance(event.get("p1"), str):
             raise RouteError("input p1 must be a controller string")
         previous = event["at"]
+    captures = data.get("captures", [])
+    if not isinstance(captures, list):
+        raise RouteError("captures must be a list")
+    previous = -1
+    for capture in captures:
+        if (not isinstance(capture, dict) or not isinstance(capture.get("at"), int)
+                or capture["at"] < previous or not isinstance(capture.get("id"), str)):
+            raise RouteError("captures need ordered integer at values and string ids")
+        previous = capture["at"]
     return data
 
 
@@ -202,6 +211,7 @@ def run(args: argparse.Namespace) -> int:
         if not isinstance(start, int):
             raise RouteError("frame counter is absent")
         event_index = 0
+        capture_index = 0
         last_sample_frame = -1
         captured_loaded = False
         found: set[tuple[int, int, int]] = set()
@@ -214,6 +224,9 @@ def run(args: argparse.Namespace) -> int:
             while event_index < len(route["inputs"]) and elapsed >= route["inputs"][event_index]["at"]:
                 client.command("set_controller p1=" + route["inputs"][event_index]["p1"])
                 event_index += 1
+            while capture_index < len(route.get("captures", [])) and elapsed >= route["captures"][capture_index]["at"]:
+                capture(client, args.out, route["captures"][capture_index]["id"], evidence)
+                capture_index += 1
             if frame_reply != last_sample_frame:
                 sample = snapshot(client); sample["elapsed"] = elapsed
                 interesting = find_interesting(sample); sample["interesting"] = interesting
@@ -225,6 +238,12 @@ def run(args: argparse.Namespace) -> int:
                     if key not in found:
                         found.add(key)
                         capture(client, args.out, f"sprite_s{candidate['slot']}_id{candidate['id']:02x}_st{candidate['status']:02x}", evidence)
+                # A route whose player state became death is not a valid natural
+                # target route.  Stop at the first observed state instead of
+                # continuing to the overworld and obscuring the failure point.
+                if sample["player"][:2].lower() == "09":
+                    evidence["stop_reason"] = "player_state_09"
+                    break
             if elapsed >= end_offset:
                 break
             time.sleep(0.008)

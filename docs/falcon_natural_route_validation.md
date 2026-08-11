@@ -10,6 +10,12 @@ It intentionally does not use `pause`, `step`, `write_ram`, synthetic sprite
 seeding, or OAM relocation. The only observation commands are `frame`,
 `read_ram`, `screenshot`, and `oam_render_get`.
 
+`savestate N` is an exception only for preserving a naturally reached route:
+the debug-server thread queues it and the unpaused main loop consumes it at its
+ordinary frame boundary with `RtlSaveLoad(kSaveLoad_Save, N)`. It must never be
+used to synthesize a target; hash the resulting `saves/saveN.sav` before using
+it as a later route input.
+
 ```powershell
 py -3 tools/falcon_natural_route.py `
   --exe build-falcon/SuperMarioWorldSNESRecomp.exe `
@@ -22,8 +28,11 @@ The route JSON has a hashable slot number, a boot delay before the asynchronous
 load, ordered `at` frame offsets, SNES controller strings, and a bounded route
 duration. The tool records the executable/route SHA-256 values, every observed
 native sprite table, PPU render-ring snapshots at each screenshot, and a final
-route screenshot. It releases controller input and verifies that TCP port 4377
-is free before it returns.
+route screenshot. Optional ordered `captures` entries add named, exact-route
+screenshots (for example post-launch, apex, and landing). The scout stops on
+the first observed player state `$09` rather than allowing a death sequence to
+obscure the route failure. It releases controller input and verifies that TCP
+port 4377 is free before it returns.
 
 ## Required natural evidence
 
@@ -48,11 +57,13 @@ can currently only prove preservation/no corruption, not a hit.
 ## Current route blocker
 
 The supplied `save0.sav` begins immediately before the one-block step and does
-not expose a normal sprite. Free-running, gamepad-disabled attempts using
-right+jump, immediate right+jump, release-at-wall then right+jump, and a
-rightward double-jump found no status `$08/$09/$0A/$0B` sprite. They either
-entered the native death/map return sequence or settled at the step around
-`X=$0742`. Therefore slot 0 is not yet a reviewed natural target route.
+not expose a normal sprite. A controller-only bypass is now known: double-tap
+Right (frames 10/11), hold Right into the wall, release at 50, press Up+Y for
+one frame at 53, release at 54, then hold Right from 68. It produces a natural
+grounded Falcon Dive that rises over the step without state `$09`. Its landing
+remains on the approach side, so it is a safe launch checkpoint rather than
+proof of horizontal clearance. The route still found no status `$08/$09/$0A/$0B`
+sprite, so slot 0 is not yet a reviewed natural combat/carry target route.
 
 To turn the scout into a proof scenario, provide a hash-pinned save slot or a
 reviewed controller-only level path that reaches both a level-spawned loose
