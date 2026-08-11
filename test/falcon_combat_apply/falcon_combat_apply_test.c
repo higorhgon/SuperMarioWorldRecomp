@@ -7,6 +7,7 @@
 static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_star_kill_calls, s_block_calls;
+static int s_bounce_block_calls;
 
 void cpu_write8(CpuState *cpu, uint8 bank, uint16 addr, uint8 value)
 {
@@ -81,13 +82,24 @@ void KillNormalSprite_AcceptedConsequence(CpuState *cpu)
 }
 void SpawnBounceSprite(CpuState *cpu)
 {
-    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 || cpu->D != 0) {
-        fprintf(stderr, "bad block contract\n"); return;
+    (void)cpu;
+    ++s_bounce_block_calls;
+    fprintf(stderr, "unexpected bounce block activation\n");
+}
+void GenerateTile(CpuState *cpu)
+{
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 0 ||
+        cpu->D != 0 || cpu->ram[0x9c] != 1) {
+        fprintf(stderr, "bad clean block contract\n"); return;
     }
-    if (!consume_native_frame(cpu, 3, 2, "block")) return;
+    if (!consume_native_frame(cpu, 3, 0, "clean block")) return;
     ++s_block_calls;
-    cpu->ram[0x1dfc] = 7; cpu->ram[0x9c] = 2; cpu->ram[0x7d] = 0xd0;
-    cpu->Y = 0xdead; cpu->ram[4] = 0xee;
+    /* Command 1 is the blank-tile path; it should not run content/bounce
+     * behavior or alter Mario's Y speed. */
+    cpu->ram[0x1693] = 0;
+    cpu->ram[0x1dfc] = 7;
+    cpu->ram[0x7d] = 0x33;
+    cpu->ram[4] = 0xee;
 }
 static int failed(const char *x, int n) { fprintf(stderr,"FAIL %d: %s\n",n,x); return 1; }
 #define CHECK(x) do { if (!(x)) return failed(#x, __LINE__); } while (0)
@@ -96,7 +108,7 @@ static CpuState fresh(void) {
     CpuState c; memset(&c,0,sizeof(c)); memset(s_ram,0,sizeof(s_ram));
     c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30; c.S=0x01ff;
     s_sprite_calls=s_spin_kill_calls=s_spin_star_calls=s_spin_score_calls=0;
-    s_star_kill_calls=0;
+    s_star_kill_calls=s_block_calls=s_bounce_block_calls=0;
     return c;
 }
 static ForeignAttackHitbox punch(void) {
@@ -330,8 +342,19 @@ int main(void) {
      * runs only when this move has not touched a sprite. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
     put16(0x9a,128); put16(0x98,112); s_ram[4]=7; begin(&ledger,FL_FALCON_PUNCH_GROUND);
+    s_ram[0x7c]=0xaa; s_ram[0x7d]=0xbb;
     calls=s_block_calls; CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==1);
-    CHECK(s_block_calls==calls+1);
+    CHECK(s_block_calls==calls+1 && s_bounce_block_calls==0 &&
+          s_ram[0x1693]==0 && s_ram[0x9c]==0 &&
+          s_ram[0x7c]==0xaa && s_ram[0x7d]==0xbb);
+    /* Content-like turn blocks must use the same clean blank-tile path, not
+     * the native bounce/content activation route that can spawn items/enemies. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    put16(0x9a,128); put16(0x98,112); s_ram[0x1693]=0x1e;
+    begin(&ledger,FL_FALCON_KICK_GROUND);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==1 &&
+          s_block_calls==1 && s_bounce_block_calls==0 &&
+          s_ram[0x1693]==0 && s_ram[0x9c]==0);
     smw_falcon_combat_ledger_update(&ledger,FL_FALCON_PUNCH_GROUND,0);
     CHECK(!ledger.active && ledger.hit_slots==0);
     puts("falcon_combat_apply_test: PASS"); return 0;

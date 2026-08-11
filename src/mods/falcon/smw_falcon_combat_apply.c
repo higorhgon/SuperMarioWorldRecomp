@@ -149,6 +149,15 @@ static void prepare_bank02_call(CpuState *cpu, unsigned slot)
     cpu->X = (uint16_t)slot;
 }
 
+static void prepare_bank00_call(CpuState *cpu)
+{
+    /* GenerateTile is a bank-$00 long-return helper. It consumes $98/$9A as
+     * the current block coordinate and $9C as a command byte. */
+    cpu->P |= 0x30u;
+    cpu_p_to_mirrors(cpu);
+    cpu->DB = 0;
+}
+
 static void invoke_native_jsr(CpuState *cpu, uint8_t target_bank,
                               SmwFalconNativeEntry entry)
 {
@@ -401,11 +410,14 @@ static int apply_native_block(CpuState *cpu, const ForeignAttackHitbox *attack,
     memcpy(interaction, cpu->ram + SMW_TOUCH_Y, sizeof(interaction));
     memcpy(player_y_speed, cpu->ram + 0x007Cu, sizeof(player_y_speed));
     save_cpu(cpu, &saved);
-    /* Preserve $04 and $98-$9C from $00:E92B. SpawnBounceSprite consumes
-     * exactly these native collision products, does score/debris/sound and
-     * Map16 mutation itself, then we restore transient scratch for CD36. */
-    prepare_bank02_call(cpu, 0);
-    invoke_native_jsl(cpu, 2, SpawnBounceSprite);
+    /* Preserve $04 and $98-$9C from $00:E92B.  Do not run the bounce-sprite
+     * block activation path here: content blocks can legitimately spawn
+     * items/enemies/keys there. Falcon specials are a Smash-style destructive
+     * hit, so use GenerateTile command 1 (sub_C074) to write the clean blank
+     * tile at the already-admitted native collision coordinate. */
+    cpu->ram[SMW_MAP16_GENERATE] = 1;
+    prepare_bank00_call(cpu);
+    invoke_native_jsl(cpu, 0, GenerateTile);
     memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
     memcpy(cpu->ram + SMW_TOUCH_Y, interaction, sizeof(interaction));
     memcpy(cpu->ram + 0x007Cu, player_y_speed, sizeof(player_y_speed));
