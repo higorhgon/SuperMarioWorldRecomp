@@ -32,17 +32,29 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
 
     def test_course_clear_is_presentation_only_and_excludes_demo_keyhole(self):
         source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("static int falcon_controller_selected(void)", source)
         self.assertIn("static int course_clear_active(void)", source)
-        self.assertIn("snes_foreign_ownership() == FOREIGN_OWNERSHIP_SCRIPTED", source)
+        self.assertIn("!falcon_controller_selected()", source)
         self.assertIn("misc_game_mode == 0x14 && player_current_state == 0", source)
         self.assertIn("timer_end_level != 0 && timer_end_level_via_keyhole == 0", source)
-        self.assertIn("flag_show_victory_pose_during_level_end != 0", source)
-        self.assertIn("return controllable() || death_active() || course_clear_active();", source)
+        self.assertIn("misc_game_mode == 0x0b && timer_end_level_via_keyhole == 0", source)
+        self.assertNotIn("flag_show_victory_pose_during_level_end != 0", source)
+        self.assertIn("return controllable() || death_active() || course_clear_active() ||", source)
         self.assertIn("if (!presentation_active()) { s_suppression_active = 0; return; }", source)
         self.assertIn("if (!presentation_active() || !pixels", source)
         # Carry OAM mutation remains live-control-only; Course Clear merely
         # hides PlayerGFXRt and draws Falcon over the native score script.
         self.assertIn("if (!ppu || !controllable()) return;", source)
+
+    def test_powerup_and_damage_animation_keep_full_size_falcon(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("static int powerup_animation_active(void)", source)
+        self.assertIn("Native GameMode14 player-state table:", source)
+        self.assertIn("1 PowerDown, 2 Grow, 3 GotCape, 4 GotFlower", source)
+        self.assertIn("return player_current_state >= 1 && player_current_state <= 4;", source)
+        self.assertIn("if (course_clear_active() || powerup_animation_active())", source)
+        self.assertIn("pose.state = FALCON_PRESENT_IDLE;", source)
+        self.assertIn("pose.frame = 0.0f;", source)
 
 
 if __name__ == "__main__":

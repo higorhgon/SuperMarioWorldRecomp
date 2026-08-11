@@ -72,23 +72,37 @@ static unsigned s_death_frame;
 static float s_death_anchor_y;
 static FalconPresentationPose s_last_pose = { FALCON_PRESENT_IDLE, 0.0f, 1 };
 
+static int falcon_controller_selected(void)
+{
+    const ForeignController *controller = snes_foreign_active();
+    return controller != NULL && strcmp(controller->id, SMW_CAPTAIN_FALCON_ID) == 0;
+}
+
 static int death_active(void) { return s_presentation && misc_game_mode == 0x14 && player_current_state == 9; }
 
 static int course_clear_active(void)
 {
-    const ForeignController *controller = snes_foreign_active();
-    /* This is presentation-only.  The adapter has already transferred this
-     * exact native end-of-level phase to SCRIPTED ownership, so no Falcon
-     * tick/input/WRAM mutation can interfere with the score and goal script.
-     * `$1B99` is set only after ordinary PlayerState00 end-level walking has
-     * completed; excluding the keyhole timer avoids its separate iris/freeze
-     * sequence, while GameMode14 excludes title/attract-demo dispatch. */
-    return s_presentation != NULL && controller != NULL &&
-           strcmp(controller->id, SMW_CAPTAIN_FALCON_ID) == 0 &&
-           snes_foreign_ownership() == FOREIGN_OWNERSHIP_SCRIPTED &&
-           misc_game_mode == 0x14 && player_current_state == 0 &&
-           timer_end_level != 0 && timer_end_level_via_keyhole == 0 &&
-           flag_show_victory_pose_during_level_end != 0;
+    if (s_presentation == NULL || !falcon_controller_selected()) return 0;
+    /* Presentation-only.  The adapter refuses control while `$1493` is live,
+     * and native SMW owns all walking, score, timer, and mode progression.
+     * Keep Falcon drawn through the whole non-keyhole goal sequence instead
+     * of only the brief `$1B99` peace-pose subphase.  PlayerState00_LevelFinished
+     * then moves ordinary Course Clear into GameMode $0B, which still draws the
+     * player OBJ on the black result screen. */
+    if (misc_game_mode == 0x14 && player_current_state == 0 &&
+        timer_end_level != 0 && timer_end_level_via_keyhole == 0) return 1;
+    return misc_game_mode == 0x0b && timer_end_level_via_keyhole == 0;
+}
+
+static int powerup_animation_active(void)
+{
+    if (s_presentation == NULL || !falcon_controller_selected() ||
+        misc_game_mode != 0x14) return 0;
+    /* Native GameMode14 player-state table:
+     * 1 PowerDown, 2 Grow, 3 GotCape, 4 GotFlower.  These are transient native
+     * animation states, not control states; keep the Falcon mesh/OAM
+     * suppression active at full size while SMW finishes its timer bookkeeping. */
+    return player_current_state >= 1 && player_current_state <= 4;
 }
 
 /* Opt-in, path-free activation trace for TCP validation. The caller chooses
@@ -443,9 +457,8 @@ static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
 }
 
 static const char *controllable_reason(void) {
-    const ForeignController *controller = snes_foreign_active();
     if (!s_presentation) return "cache unavailable";
-    if (!controller || strcmp(controller->id, SMW_CAPTAIN_FALCON_ID)) return "Falcon controller inactive";
+    if (!falcon_controller_selected()) return "Falcon controller inactive";
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) return "controller handoff";
     if (misc_game_mode != 0x14) return "not level gameplay";
     if (player_current_state != 0) return "nonordinary player state";
@@ -465,7 +478,8 @@ static int controllable(void) {
 
 static int presentation_active(void)
 {
-    return controllable() || death_active() || course_clear_active();
+    return controllable() || death_active() || course_clear_active() ||
+           powerup_animation_active();
 }
 
 void smw_falcon_presentation_reset(void) {
@@ -586,10 +600,11 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     /* Mature NES port convention: Captain's authored front/back axis must be
      * yawed 88 degrees into the 2D host plane for readable left/right profile. */
     target.yaw_degrees = 88.0f;
-    if (course_clear_active()) {
+    if (course_clear_active() || powerup_animation_active()) {
         /* The source controller is intentionally frozen while native SMW
-         * runs Course Clear.  Do not leave a stale Punch/Kick frame on its
-         * victory screen; render a stable, native-facing Wait pose instead. */
+         * runs scripted Course Clear or powerup/powerdown animation states.
+         * Do not leave a stale Punch/Kick frame or expose native Mario; render
+         * a stable, native-facing full-size Wait pose instead. */
         pose.state = FALCON_PRESENT_IDLE;
         pose.frame = 0.0f;
         pose.facing_right = player_facing_direction != 0;
