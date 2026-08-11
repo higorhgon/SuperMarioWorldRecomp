@@ -478,15 +478,24 @@ static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
             const double reach = move_state == FL_FALCON_KICK_GROUND
                 ? 128.0 : 112.0;
             out[count++] = make_aabb(player_x + 4.0, player_y + 8.0,
-                                     player_x + reach, player_y + 72.0);
+                                     player_x + reach,
+                                     player_y +
+                                     (move_state == FL_FALCON_KICK_GROUND
+                                      ? 72.0 : 96.0));
         } else {
             const double reach = move_state == FL_FALCON_KICK_GROUND
                 ? 112.0 : 96.0;
             out[count++] = make_aabb(player_x - reach, player_y + 8.0,
-                                     player_x + 12.0, player_y + 72.0);
+                                     player_x + 12.0,
+                                     player_y +
+                                     (move_state == FL_FALCON_KICK_GROUND
+                                      ? 72.0 : 96.0));
         }
         out[count++] = make_aabb(player_x - 16.0, player_y + 24.0,
-                                 player_x + 32.0, player_y + 72.0);
+                                 player_x + 32.0,
+                                 player_y +
+                                 (move_state == FL_FALCON_KICK_GROUND
+                                  ? 72.0 : 96.0));
     } else {
         out[count++] = hit;
     }
@@ -498,6 +507,12 @@ static int clean_break_block_at(CpuState *cpu, int x, int y)
     write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
     write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
     invoke_native_brick_pieces(cpu);
+    /* SpawnBrickPieces is a separate guest routine and is not a coordinate
+     * preservation API.  Re-seed the touch coordinate before GenerateTile so
+     * every scanned block is blanked at the intended tile, not whatever the
+     * debris helper left in scratch/touch state. */
+    write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
+    write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
     cpu->ram[SMW_MAP16_GENERATE] = 1;
     prepare_bank00_call(cpu);
     invoke_native_jsl(cpu, 0, GenerateTile);

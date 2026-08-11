@@ -107,6 +107,8 @@ void SpawnBrickPieces(CpuState *cpu)
      * extended sprites/SFX only; it must not activate block contents. */
     cpu->ram[0x17f0 + (s_brick_piece_calls & 7)] = 1;
     cpu->ram[0x1dfc] = 7;
+    cpu->ram[0x98] = 0xef; cpu->ram[0x99] = 0xbe;
+    cpu->ram[0x9a] = 0xad; cpu->ram[0x9b] = 0xde;
     cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
 }
 static uint16_t read16(unsigned p)
@@ -474,17 +476,23 @@ int main(void) {
      * him, but Punch also needs to sweep the lower forward row. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
     mock_map16_set(96,160,0x1e);   /* under/near Falcon's feet */
-    mock_map16_set(112,160,0x1e);  /* forward floor row */
+    mock_map16_set(112,160,0x1e);  /* forward lower rows */
     mock_map16_set(128,160,0x1e);
     mock_map16_set(144,160,0x1e);
     mock_map16_set(160,160,0x1e);
     mock_map16_set(176,160,0x1e);
+    mock_map16_set(112,176,0x1e);
+    mock_map16_set(128,176,0x1e);
+    mock_map16_set(144,176,0x1e);
+    mock_map16_set(160,176,0x1e);
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
-    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
-          s_block_calls==6 && s_brick_piece_calls==6 &&
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==10 &&
+          s_block_calls==10 && s_brick_piece_calls==10 &&
           mock_map16_get(96,160)==0 && mock_map16_get(112,160)==0 &&
           mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
-          mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0);
+          mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0 &&
+          mock_map16_get(112,176)==0 && mock_map16_get(128,176)==0 &&
+          mock_map16_get(144,176)==0 && mock_map16_get(160,176)==0);
 
     /* Grounded Falcon Kick gets the same clean platformer row treatment with
      * a longer block-only sweep so he does not get caught after one tile. */
