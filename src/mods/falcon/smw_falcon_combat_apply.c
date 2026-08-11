@@ -141,8 +141,8 @@ static void prepare_bank01_call(CpuState *cpu, unsigned slot)
 
 static void prepare_bank02_call(CpuState *cpu, unsigned slot)
 {
-    /* SpawnBounceSprite is a bank-$02 native consequence and receives the
-     * same M1X1/D0 low-WRAM mirror contract as its source caller. */
+    /* Bank-$02 native consequences receive the same M1X1/D0 low-WRAM mirror
+     * contract as their source callers. */
     cpu->P |= 0x30u;
     cpu_p_to_mirrors(cpu);
     cpu->DB = 2;
@@ -189,6 +189,16 @@ static void invoke_native_map16_lookup(CpuState *cpu)
 {
     prepare_bank00_call(cpu);
     invoke_native_jsr(cpu, 0, GetPlayerLevelCollisionMap16ID_Entry2);
+}
+
+static void invoke_native_brick_pieces(CpuState *cpu)
+{
+    /* SpawnBrickPieces is the safe native turn-block debris/SFX primitive.
+     * It does not run the bounce/content route that can spawn items/enemies.
+     * Its generated alias ends in RTL and therefore requires a JSL frame. */
+    prepare_bank02_call(cpu, 0);
+    cpu->A = 0; /* Same timer argument used by the native brick-break path. */
+    invoke_native_jsl(cpu, 2, SpawnBrickPieces);
 }
 
 static SmwFalconSpriteConsequence sprite_target_consequence(const CpuState *cpu,
@@ -409,10 +419,40 @@ static int block_intersects_attack(const SmwFalconAabb *hit, int x, int y)
     return smw_falcon_aabb_overlaps(*hit, block);
 }
 
+static SmwFalconAabb block_break_volume(const ForeignAttackHitbox *attack,
+                                        int move_state,
+                                        double player_x, double player_y,
+                                        double facing)
+{
+    SmwFalconAabb hit = smw_falcon_attack_world_aabb(
+        attack, player_x, player_y, facing);
+    if (move_state == FL_FALCON_KICK_AIR ||
+        move_state == FL_FALCON_KICK_GROUND_AIR) {
+        const double forward = facing < 0.0 ? -32.0 : 32.0;
+        /* Block breaking follows the fiery boot's platformer path, not the
+         * compact enemy hitbox.  A short-hop DownSpecialAir should carve the
+         * next few down-forward tiles it visibly passes through, producing a
+         * diagonal crater without re-widening sprite damage. */
+        if (forward > 0.0) hit.right += forward;
+        else hit.left += forward;
+        hit.bottom += 48.0;
+    } else if (move_state == FL_FALCON_PUNCH_GROUND ||
+               move_state == FL_FALCON_PUNCH_AIR ||
+               move_state == FL_FALCON_KICK_GROUND) {
+        /* Give ground specials enough vertical tolerance to clear a line of
+         * same-row yellow blocks even when native collision quantizes Falcon
+         * one pixel above or below the tile edge. */
+        hit.top -= 8.0;
+        hit.bottom += 8.0;
+    }
+    return hit;
+}
+
 static int clean_break_block_at(CpuState *cpu, int x, int y)
 {
     write_ram16(cpu, SMW_TOUCH_X, (uint16_t)x);
     write_ram16(cpu, SMW_TOUCH_Y, (uint16_t)y);
+    invoke_native_brick_pieces(cpu);
     cpu->ram[SMW_MAP16_GENERATE] = 1;
     prepare_bank00_call(cpu);
     invoke_native_jsl(cpu, 0, GenerateTile);
@@ -420,7 +460,7 @@ static int clean_break_block_at(CpuState *cpu, int x, int y)
 }
 
 static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
-                               float facing)
+                               float facing, int move_state)
 {
     SmwFalconCpuSnapshot saved;
     uint8_t scratch[SMW_SCRATCH_COUNT];
@@ -441,8 +481,8 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
     map16_current = cpu->ram[SMW_MAP16_CURRENT];
     save_cpu(cpu, &saved);
 
-    hit = smw_falcon_attack_world_aabb(
-        attack, ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
+    hit = block_break_volume(attack, move_state,
+        ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
     start_x = ((int)floor(hit.left)) & ~15;
     end_x = ((int)floor(hit.right - 0.001)) & ~15;
     start_y = ((int)floor(hit.top)) & ~15;
@@ -551,7 +591,7 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
         return sprite_contacts;
     }
     if (ledger->had_sprite_contact) return 0;
-    if (apply_native_blocks(cpu, attack, facing)) {
+    if (apply_native_blocks(cpu, attack, facing, ledger->move_state)) {
         ledger->block_applied = 1;
         return 1;
     }

@@ -849,7 +849,7 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
 {
     const ForeignState *state;
     ForeignCollisionResult wall;
-    int active_ground_kick;
+    int grounded_kick;
     uint8_t side_bits;
     uint8_t expected_side;
     (void)cpu;
@@ -859,7 +859,7 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
      * DamagePlayer_KillAndDisableButtons.  That exact combination means the
      * movement reached the vertical face of a one-block step while grounded;
      * it is not ordinary head contact. Falcon's high-speed Dash/Run and
-     * Ground SpecialLw flag1 window can reach that branch before the later
+     * Ground SpecialLw can reach that branch before the later
      * CD36 seam. Restore the DC2D snapshot and let the original routine take
      * its normal non-crush path, so the step behaves as a solid wall rather
      * than leaving Falcon embedded or granting broad damage immunity. */
@@ -874,14 +874,13 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
         (int16_t)(player_ypos - s_y_before) < -1 ||
         (int16_t)(player_ypos - s_y_before) > 1) return;
     state = snes_foreign_state();
-    active_ground_kick = state != NULL && state->grounded &&
-        state->state == FL_FALCON_KICK_GROUND &&
-        state->state_frame >= 12u && state->state_frame < 32u;
+    grounded_kick = state != NULL && state->grounded &&
+        state->state == FL_FALCON_KICK_GROUND;
     {
         const int motion_direction = s_last_move.requested_dx > 0.0 ? 1 :
                                      s_last_move.requested_dx < 0.0 ? -1 : 0;
         if (state == NULL || !state->grounded || motion_direction == 0 ||
-            (!active_ground_kick &&
+            (!grounded_kick &&
              !smw_falcon_ground_run_wall_state(state->state)))
             return;
         side_bits = (uint8_t)(player_blocked_flags & 0x03u);
@@ -890,11 +889,11 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
     if (side_bits != expected_side)
         return;
 
-    /* Grounded SpecialLw is a one-shot correction: AfterPhysics must see its
-     * preserved side-wall result in this same frame so the sourced Bound
-     * transition can consume it. Never route Kick through the held Dash/Run
-     * latch, which would erase the authored Bound TransN recoil next tick. */
-    if (active_ground_kick) {
+    /* Grounded SpecialLw is a one-shot correction for every kick frame.  The
+     * user-facing contract is stronger than Smash's narrow rebound window:
+     * a wall-facing Falcon Kick must stop cleanly, never enter SMW's crush
+     * death/OOB path. */
+    if (grounded_kick) {
         player_xpos = s_x_before;
         player_ypos = s_y_before;
         player_sub_xpos = s_sub_x_before;

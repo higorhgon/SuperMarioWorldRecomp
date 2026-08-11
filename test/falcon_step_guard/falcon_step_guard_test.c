@@ -391,6 +391,47 @@ int main(void)
         }
     }
 
+    /* User repro: a wall-facing grounded Kick can hit the crush branch after
+     * the authored damage window too.  Every grounded Kick frame must stop,
+     * not only source flag1/active frames 12..<32. */
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for late Kick wall guard");
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x070F;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x33;
+    player_sub_ypos = 0x55;
+    ground_adapter_frame(0x44, 0x44);
+    for (unsigned i = 0; i != 40; ++i)
+        ground_adapter_frame(0, 0);
+    state = snes_foreign_state();
+    if (state == NULL || state->state != FL_FALCON_KICK_GROUND ||
+        state->state_frame <= 32u)
+        return fail("late grounded Kick remains in source state after active frames");
+    io_controller_hold1 = io_controller_press1 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    player_xpos = 0x074A;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x40;
+    player_yspeed = 0x90;
+    player_blocked_flags = 0x1D;
+    SmwFalconBeforeCrushCheck(NULL);
+    if (player_xpos != 0x070F || player_ypos != 0x0160 ||
+        player_sub_xpos != 0x33 || player_sub_ypos != 0x55 ||
+        player_in_air_flag != 0 || player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x05)
+        return fail("late Ground Kick restores low-step snapshot once ($1D -> $05)");
+    state = snes_foreign_state();
+    if (state == NULL || state->state != FL_WAIT || !state->grounded)
+        return fail("late pre-crush Kick wall stop reaches grounded Wait");
+
     /* UX safety net: taller/awkward walls can skip both the false-crush hook
      * and CD36 before native WRAM has already entered the death/fallthrough
      * state.  A recent Falcon wall-run context must restore the last safe

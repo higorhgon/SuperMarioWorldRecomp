@@ -7,7 +7,7 @@
 static uint8_t s_ram[0x20000];
 static int s_sprite_calls, s_spin_kill_calls, s_spin_star_calls;
 static int s_spin_score_calls, s_star_kill_calls, s_block_calls;
-static int s_bounce_block_calls, s_map16_lookup_calls;
+static int s_bounce_block_calls, s_brick_piece_calls, s_map16_lookup_calls;
 
 typedef struct MockMap16Tile {
     uint16_t x;
@@ -95,6 +95,20 @@ void SpawnBounceSprite(CpuState *cpu)
     ++s_bounce_block_calls;
     fprintf(stderr, "unexpected bounce block activation\n");
 }
+void SpawnBrickPieces(CpuState *cpu)
+{
+    if (cpu->m_flag != 1 || cpu->x_flag != 1 || cpu->DB != 2 ||
+        cpu->D != 0 || (cpu->A & 0xffu) != 0) {
+        fprintf(stderr, "bad brick piece contract\n"); return;
+    }
+    if (!consume_native_frame(cpu, 3, 2, "brick pieces")) return;
+    ++s_brick_piece_calls;
+    /* Native debris consumes $98/$9A block coordinates and writes minor
+     * extended sprites/SFX only; it must not activate block contents. */
+    cpu->ram[0x17f0 + (s_brick_piece_calls & 7)] = 1;
+    cpu->ram[0x1dfc] = 7;
+    cpu->A = 0xbeef; cpu->DB = 0xaa; cpu->ram[4] = 0xee;
+}
 static uint16_t read16(unsigned p)
 {
     return (uint16_t)(s_ram[p] | ((uint16_t)s_ram[p + 1] << 8));
@@ -170,6 +184,7 @@ static CpuState fresh(void) {
     c.ram=s_ram; c.m_flag=c.x_flag=1; c.P=0x30; c.S=0x01ff;
     s_sprite_calls=s_spin_kill_calls=s_spin_star_calls=s_spin_score_calls=0;
     s_star_kill_calls=s_block_calls=s_bounce_block_calls=0;
+    s_brick_piece_calls=0;
     s_map16_lookup_calls=0; mock_map16_clear();
     return c;
 }
@@ -407,6 +422,7 @@ int main(void) {
     s_ram[0x7c]=0xaa; s_ram[0x7d]=0xbb;
     calls=s_block_calls; CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==1);
     CHECK(s_block_calls==calls+1 && s_bounce_block_calls==0 &&
+          s_brick_piece_calls==1 &&
           s_ram[0x1693]==0 && s_ram[0x9c]==0 &&
           s_ram[0x7c]==0xaa && s_ram[0x7d]==0xbb);
     /* Content-like turn blocks must use the same clean blank-tile path, not
@@ -415,7 +431,8 @@ int main(void) {
     put16(0x9a,128); put16(0x98,112); s_ram[0x1693]=0x1e;
     begin(&ledger,FL_FALCON_KICK_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==1 &&
-          s_block_calls==1 && s_bounce_block_calls==0 &&
+          s_block_calls==1 && s_brick_piece_calls==1 &&
+          s_bounce_block_calls==0 &&
           s_ram[0x1693]==0 && s_ram[0x9c]==0);
 
     /* Falcon specials break the whole authored volume, not only SMW's single
@@ -428,7 +445,8 @@ int main(void) {
     mock_map16_set(128,128,0x30); /* not a Falcon-breakable block class */
     begin(&ledger,FL_FALCON_KICK_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==4 &&
-          s_block_calls==4 && s_bounce_block_calls==0 &&
+          s_block_calls==4 && s_brick_piece_calls==4 &&
+          s_bounce_block_calls==0 &&
           mock_map16_get(112,112)==0 && mock_map16_get(128,112)==0 &&
           mock_map16_get(144,112)==0 && mock_map16_get(160,112)==0 &&
           mock_map16_get(128,128)==0x30 && s_map16_lookup_calls > 4);
@@ -438,7 +456,7 @@ int main(void) {
      * occurred but must not suppress later block-volume scans. */
     mock_map16_set(112,128,0x1e); mock_map16_set(128,128,0x1e);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==2 &&
-          s_block_calls==6 && ledger.block_applied &&
+          s_block_calls==6 && s_brick_piece_calls==6 && ledger.block_applied &&
           mock_map16_get(112,128)==0 && mock_map16_get(128,128)==0);
 
     /* Falcon Punch has a wider authored range and should blank several blocks
@@ -449,7 +467,19 @@ int main(void) {
     mock_map16_set(128,112,0x1e); mock_map16_set(144,112,0x1e);
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
-          s_block_calls==6 && s_bounce_block_calls==0);
+          s_block_calls==6 && s_brick_piece_calls==6 && s_bounce_block_calls==0);
+
+    /* Direct aerial Falcon Kick gets a block-only down-forward crater volume.
+     * The compact sprite hitbox remains unchanged, but yellow blocks beneath
+     * a short hop are still destroyed. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    mock_map16_set(128,144,0x1e); mock_map16_set(144,160,0x1e);
+    mock_map16_set(160,176,0x1e);
+    begin(&ledger,FL_FALCON_KICK_AIR);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==3 &&
+          s_block_calls==3 && s_brick_piece_calls==3 &&
+          mock_map16_get(128,144)==0 && mock_map16_get(144,160)==0 &&
+          mock_map16_get(160,176)==0);
 
     smw_falcon_combat_ledger_update(&ledger,FL_FALCON_PUNCH_GROUND,0);
     CHECK(!ledger.active && ledger.hit_slots==0);
