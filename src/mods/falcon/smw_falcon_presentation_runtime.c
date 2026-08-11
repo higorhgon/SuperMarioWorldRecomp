@@ -359,15 +359,25 @@ unsigned smw_falcon_presentation_normal_sprite_ppu_slot(uint8_t oam_offset) {
            (unsigned)oam_offset / (unsigned)sizeof(OamEnt);
 }
 
+int smw_falcon_presentation_stunned_shell_ppu_slot(uint8_t restored_offset,
+                                                    unsigned *out_slot) {
+    const unsigned draw_offset = (unsigned)restored_offset + 8u;
+    if (!out_slot || draw_offset > 0xfcu) return 0;
+    *out_slot = smw_falcon_presentation_normal_sprite_ppu_slot(
+        (uint8_t)draw_offset);
+    return 1;
+}
+
 /* `$15EA` is a completed normal-sprite OAM allocation.  By this point the
  * status-$0B routine has already updated native sprite positions, throw
  * state, collisions and despawn.  Touching just these finished OAM entries
  * therefore moves the visible carried shell/card without changing its SMW
  * lifecycle.  The final renderer seam runs after guest OAM DMA and changes
  * the transient PPU OAM copy, never guest WRAM. Stock
- * StunnedShellDraw ($01:9806) writes two 16x16 OAM entries
- * at `$15EA` and `$15EA+4`, then FinishOAMWrite closes that two-entry group.
- * Do not infer a wider group: its next entry can belong to another sprite. */
+ * StunnedShellDraw ($01:9806) temporarily advances its `$15EA` allocation by
+ * eight bytes, writes two 16x16 OAM entries at `$0300+Y` and `$0304+Y`, then
+ * restores `$15EA`. Do not infer a wider group: its next entry can belong to
+ * another sprite. */
 static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
     FalconPresentationTarget target;
     float hand_x, hand_y;
@@ -394,11 +404,12 @@ static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
          * intentionally left entirely native until individually audited. */
         if (spr_current_status[slot] != 0x0b || spr_spriteid[slot] < 0x04u ||
             spr_spriteid[slot] > 0x07u) continue;
-        /* `$15EA` is a byte offset from SMW's normal-sprite OAM base $0300,
-         * not from the PPU's absolute slot zero.  The live save-2 shell uses
-         * offset $EC: $EC/4 = 59, therefore absolute PPU slot 64+59 = 123. */
-        first = smw_falcon_presentation_normal_sprite_ppu_slot(
-            spr_oamindex[slot]);
+        /* `$15EA` is restored after StunnedShellDraw, so the finalized pair
+         * is eight bytes beyond the value visible here. The live save-2
+         * shell retains $E4 while its rendered pair begins at $0300+$EC:
+         * absolute PPU slot 64 + $EC/4 = 123. */
+        if (!smw_falcon_presentation_stunned_shell_ppu_slot(
+                spr_oamindex[slot], &first)) continue;
         if (first > 126u) continue;
         smw_falcon_presentation_reanchor_ppu_oam_group(
             ppu, first, 2u, (int)(hand_x + .5f), (int)(hand_y + .5f));

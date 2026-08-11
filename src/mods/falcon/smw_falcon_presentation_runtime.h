@@ -49,6 +49,8 @@ void smw_falcon_presentation_reanchor_ppu_oam_group(Ppu *ppu,
 /* SMW normal-sprite draw routines address OAM relative to WRAM $0300.  PPU
  * OAM is absolute, so its first normal-sprite entry is slot 64. */
 unsigned smw_falcon_presentation_normal_sprite_ppu_slot(uint8_t oam_offset);
+int smw_falcon_presentation_stunned_shell_ppu_slot(uint8_t restored_offset,
+                                                    unsigned *out_slot);
 
 /* Exposed for focused host-boundary tests. */
 FalconPresentationPose smw_falcon_presentation_pose_for_state(

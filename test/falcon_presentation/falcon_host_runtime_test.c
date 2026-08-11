@@ -75,9 +75,13 @@ static int expect_ppu_oam_group_contract(void) {
 }
 
 static int expect_normal_sprite_oam_page_contract(void) {
+    unsigned live_shell = 0;
     if (smw_falcon_presentation_normal_sprite_ppu_slot(0x00u) != 64u ||
         smw_falcon_presentation_normal_sprite_ppu_slot(0xecu) != 123u ||
-        smw_falcon_presentation_normal_sprite_ppu_slot(0xfcu) != 127u) {
+        smw_falcon_presentation_normal_sprite_ppu_slot(0xfcu) != 127u ||
+        !smw_falcon_presentation_stunned_shell_ppu_slot(0xe4u, &live_shell) ||
+        live_shell != 123u ||
+        smw_falcon_presentation_stunned_shell_ppu_slot(0xf8u, &live_shell)) {
         fputs("FAIL normal-sprite OAM page mapping\n", stderr);
         return 0;
     }
