@@ -211,7 +211,23 @@ int falcon_presentation_joint_screen_position(const FalconPresentation *p,
     return 1;
 }
 
-static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1;if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];card(t,q,t->anchor_x+dir*18*s,t->anchor_y-19*s,24*s,24*s);}else if((pose->state==FALCON_PRESENT_KICK||pose->state==FALCON_PRESENT_KICK_AIR)&&pose->frame>=12&&pose->frame<32){const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];float x,y;if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_KICK_EFFECT,&x,&y)){if(pose->state==FALCON_PRESENT_KICK_AIR)card_rotated(t,q,x,y,30*s,18*s,(pose->facing_right?1.f:-1.f)*(float)(3.14159265358979323846/3.0));else card(t,q,x,y,30*s,18*s);}}else dive_particles(pose,t,s,dir);}
+static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
+    float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1,x,y;
+    if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){
+        const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];
+        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_PUNCH_HAND,&x,&y))
+            card(t,q,x+dir*8*s,y+8*s,24*s,24*s);
+    }else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){
+        const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
+        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&x,&y))
+            card_rotated(t,q,x+dir*5*s,y,30*s,18*s,0.f);
+    }else if(pose->state==FALCON_PRESENT_KICK_AIR&&pose->frame>=12&&pose->frame<32){
+        const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
+        if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_AIR_KICK_FOOT,&x,&y))
+            card_rotated(t,q,x+dir*4*s,y,30*s,18*s,
+                         dir*(float)(3.14159265358979323846/3.0));
+    }else dive_particles(pose,t,s,dir);
+}
 int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
     float tr[FALCON_JOINTS][3],ro[FALCON_JOINTS][3],sc[FALCON_JOINTS][3],lo[3],hi[3],scale,dir,foot;
     Mat4 w[FALCON_JOINTS]; const Animation*a; DrawTriangle *draws; uint32_t i;

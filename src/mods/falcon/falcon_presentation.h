@@ -52,16 +52,15 @@ typedef struct FalconPresentationTarget {
     float tumble_center_y;
 } FalconPresentationTarget;
 
-/* These indices are part of the approved Captain skeleton contract, not
- * screen offsets.  BattleShip's Captain data names 17/29 as the light/heavy
- * item hold joints and its Falcon Kick effect is explicitly parented to 23;
- * its foot metadata identifies 19/24 as left/right feet. */
+/* These are owner-cache skeleton indices selected by an enlarged rendered
+ * calibration sheet, not assumed raw DObj ids.  The cache removes TopN and
+ * remaps streams, so BattleShip's raw item/effect labels are not directly
+ * drawable indices here. */
 enum {
-    FALCON_PRESENT_JOINT_ITEM_LIGHT = 17,
-    FALCON_PRESENT_JOINT_FOOT_LEFT = 19,
-    FALCON_PRESENT_JOINT_KICK_EFFECT = 23,
-    FALCON_PRESENT_JOINT_FOOT_RIGHT = 24,
-    FALCON_PRESENT_JOINT_ITEM_HEAVY = 29
+    FALCON_PRESENT_JOINT_CARRY_HAND = 6,
+    FALCON_PRESENT_JOINT_PUNCH_HAND = 13,
+    FALCON_PRESENT_JOINT_GROUND_KICK_FOOT = 19,
+    FALCON_PRESENT_JOINT_AIR_KICK_FOOT = 24
 };
 
 /* Parses only the owner-generated FLCN64B v4 binary. The bytes are copied;

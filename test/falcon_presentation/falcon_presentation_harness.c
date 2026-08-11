@@ -23,7 +23,7 @@ static Blob make_blob(void) {
     Blob b; unsigned i,j; uint32_t colors[6]={0xff3060c8u,0xc0ff8030u,0xc0ffb030u,0xc0fff020u,0xc030c0ffu,0xffa060ffu};
     memset(&b,0,sizeof(b)); memcpy(b.data,"FLCN64B\0",8);b.n=8;
     u32(&b,4);u32(&b,26);u32(&b,2);u32(&b,6);u32(&b,2);u32(&b,1);u32(&b,1);u32(&b,1);u32(&b,3);
-    for(i=0;i<26;i++){u32(&b,i?0:0xffffffffu);for(j=0;j<3;j++)f32(&b,(i==FALCON_PRESENT_JOINT_KICK_EFFECT&&j==0)?2:((i==FALCON_PRESENT_JOINT_KICK_EFFECT&&j==1)?1:0));for(j=0;j<3;j++)f32(&b,0);for(j=0;j<3;j++)f32(&b,1);u32(&b,0);u32(&b,i?0:1);}
+    for(i=0;i<26;i++){float x=0,y=0;u32(&b,i?0:0xffffffffu);if(i==FALCON_PRESENT_JOINT_CARRY_HAND){x=1;y=2;}else if(i==FALCON_PRESENT_JOINT_PUNCH_HAND){x=3;y=4;}else if(i==FALCON_PRESENT_JOINT_GROUND_KICK_FOOT){x=2;y=1;}else if(i==FALCON_PRESENT_JOINT_AIR_KICK_FOOT){x=-2;y=3;}for(j=0;j<3;j++)f32(&b,j==0?x:(j==1?y:0));for(j=0;j<3;j++)f32(&b,0);for(j=0;j<3;j++)f32(&b,1);u32(&b,0);u32(&b,i?0:1);}
     /* Near purple is intentionally stored before far blue: without the
      * stable far-to-near sort the far face would overwrite the nearer face. */
     triangle(&b,5,-1);triangle(&b,0,1);
@@ -42,8 +42,18 @@ static int bmp(const char *path, const uint32_t *pixels, int width, int height, 
     for(y=0;y<height;y++){for(x=0;x<width;x++){uint32_t q=pixels[y*pitch+x];fputc(q&255,f);fputc((q>>8)&255,f);fputc((q>>16)&255,f);}for(x=0;x<pad;x++)fputc(0,f);}fclose(f);return 1;
 }
 
+static void shell_marker(uint32_t *pixels, int width, int height, int pitch,
+                         float center_x, float center_y, int radius) {
+    int x, y, left=(int)center_x-radius, top=(int)center_y-radius;
+    for(y=top;y<=top+radius*2;y++)for(x=left;x<=left+radius*2;x++) {
+        if(x<0||y<0||x>=width||y>=height)continue;
+        if(x==left||x==left+radius*2||y==top||y==top+radius*2)
+            pixels[y*pitch+x]=0xff40f0a0u;
+    }
+}
+
 static int synthetic(void) {
-    Blob b=make_blob(); FalconPresentation *p; uint32_t frame[64*70]; FalconPresentationTarget t; FalconPresentationPose pose; float y,z,jx,jy,jright,jleft; uint64_t actual; unsigned i,purple=0;
+    Blob b=make_blob(); FalconPresentation *p; uint32_t frame[64*70]; FalconPresentationTarget t; FalconPresentationPose pose; float y,z,jx,jy,jright,jleft,cx,cy,px,py,ax,ay; uint64_t actual; unsigned i,purple=0;
     for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     if(falcon_presentation_load_memory(b.data,b.n-1)!=NULL){fprintf(stderr,"FAIL truncated blob accepted\n");return 1;}
     b.data[0]='X';if(falcon_presentation_load_memory(b.data,b.n)!=NULL){fprintf(stderr,"FAIL magic accepted\n");return 1;}b.data[0]='F';
@@ -55,17 +65,31 @@ static int synthetic(void) {
     if(!falcon_presentation_root_delta(p,"Dive",1,&y,&z)||y!=10.5f||z!=0){fprintf(stderr,"FAIL root sample %f %f\n",y,z);falcon_presentation_destroy(p);return 1;}
     memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=64;t.height=64;t.pitch_pixels=70;t.anchor_x=32;t.anchor_y=54;t.scale=1;
     pose.state=FALCON_PRESENT_KICK_AIR;pose.frame=12;pose.facing_right=1;
-    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_KICK_EFFECT,&jx,&jy)||jx==t.anchor_x||jy==t.anchor_y){fprintf(stderr,"FAIL animated kick joint projection\n");falcon_presentation_destroy(p);return 1;}
+    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&jx,&jy)||jx==t.anchor_x||jy==t.anchor_y){fprintf(stderr,"FAIL animated kick joint projection\n");falcon_presentation_destroy(p);return 1;}
     jright=jx;pose.facing_right=0;
-    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_KICK_EFFECT,&jleft,&jy)||!(jright<t.anchor_x&&jleft>t.anchor_x)){fprintf(stderr,"FAIL authored-to-screen joint mirror\n");falcon_presentation_destroy(p);return 1;}
+    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&jleft,&jy)||!(jright<t.anchor_x&&jleft>t.anchor_x)){fprintf(stderr,"FAIL authored-to-screen joint mirror\n");falcon_presentation_destroy(p);return 1;}
+    pose.state=FALCON_PRESENT_IDLE;pose.facing_right=1;
+    if(!falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_CARRY_HAND,&cx,&cy)||
+       !falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_PUNCH_HAND,&px,&py)||
+       !falcon_presentation_joint_screen_position(p,&pose,&t,FALCON_PRESENT_JOINT_AIR_KICK_FOOT,&ax,&ay)||
+       (cx==px&&cy==py)||(cx==ax&&cy==ay)||(px==ax&&py==ay)){fprintf(stderr,"FAIL calibrated attachment anchors\n");falcon_presentation_destroy(p);return 1;}
+    for(i=0;i<64*70;i++)frame[i]=0xff102030u;
     pose.state=FALCON_PRESENT_PUNCH;pose.frame=42;pose.facing_right=1;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL draw\n");falcon_presentation_destroy(p);return 1;}
-    actual=hash(frame,64*70);printf("synthetic framebuffer fnv64=%016llx\n",(unsigned long long)actual);
+    actual=hash(frame,64*70);printf("synthetic punch framebuffer fnv64=%016llx\n",(unsigned long long)actual);
     /* Projected-foot grounding deliberately moved the old anchor-edge sample.
      * Require the near purple face to survive the far-to-near sort anywhere
      * in the raster, while the full hash pins its exact grounded projection. */
     for(i=0;i<64*70;i++)if(frame[i]==0xffa060ffu)++purple;
     if(!purple){fprintf(stderr,"FAIL depth sort removed near face\n");falcon_presentation_destroy(p);return 1;}
-    if(actual!=0xfebcb1e979fdff24ULL){fprintf(stderr,"FAIL framebuffer hash drift\n");falcon_presentation_destroy(p);return 1;}
+    if(actual!=0x91da9dcd47841f24ULL){fprintf(stderr,"FAIL punch attachment pixels drift\n");falcon_presentation_destroy(p);return 1;}
+    for(i=0;i<64*70;i++)frame[i]=0xff102030u;
+    pose.state=FALCON_PRESENT_KICK;pose.frame=12;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL ground kick draw\n");falcon_presentation_destroy(p);return 1;}
+    actual=hash(frame,64*70);printf("synthetic ground-kick framebuffer fnv64=%016llx\n",(unsigned long long)actual);
+    if(actual!=0xa553376ea713076cULL){fprintf(stderr,"FAIL ground-kick attachment pixels drift\n");falcon_presentation_destroy(p);return 1;}
+    for(i=0;i<64*70;i++)frame[i]=0xff102030u;
+    pose.state=FALCON_PRESENT_KICK_AIR;pose.frame=12;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL air kick draw\n");falcon_presentation_destroy(p);return 1;}
+    actual=hash(frame,64*70);printf("synthetic air-kick framebuffer fnv64=%016llx\n",(unsigned long long)actual);
+    if(actual!=0xe0aaafba2b997c50ULL){fprintf(stderr,"FAIL air-kick attachment pixels drift\n");falcon_presentation_destroy(p);return 1;}
     falcon_presentation_destroy(p);return 0;
 }
 
@@ -76,5 +100,7 @@ int main(int argc, char **argv) {
     if(argc==4&&!strcmp(argv[1],"--death-sheet")){FalconPresentation*p=falcon_presentation_load_file(argv[2]);uint32_t frame[192*544];FalconPresentationTarget t;FalconPresentationPose pose;int i;unsigned f;if(!p){fprintf(stderr,"FAIL owner blob rejected\n");return 1;}for(i=0;i<192*544;i++)frame[i]=0xff183050u;memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=512;t.height=192;t.pitch_pixels=544;t.scale=2.5f;t.yaw_degrees=88;t.tumble_center_y=-40;pose.state=FALCON_PRESENT_FALL;pose.facing_right=1;for(i=0;i<4;i++){f=(unsigned)i*5u;t.anchor_x=64+128*i;t.anchor_y=100+(.30f*f+.018f*f*f)*2.5f;t.tumble_radians=f*(18.0f*3.14159265358979323846f/180.0f);pose.frame=f*.5f;if(!falcon_presentation_draw(p,&pose,&t)){fprintf(stderr,"FAIL death sheet draw\n");falcon_presentation_destroy(p);return 1;}}if(!bmp(argv[3],frame,512,192,544)){fprintf(stderr,"FAIL death sheet capture\n");falcon_presentation_destroy(p);return 1;}printf("owner death sheet fnv64=%016llx bmp=%s\n",(unsigned long long)hash(frame,192*544),argv[3]);falcon_presentation_destroy(p);return 0;}
     if(argc==4&&!strcmp(argv[1],"--feedback-sheet")){FalconPresentation*p=falcon_presentation_load_file(argv[2]);uint32_t frame[192*544];FalconPresentationTarget t;FalconPresentationPose poses[4]={{FALCON_PRESENT_KICK,12,1},{FALCON_PRESENT_KICK,12,0},{FALCON_PRESENT_KICK_AIR,12,1},{FALCON_PRESENT_KICK_AIR,12,0}};int i;if(!p){fprintf(stderr,"FAIL owner blob rejected\n");return 1;}for(i=0;i<192*544;i++)frame[i]=0xff183050u;memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=512;t.height=192;t.pitch_pixels=544;t.anchor_y=166;t.scale=2.5f;t.yaw_degrees=88;for(i=0;i<4;i++){t.anchor_x=64+128*i;if(!falcon_presentation_draw(p,&poses[i],&t)){fprintf(stderr,"FAIL feedback sheet draw\n");falcon_presentation_destroy(p);return 1;}}if(!bmp(argv[3],frame,512,192,544)){fprintf(stderr,"FAIL feedback sheet capture\n");falcon_presentation_destroy(p);return 1;}printf("owner feedback sheet fnv64=%016llx bmp=%s\n",(unsigned long long)hash(frame,192*544),argv[3]);falcon_presentation_destroy(p);return 0;}
     if(argc==4&&!strcmp(argv[1],"--motion-sheet")){FalconPresentation*p=falcon_presentation_load_file(argv[2]);uint32_t frame[192*1312];FalconPresentationTarget t;FalconPresentationPose poses[10]={{FALCON_PRESENT_IDLE,0,1},{FALCON_PRESENT_RUN,0,1},{FALCON_PRESENT_RUN,6,1},{FALCON_PRESENT_RUN,12,1},{FALCON_PRESENT_RUN,18,1},{FALCON_PRESENT_KICK,0,1},{FALCON_PRESENT_KICK,6,1},{FALCON_PRESENT_KICK,12,1},{FALCON_PRESENT_KICK,18,1},{FALCON_PRESENT_KICK,24,1}};int i;if(!p){fprintf(stderr,"FAIL owner blob rejected\n");return 1;}for(i=0;i<192*1312;i++)frame[i]=0xff183050u;memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=1280;t.height=192;t.pitch_pixels=1312;t.anchor_y=166;t.scale=2.5f;t.yaw_degrees=88;for(i=0;i<10;i++){t.anchor_x=64+128*i;if(!falcon_presentation_draw(p,&poses[i],&t)){fprintf(stderr,"FAIL motion sheet draw\n");falcon_presentation_destroy(p);return 1;}}if(!bmp(argv[3],frame,1280,192,1312)){fprintf(stderr,"FAIL motion sheet capture\n");falcon_presentation_destroy(p);return 1;}printf("owner motion sheet fnv64=%016llx bmp=%s\n",(unsigned long long)hash(frame,192*1312),argv[3]);falcon_presentation_destroy(p);return 0;}
-    fprintf(stderr,"usage: %s [--blob|--sheet|--death-sheet|--feedback-sheet|--motion-sheet falcon_runtime.bin output.bmp]\n",argv[0]);return 2;
+    if(argc==4&&!strcmp(argv[1],"--attachment-sheet")){FalconPresentation*p=falcon_presentation_load_file(argv[2]);uint32_t frame[192*1184];FalconPresentationTarget t;FalconPresentationPose poses[9]={{FALCON_PRESENT_PUNCH,42,1},{FALCON_PRESENT_PUNCH,48,1},{FALCON_PRESENT_PUNCH,54,1},{FALCON_PRESENT_KICK,12,1},{FALCON_PRESENT_KICK,18,1},{FALCON_PRESENT_KICK,24,1},{FALCON_PRESENT_KICK_AIR,12,1},{FALCON_PRESENT_KICK_AIR,18,1},{FALCON_PRESENT_KICK_AIR,24,1}};int i;if(!p){fprintf(stderr,"FAIL owner blob rejected\n");return 1;}for(i=0;i<192*1184;i++)frame[i]=0xff183050u;memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=1152;t.height=192;t.pitch_pixels=1184;t.anchor_y=166;t.scale=2.5f;t.yaw_degrees=88;for(i=0;i<9;i++){t.anchor_x=64+128*i;if(!falcon_presentation_draw(p,&poses[i],&t)){fprintf(stderr,"FAIL attachment sheet draw\n");falcon_presentation_destroy(p);return 1;}}if(!bmp(argv[3],frame,1152,192,1184)){fprintf(stderr,"FAIL attachment sheet capture\n");falcon_presentation_destroy(p);return 1;}printf("owner attachment sheet fnv64=%016llx bmp=%s\n",(unsigned long long)hash(frame,192*1184),argv[3]);falcon_presentation_destroy(p);return 0;}
+    if(argc==4&&!strcmp(argv[1],"--carry-sheet")){FalconPresentation*p=falcon_presentation_load_file(argv[2]);uint32_t frame[192*288];FalconPresentationTarget t;FalconPresentationPose poses[2]={{FALCON_PRESENT_IDLE,0,1},{FALCON_PRESENT_IDLE,0,0}};int i;if(!p){fprintf(stderr,"FAIL owner blob rejected\n");return 1;}for(i=0;i<192*288;i++)frame[i]=0xff183050u;memset(&t,0,sizeof(t));t.framebuffer=frame;t.width=256;t.height=192;t.pitch_pixels=288;t.anchor_y=166;t.scale=2.5f;t.yaw_degrees=88;for(i=0;i<2;i++){float x,y;t.anchor_x=64+128*i;if(!falcon_presentation_draw(p,&poses[i],&t)||!falcon_presentation_joint_screen_position(p,&poses[i],&t,FALCON_PRESENT_JOINT_CARRY_HAND,&x,&y)){fprintf(stderr,"FAIL carry sheet draw\n");falcon_presentation_destroy(p);return 1;}shell_marker(frame,256,192,288,x,y,16);}if(!bmp(argv[3],frame,256,192,288)){fprintf(stderr,"FAIL carry sheet capture\n");falcon_presentation_destroy(p);return 1;}printf("owner carry sheet fnv64=%016llx bmp=%s\n",(unsigned long long)hash(frame,192*288),argv[3]);falcon_presentation_destroy(p);return 0;}
+    fprintf(stderr,"usage: %s [--blob|--sheet|--death-sheet|--feedback-sheet|--motion-sheet|--attachment-sheet|--carry-sheet falcon_runtime.bin output.bmp]\n",argv[0]);return 2;
 }

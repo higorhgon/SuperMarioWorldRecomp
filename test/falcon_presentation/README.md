@@ -46,13 +46,27 @@ This is the focused review for a stable 32px mushroom-Mario reference scale:
 the action silhouettes may extend or crouch naturally, but their mesh scale is
 not recomputed per pose.
 
-The Kick fire card is anchored to owner joint 23, matching Captain Falcon's
-`efManagerCaptainFalconKickMakeEffect`; the carried shell uses the owner item
-light joint 17.  The completed native carried-shell allocation is exactly two
-OAM entries (`$15EA`, `$15EA+4`) from `StunnedShellDraw`.  At prepare time the
-guest NMI/DMA has already copied that OAM to the PPU, so the host test checks
-the transient PPU pair (and its high-OAM bits), adjacent entries, and untouched
-guest WRAM.
+Create the attachment calibration sheet with the active Punch frames 42/48/54,
+ground Kick frames 12/18/24, then aerial Kick frames 12/18/24 (left to right):
+
+```powershell
+_triage/falcon_presentation_harness.exe --attachment-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_attachment_sheet.bmp
+```
+
+Create the carry-anchor sheet with a green 32px OAM-group outline centred on
+the calibrated raised hand, first facing right then left:
+
+```powershell
+_triage/falcon_presentation_harness.exe --carry-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_carry_sheet.bmp
+```
+
+The attachment indices are calibrated from the rendered owner-cache skeleton,
+not raw DObj labels: Punch follows the striking hand, ground and aerial Kick
+follow their visible active boots, and carry follows the raised hand. The
+completed native carried-shell allocation is exactly two OAM entries (`$15EA`,
+`$15EA+4`) from `StunnedShellDraw`. At prepare time the guest NMI/DMA has
+already copied that OAM to the PPU, so the host test checks the transient PPU
+pair (and its high-OAM bits), adjacent entries, and untouched guest WRAM.
 
 The BMP is evidence only and must remain ignored. No blob, texture, model, or
 animation data belongs in this repository.

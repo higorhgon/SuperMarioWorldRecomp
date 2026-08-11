@@ -377,7 +377,7 @@ static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
     target.scale = 1.0f;
     target.yaw_degrees = 88.0f;
     if (!falcon_presentation_joint_screen_position(
-            s_presentation, pose, &target, FALCON_PRESENT_JOINT_ITEM_LIGHT,
+            s_presentation, pose, &target, FALCON_PRESENT_JOINT_CARRY_HAND,
             &hand_x, &hand_y)) return;
     /* OAM is still in native 256-wide coordinates; the renderer adds the
      * centred widescreen margin. */
