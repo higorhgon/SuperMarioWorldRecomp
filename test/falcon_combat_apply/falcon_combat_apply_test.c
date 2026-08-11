@@ -482,21 +482,33 @@ int main(void) {
           s_block_calls==6 && s_brick_piece_calls==6 && ledger.block_applied &&
           mock_map16_get(112,128)==0 && mock_map16_get(128,128)==0);
 
-    /* Falcon Punch has a wider authored range and should blank several blocks
-     * in front of him in one frame. */
+    /* Falcon Punch is a forward vertical clearance column: short in X, tall
+     * enough above and below Falcon to open a tunnel, and not a downward
+     * Kick-style cone. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,100);
+    mock_map16_set(112,64,0x1e); mock_map16_set(128,64,0x1e);
+    mock_map16_set(144,64,0x1e);
     mock_map16_set(112,96,0x1e); mock_map16_set(128,96,0x1e);
-    mock_map16_set(144,96,0x1e); mock_map16_set(112,112,0x1e);
-    mock_map16_set(128,112,0x1e); mock_map16_set(144,112,0x1e);
+    mock_map16_set(144,96,0x1e);
+    mock_map16_set(112,160,0x1e); mock_map16_set(128,160,0x1e);
+    mock_map16_set(144,160,0x1e);
+    mock_map16_set(160,160,0x1e); /* fourth tile forward: must survive */
+    mock_map16_set(112,192,0x1e); /* below clearance band: must survive */
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
-    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==6 &&
-          s_block_calls==6 && s_brick_piece_calls==6 && s_bounce_block_calls==0);
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==9 &&
+          s_block_calls==9 && s_brick_piece_calls==9 && s_bounce_block_calls==0 &&
+          mock_map16_get(112,64)==0 && mock_map16_get(144,160)==0 &&
+          mock_map16_get(160,160)==0x1e && mock_map16_get(112,192)==0x1e);
 
     /* Standing on a destructible block must not collapse the whole special
-     * into only the native foot collision.  Falcon may break the block below
-     * him, but Punch also needs to sweep the lower forward row. */
+     * into only the native foot collision.  Punch sweeps forward from the
+     * body/fist band; it must not drill several rows downward from Falcon's
+     * feet. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger)); put16(0x94,100); put16(0x96,96);
     mock_map16_set(96,160,0x1e);   /* slot-F4 yellow block underfoot */
+    mock_map16_set(112,144,0x1e);  /* forward body/fist rows */
+    mock_map16_set(128,144,0x1e);
+    mock_map16_set(144,144,0x1e);
     mock_map16_set(112,160,0x1e);  /* forward lower rows */
     mock_map16_set(128,160,0x1e);
     mock_map16_set(144,160,0x1e);
@@ -507,9 +519,11 @@ int main(void) {
     mock_map16_set(144,176,0x1e);
     mock_map16_set(160,176,0x1e);
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
-    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==10 &&
-          s_block_calls==10 && s_brick_piece_calls==10 &&
-          mock_map16_get(96,160)==0 && mock_map16_get(112,160)==0 &&
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==12 &&
+          s_block_calls==12 && s_brick_piece_calls==12 &&
+          mock_map16_get(96,160)==0 && mock_map16_get(112,144)==0 &&
+          mock_map16_get(128,144)==0 && mock_map16_get(144,144)==0 &&
+          mock_map16_get(112,160)==0 &&
           mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
           mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0 &&
           mock_map16_get(112,176)==0 && mock_map16_get(128,176)==0 &&
@@ -522,13 +536,15 @@ int main(void) {
     mock_map16_set(128,160,0x1e); mock_map16_set(144,160,0x1e);
     mock_map16_set(160,160,0x1e); mock_map16_set(176,160,0x1e);
     mock_map16_set(192,160,0x1e); mock_map16_set(208,160,0x1e);
+    mock_map16_set(128,176,0x1e); mock_map16_set(144,192,0x1e);
     begin(&ledger,FL_FALCON_KICK_GROUND);
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&(ForeignCollisionResult){0})==8 &&
           s_block_calls==8 && s_brick_piece_calls==8 &&
           mock_map16_get(96,160)==0 && mock_map16_get(112,160)==0 &&
           mock_map16_get(128,160)==0 && mock_map16_get(144,160)==0 &&
           mock_map16_get(160,160)==0 && mock_map16_get(176,160)==0 &&
-          mock_map16_get(192,160)==0 && mock_map16_get(208,160)==0);
+          mock_map16_get(192,160)==0 && mock_map16_get(208,160)==0 &&
+          mock_map16_get(128,176)==0x1e && mock_map16_get(144,192)==0x1e);
 
     /* The live RunPlayerBlockCode seam uses a block-only entry because
      * native block handling can skip CD36 and the level may not reach a
@@ -551,12 +567,18 @@ int main(void) {
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,368); put16(0x96,448); put16(0x9a,368); put16(0x98,480);
     s_ram[0x1693]=0x1e; mock_map16_set(368,480,0x1e);
+    mock_map16_set(352,416,0x1e); mock_map16_set(336,416,0x1e);
+    mock_map16_set(320,416,0x1e);
+    mock_map16_set(352,448,0x1e); mock_map16_set(336,448,0x1e);
+    mock_map16_set(320,448,0x1e);
     begin(&ledger,FL_FALCON_PUNCH_GROUND);
     CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==1 &&
-          s_block_calls>=18 && !saw_block_call(368,480) &&
+          s_block_calls>=14 && !saw_block_call(368,480) &&
           !saw_block_call(384,480) && saw_block_call(352,480) &&
-          saw_block_call(272,480) && !saw_block_call(352,464) &&
-          saw_block_call(320,528) && !saw_block_call(272,528));
+          !saw_block_call(272,480) && saw_block_call(352,464) &&
+          saw_block_call(320,496) && saw_block_call(352,416) &&
+          saw_block_call(320,448) && !saw_block_call(320,528) &&
+          !saw_block_call(272,528));
     calls=s_block_calls;
     CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,-1,&ledger)==0 &&
           s_block_calls==calls);
@@ -572,6 +594,18 @@ int main(void) {
           s_block_calls==3 && s_brick_piece_calls==3 &&
           mock_map16_get(128,144)==0 && mock_map16_get(144,160)==0 &&
           mock_map16_get(160,176)==0);
+
+    /* Ground-Kick's airborne continuation is still the horizontal ground
+     * special.  It must not borrow the direct Down+Y crater and drill rows
+     * underneath a nominally horizontal kick. */
+    cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100); put16(0x9a,128); put16(0x98,144);
+    s_ram[0x1693]=0x1e; mock_map16_set(128,144,0x1e);
+    mock_map16_set(144,160,0x1e); mock_map16_set(160,176,0x1e);
+    begin(&ledger,FL_FALCON_KICK_GROUND_AIR);
+    CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
+          saw_block_call(128,144) && !saw_block_call(144,160) &&
+          !saw_block_call(160,176));
 
     /* Live short-hop Down+Y regression: native may report a non-yellow
      * current block after the first overlap, while the Map16 volume scan still
@@ -589,16 +623,18 @@ int main(void) {
 
     /* The live block seam may arrive after the controller has already left
      * the Kick enum, even though the active break-block hitbox is still the
-     * Falcon Kick.  The exact hitbox must retain Kick crater behavior. */
+     * Falcon Kick.  The broad main Kick hitbox falls back to horizontal
+     * continuation behavior; only the explicit aerial/landing states get the
+     * diagonal crater. */
     cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,360); put16(0x96,416); put16(0x9a,352); put16(0x98,416);
     s_ram[0x1693]=0x25;
-    mock_map16_set(352,416,0x1e); /* tempting upper-row contact */
+    mock_map16_set(352,416,0x1e);
     mock_map16_set(352,448,0x1e); mock_map16_set(368,464,0x1e);
     begin(&ledger,FL_WAIT);
     CHECK(smw_falcon_combat_apply_blocks_only(&cpu,&a,1,&ledger)==1 &&
-          !saw_block_call(352,416) && saw_block_call(352,448) &&
-          saw_block_call(368,464) && saw_block_call(400,496));
+          saw_block_call(352,416) && !saw_block_call(352,448) &&
+          !saw_block_call(368,464) && !saw_block_call(400,496));
 
     cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,100); put16(0x96,100); put16(0x9a,144); put16(0x98,160);

@@ -444,7 +444,6 @@ static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
     const double dir = facing < 0.0 ? -1.0 : 1.0;
 
     if (move_state == FL_FALCON_KICK_AIR ||
-        move_state == FL_FALCON_KICK_GROUND_AIR ||
         move_state == FL_FALCON_KICK_LANDING) {
         /* Block breaking follows the fiery boot's platformer path, not the
          * compact enemy hitbox.  A short-hop DownSpecialAir should carve the
@@ -464,13 +463,27 @@ static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
                                      player_x - 16.0, player_y + 104.0);
         }
     } else if (move_state == FL_FALCON_PUNCH_GROUND ||
-               move_state == FL_FALCON_PUNCH_AIR ||
-               move_state == FL_FALCON_KICK_GROUND) {
+               move_state == FL_FALCON_PUNCH_AIR) {
+        /* Falcon Punch is a short forward clearance column, not a Kick-style
+         * crater.  It should break the blocks immediately in front of Falcon
+         * from above his head through below his feet so he can tunnel without
+         * drilling a single support tile under himself. */
+        hit.top -= 16.0;
+        hit.bottom += 8.0;
+        out[count++] = hit;
+        if (dir > 0.0) {
+            out[count++] = make_aabb(player_x + 4.0, player_y - 32.0,
+                                     player_x + 64.0, player_y + 64.0);
+        } else {
+            out[count++] = make_aabb(player_x - 64.0, player_y - 32.0,
+                                     player_x + 12.0, player_y + 64.0);
+        }
+    } else if (move_state == FL_FALCON_KICK_GROUND) {
         /* Give ground specials enough vertical tolerance to clear a line of
          * same-row yellow blocks even when native collision quantizes Falcon
          * one pixel above or below the tile edge. */
-        hit.top -= 8.0;
-        hit.bottom += 8.0;
+        hit.top -= 4.0;
+        hit.bottom += 4.0;
         out[count++] = hit;
         /* The authored sprite hitboxes are intentionally tuned for enemies.
          * Destructible blocks need a broader platformer contact sweep: when
@@ -478,27 +491,14 @@ static unsigned block_break_volumes(const ForeignAttackHitbox *attack,
          * the fist/boot AABB, but the special should still clear the forward
          * row rather than just the block under his feet. */
         if (dir > 0.0) {
-            const double reach = move_state == FL_FALCON_KICK_GROUND
-                ? 128.0 : 112.0;
             out[count++] = make_aabb(player_x + 4.0, player_y + 8.0,
-                                     player_x + reach,
-                                     player_y +
-                                     (move_state == FL_FALCON_KICK_GROUND
-                                      ? 72.0 : 96.0));
+                                     player_x + 128.0,
+                                     player_y + 56.0);
         } else {
-            const double reach = move_state == FL_FALCON_KICK_GROUND
-                ? 112.0 : 96.0;
-            out[count++] = make_aabb(player_x - reach, player_y + 8.0,
+            out[count++] = make_aabb(player_x - 112.0, player_y + 8.0,
                                      player_x + 12.0,
-                                     player_y +
-                                     (move_state == FL_FALCON_KICK_GROUND
-                                      ? 72.0 : 96.0));
+                                     player_y + 56.0);
         }
-        out[count++] = make_aabb(player_x - 16.0, player_y + 24.0,
-                                 player_x + 32.0,
-                                 player_y +
-                                 (move_state == FL_FALCON_KICK_GROUND
-                                  ? 72.0 : 96.0));
     } else {
         out[count++] = hit;
     }
@@ -561,6 +561,12 @@ static int block_sweep_can_repeat(int move_state)
            move_state == FL_FALCON_KICK_LANDING;
 }
 
+static int block_sweep_is_diagonal_kick(int move_state)
+{
+    return move_state == FL_FALCON_KICK_AIR ||
+           move_state == FL_FALCON_KICK_LANDING;
+}
+
 static int attack_is_falcon_kick(const ForeignAttackHitbox *attack)
 {
     return attack != NULL &&
@@ -572,6 +578,15 @@ static int attack_is_falcon_kick(const ForeignAttackHitbox *attack)
              fabs(attack->offset_y - 140.0) < 0.001 &&
              fabs(attack->width - 400.0) < 0.001 &&
              fabs(attack->height - 280.0) < 0.001));
+}
+
+static int attack_is_main_falcon_kick(const ForeignAttackHitbox *attack)
+{
+    return attack != NULL &&
+           fabs(attack->offset_x - 336.0) < 0.001 &&
+           fabs(attack->offset_y - 40.0) < 0.001 &&
+           fabs(attack->width - 630.0) < 0.001 &&
+           fabs(attack->height - 600.0) < 0.001;
 }
 
 static int attack_is_falcon_punch(const ForeignAttackHitbox *attack)
@@ -594,6 +609,8 @@ static int block_move_state_for_attack(const ForeignAttackHitbox *attack,
      * advanced through a landing/fall spelling, while the authored active
      * hitbox is still the DownSpecial kick.  Treat that exact hitbox as the
      * landing/block continuation so the same frame gets the crater sweep. */
+    if (attack_is_main_falcon_kick(attack))
+        return FL_FALCON_KICK_GROUND_AIR;
     if (attack_is_falcon_kick(attack) ||
         (attack != NULL &&
          (attack->flags & FOREIGN_ATTACK_BREAK_BLOCKS) != 0 &&
@@ -603,17 +620,21 @@ static int block_move_state_for_attack(const ForeignAttackHitbox *attack,
 }
 
 static int is_direct_sweep_tile(int move_state, double player_x,
+                                double player_y,
                                 unsigned native_touch_y, double facing,
                                 int x, int y)
 {
-    int origin_x, depth, reach;
-    if (move_state != FL_FALCON_PUNCH_GROUND) return 1;
-    if (y < (int)native_touch_y || y > (int)native_touch_y + 48)
+    int origin_x, top_y, bottom_y, reach;
+    (void)native_touch_y;
+    if (move_state != FL_FALCON_PUNCH_GROUND &&
+        move_state != FL_FALCON_PUNCH_AIR)
+        return 1;
+    top_y = ((int)floor(player_y - 32.0)) & ~15;
+    bottom_y = ((int)floor(player_y + 64.0)) & ~15;
+    if (y < top_y || y > bottom_y)
         return 0;
-    depth = (y - (int)native_touch_y) / 16;
-    if (depth < 0 || depth > 3) return 0;
     origin_x = ((int)floor(player_x)) & ~15;
-    reach = 96 - depth * 16;
+    reach = 48;
     if (facing < 0.0)
         return x >= origin_x - reach && x <= origin_x - 16;
     return x >= origin_x + 16 && x <= origin_x + reach;
@@ -624,7 +645,7 @@ static int is_aerial_kick_direct_tile(int move_state, unsigned native_touch_x,
                                       int x, int y)
 {
     int depth, reach;
-    if (!block_sweep_can_repeat(move_state)) return 0;
+    if (!block_sweep_is_diagonal_kick(move_state)) return 0;
     if (y < (int)native_touch_y || y > (int)native_touch_y + 80)
         return 0;
     depth = (y - (int)native_touch_y) / 16;
@@ -641,7 +662,7 @@ static unsigned kick_direct_anchor_y(int move_state, unsigned native_touch_y,
                                      double player_y)
 {
     unsigned foot_row;
-    if (!block_sweep_can_repeat(move_state)) return native_touch_y;
+    if (!block_sweep_is_diagonal_kick(move_state)) return native_touch_y;
     foot_row = ((unsigned)floor(player_y + 32.0)) & ~15u;
     if (native_touch_y < foot_row) return foot_row;
     return native_touch_y;
@@ -714,7 +735,7 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
                 if (x < 0 || y < 0 || y >= SMW_FALCON_BLOCK_MAX_Y ||
                     (block_sweep_can_repeat(move_state) &&
                      y < (int)kick_anchor_y) ||
-                    !is_direct_sweep_tile(move_state, player_x,
+                    !is_direct_sweep_tile(move_state, player_x, player_y,
                                           native_touch_y, facing, x, y) ||
                     !block_intersects_attack(hit, x, y))
                     continue;
@@ -791,7 +812,7 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
                 if (y < 0 || y >= SMW_FALCON_BLOCK_MAX_Y) continue;
                 for (x = start_x; x <= end_x; x += 16) {
                     if (x < 0 ||
-                        !is_direct_sweep_tile(move_state, player_x,
+                        !is_direct_sweep_tile(move_state, player_x, player_y,
                                               native_touch_y, facing, x, y) ||
                         !block_intersects_attack(hit, x, y) ||
                         (x == (int)native_touch_x &&
@@ -806,7 +827,7 @@ static int apply_native_blocks(CpuState *cpu, const ForeignAttackHitbox *attack,
                 }
             }
         }
-        if (block_sweep_can_repeat(move_state)) {
+        if (block_sweep_is_diagonal_kick(move_state)) {
             start_y = (int)kick_anchor_y;
             end_y = (int)kick_anchor_y + 80;
             start_x = facing < 0.0 ? (int)native_touch_x - 112
