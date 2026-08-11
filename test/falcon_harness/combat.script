@@ -1,4 +1,4 @@
-# Grounded Falcon Punch: neutral B, source hit window 42..46.
+# Grounded Falcon Punch: neutral B, generous source hit window [42, 56).
 neutral
 special down
 frames 1
@@ -11,9 +11,9 @@ expect_attack 1 1
 expect_damage 25 25
 expect_break 1 1
 roundtrip
-frames 5
+frames 14
 expect_attack 0 0
-frames 42
+frames 33
 expect_state WAIT
 
 # Grounded Falcon Kick: down+B, source hit window 12..31.
