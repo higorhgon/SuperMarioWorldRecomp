@@ -152,8 +152,9 @@ int main(void)
     /* Ground SpecialLw's source flag1 opens at frame 12. A one-block step
      * produces native $77=$1D before CD36/AfterPhysics, so this one-shot
      * correction must restore the exact DC2D snapshot, retain wall+floor,
-     * then enter the approved solid-wall Wait with no force-airborne or root
-     * recoil. No held Dash/Run latch is allowed for this Kick path. */
+     * then enter the approved solid-wall Wait directly. The native branch can
+     * return nonlocally before CD36, so deliberately do not call
+     * SmwFalconAfterPhysics below; no force-airborne or root may remain. */
     if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
         return fail("reset selected controller for Kick low-step guard");
     SmwFalconOnStateLoaded();
@@ -190,10 +191,9 @@ int main(void)
         player_in_air_flag != 0 || player_xspeed != 0 || player_yspeed != 0 ||
         player_blocked_flags != 0x05)
         return fail("active Ground Kick restores low-step snapshot once ($1D -> $05)");
-    SmwFalconAfterPhysics(NULL);
     state = snes_foreign_state();
     if (state == NULL || state->state != FL_WAIT || !state->grounded)
-        return fail("restored low-step wall enters grounded Kick wall stop after CD36");
+        return fail("pre-crush Kick wall stop reaches grounded Wait without CD36");
     {
         const uint16_t safe_wall_x = player_xpos;
         for (unsigned i = 0; i != 3; ++i) {

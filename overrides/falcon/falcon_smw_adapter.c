@@ -533,6 +533,7 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
 void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
 {
     const ForeignState *state;
+    ForeignCollisionResult wall;
     int active_ground_kick;
     (void)cpu;
 
@@ -579,6 +580,21 @@ void SmwFalconBeforeCrushCheck(struct CpuState *cpu)
         /* Keep precisely native wall+floor, removing only the false crush
          * ceiling bits ($1D -> $05) before the original kill branch. */
         player_blocked_flags = (uint8_t)((player_blocked_flags & 0x03u) | 0x04u);
+        /* HandlePlayerLevelCollision can return nonlocally from this native
+         * crush branch, bypassing the caller's inline $CD36 callback.  Do
+         * not leave this source Kick pending for the next DC2D tick: resolve
+         * the already accepted wall directly to the user-approved grounded
+         * stop, with no host position change and no force-airborne handoff.
+         * If an ordinary CD36 path does run, s_pending is clear and it cannot
+         * resolve the same wall a second time. */
+        memset(&wall, 0, sizeof(wall));
+        wall.grounded = 1;
+        wall.hit_floor = 1;
+        wall.hit_wall = 1;
+        snes_foreign_resolve(&wall);
+        s_force_airborne_pending = 0;
+        s_force_airborne_frames = 0;
+        s_pending = 0;
         return;
     }
 
