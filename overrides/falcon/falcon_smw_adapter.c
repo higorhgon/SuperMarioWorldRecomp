@@ -247,23 +247,6 @@ static int smw_falcon_ground_run_wall_state(int state)
     return state == FL_DASH || state == FL_RUN || state == FL_TURN_RUN;
 }
 
-static double smw_falcon_limit_ground_run_dx(const ForeignState *state,
-                                            double source_delta)
-{
-    /* SMW's native player collision is tile-sized and can miss fatal wall
-     * crush/embedding cases when Falcon carries Smash 64's full ground run
-     * delta into a one-frame native integration.  Keep Dash/Run fast while
-     * still bounding native one-frame horizontal travel. */
-    const double max_smw_px = 4.0;
-    const double max_source_delta = max_smw_px * SMW_TO_FALCON;
-    if (state == NULL || !state->grounded ||
-        !smw_falcon_ground_run_wall_state(state->state))
-        return source_delta;
-    if (source_delta > max_source_delta) return max_source_delta;
-    if (source_delta < -max_source_delta) return -max_source_delta;
-    return source_delta;
-}
-
 static uint8_t clamp_speed(double source_delta, int y_axis)
 {
     /* SMW stores a signed 8-bit speed in sixteenth-pixel units. Falcon's
@@ -699,8 +682,6 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         s_sub_y_before = player_sub_ypos;
         s_in_air_before = player_in_air_flag;
         s_pending = 1;
-        s_last_move.requested_dx =
-            smw_falcon_limit_ground_run_dx(state, s_last_move.requested_dx);
         player_xspeed = clamp_speed(s_last_move.requested_dx, 0);
         player_yspeed = clamp_speed(s_last_move.requested_dy, 1);
         player_sub_xspeed = player_sub_yspeed = 0;
