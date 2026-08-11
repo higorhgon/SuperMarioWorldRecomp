@@ -97,15 +97,19 @@ static int course_clear_active(void)
 
 static int scripted_water_active(void)
 {
+    const int active_pipe_handoff =
+        player_timer_pipe_warping != 0 || flag_about_to_warp_in_pipe != 0 ||
+        (player_pipe_action != 0 && player_pipe_action < 4);
+
     if (s_presentation == NULL || !falcon_controller_selected()) return 0;
     /* Water levels can be entered through native transitions where ownership
      * is briefly SCRIPTED even though gameplay is already back in ordinary
      * GameMode14. Keep the Falcon presentation/OAM suppression up in that
      * narrow state; the adapter reclaims control at the next playable physics
-     * seam and continues to own water movement. */
+     * seam and continues to own water movement. `$89 >= 4` is persistent
+     * entrance metadata, not a still-active pipe, once the pipe timer is zero. */
     return misc_game_mode == 0x14 && player_current_state == 0 &&
-           flag_underwater_level != 0 && player_timer_pipe_warping == 0 &&
-           player_pipe_action == 0 && flag_about_to_warp_in_pipe == 0 &&
+           flag_underwater_level != 0 && !active_pipe_handoff &&
            timer_end_level == 0 && timer_end_level_via_keyhole == 0;
 }
 
@@ -477,7 +481,8 @@ static const char *controllable_reason(void) {
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) return "controller handoff";
     if (misc_game_mode != 0x14) return "not level gameplay";
     if (player_current_state != 0) return "nonordinary player state";
-    if (player_timer_pipe_warping || player_pipe_action || flag_about_to_warp_in_pipe) return "pipe handoff";
+    if (player_timer_pipe_warping || flag_about_to_warp_in_pipe ||
+        (player_pipe_action != 0 && player_pipe_action < 4)) return "pipe handoff";
     if (timer_end_level || timer_end_level_via_keyhole) return "goal handoff";
     return "active";
 }

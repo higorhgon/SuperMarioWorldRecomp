@@ -53,7 +53,8 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("static int scripted_water_active(void)", source)
         self.assertIn("flag_underwater_level != 0", source)
-        self.assertIn("player_timer_pipe_warping == 0", source)
+        self.assertIn("player_timer_pipe_warping != 0", source)
+        self.assertIn("(player_pipe_action != 0 && player_pipe_action < 4)", source)
         self.assertIn("powerup_animation_active() || scripted_water_active();", source)
         self.assertIn("scripted_water_active() && !controllable()", source)
 

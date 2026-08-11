@@ -420,9 +420,17 @@ static void smw_falcon_hold_departure_edge(int advance_timeout)
 
 static int smw_falcon_playable(void)
 {
+    const int active_pipe_handoff =
+        player_timer_pipe_warping != 0 || flag_about_to_warp_in_pipe != 0 ||
+        (player_pipe_action != 0 && player_pipe_action < 4);
+
+    /* `$89` is overloaded. Values 1..3 are active pipe/sublevel handoffs, but
+     * values 4..7 are persistent level-entrance metadata after the native
+     * entry pipe returns the player to ordinary state. Water entrances can
+     * leave `$89=07`; treating that as a live pipe permanently stranded Falcon
+     * in SCRIPTED ownership and exposed native Mario. */
     return misc_game_mode == 0x14 && player_current_state == 0 &&
-           player_timer_pipe_warping == 0 && player_pipe_action == 0 &&
-           flag_about_to_warp_in_pipe == 0 && timer_end_level == 0 &&
+           !active_pipe_handoff && timer_end_level == 0 &&
            timer_end_level_via_keyhole == 0;
 }
 

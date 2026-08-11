@@ -1,0 +1,26 @@
+{
+  "format": "falcon-native-route/v1",
+  "name": "slot0-water-stage-entry",
+  "slot": 0,
+  "load_signature": {
+    "game_mode": "0e",
+    "player_state": "00",
+    "x": "000d",
+    "y": "006e"
+  },
+  "boot_wait_frames": 180,
+  "settle_frames": 8,
+  "route_frames": 360,
+  "inputs": [
+    {"at": 0, "p1": "none"},
+    {"at": 30, "p1": "b"},
+    {"at": 32, "p1": "none"},
+    {"at": 260, "p1": "right"},
+    {"at": 330, "p1": "none"}
+  ],
+  "captures": [
+    {"at": 20, "id": "overworld_ready"},
+    {"at": 170, "id": "water_entry"},
+    {"at": 315, "id": "water_move_right"}
+  ]
+}

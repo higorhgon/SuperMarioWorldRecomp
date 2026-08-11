@@ -572,6 +572,23 @@ int main(void)
     timer_end_level = 0;
     timer_end_level_via_keyhole = 0;
     flag_underwater_level = 1;
+    player_pipe_action = 7; /* Persistent water-entrance metadata, not pipe control. */
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
+    player_in_air_flag = 1;
+    player_yspeed = 0;
+    io_controller_hold1 = 0;
+    io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0x40; /* X: normal attack. */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_ATTACK_AIR_N)
+        return fail("underwater entrance $89=7 reclaims Falcon from scripted handoff");
+    SmwFalconAfterPhysics(NULL);
+
+    player_pipe_action = 0;
     player_in_air_flag = 1;
     player_yspeed = 0;
     player_current_power_up = 3;
