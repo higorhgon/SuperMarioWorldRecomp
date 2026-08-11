@@ -138,6 +138,39 @@ int main(void)
     model_later_side_damage();
     if (player_current_state != 9)
         return fail("unhit/behind same-pass slot remains native-dangerous");
+
+    /* A player-collision exit may skip inline $00:CD36 entirely.  Direct
+     * SpecialAirLw must nevertheless complete at the first grounded native
+     * frame, before $01:80D2's normal-sprite pass/presentation can expose a
+     * stale airborne Kick pose or flame.  Keep the move active through its
+     * authored attack window, then deliberately omit AfterPhysics exactly as
+     * the nonlocal native path does. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for skipped-CD36 air landing");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 1;
+    player_blocked_flags = 0;
+    player_xpos = 100;
+    player_ypos = 200;
+    frame(0x44, 0x44, &cpu); /* Down + Square/Y starts direct Air Kick. */
+    for (int i = 0; i != 12; ++i)
+        frame(0, 0, &cpu);
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_state()->state != FL_FALCON_KICK_AIR ||
+        !smw_falcon_last_attack()->active)
+        return fail("direct Air Kick remains active before its grounded frame");
+    player_in_air_flag = 0;
+    player_blocked_flags = 0x04;
+    cpu.DB = 1;
+    cpu.X = 12;
+    SmwFalconBeforeNormalSprites(&cpu); /* CD36 intentionally absent. */
+    if (snes_foreign_state()->state != FL_WAIT ||
+        snes_foreign_state()->grounded == 0 || smw_falcon_last_attack()->active)
+        return fail("skipped-CD36 direct Air Kick lands as immediate idle");
     puts("falcon_kick_guard_test: PASS");
     return 0;
 }

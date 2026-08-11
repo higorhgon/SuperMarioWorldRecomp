@@ -685,6 +685,55 @@ void SmwFalconAfterPhysics(struct CpuState *cpu)
     s_pending = 0;
 }
 
+/* Some native player-collision exits do not fall through the caller's inline
+ * $00:CD36 AfterPhysics block.  That is normally harmless for a move which
+ * stays airborne, but direct SpecialAirLw's source ProcMap ends at the first
+ * grounded result.  If CD36 was skipped, the renderer otherwise sees the
+ * stale AIR Kick for one grounded frame (including its boot flame), even
+ * though native Mario is already standing.  $01:80D2 is guaranteed before
+ * normal-sprite interaction and before presentation for that frame, so use
+ * it only as a narrowly-gated landing completion seam.
+ *
+ * Do not generalize this to other pending moves: their source landing maps
+ * can have a continuation, and ordinary CD36 has already cleared s_pending.
+ */
+static void smw_falcon_finish_skipped_direct_air_kick_landing(void)
+{
+    ForeignCollisionResult hit;
+    const ForeignState *state;
+    const int dx = (int)(int16_t)(player_xpos - s_x_before);
+    const int dy = (int)(int16_t)(player_ypos - s_y_before);
+
+    if (!s_pending || s_force_airborne_pending || player_in_air_flag != 0 ||
+        !snes_foreign_active() || !smw_falcon_playable() ||
+        snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN)
+        return;
+    state = snes_foreign_state();
+    if (state == NULL || state->state != FL_FALCON_KICK_AIR)
+        return;
+
+    memset(&hit, 0, sizeof(hit));
+    hit.actual_dx = (double)dx * SMW_TO_FALCON;
+    hit.actual_dy = -(double)dy * SMW_TO_FALCON;
+    hit.grounded = 1;
+    hit.hit_floor = 1;
+    hit.hit_ceiling = (player_blocked_flags & 0x08) != 0;
+    hit.hit_wall = (player_blocked_flags & 0x03) != 0;
+    snes_foreign_resolve(&hit);
+    /* This is an immediate source WAIT, not a KickLanding/Ground-Kick
+     * continuation.  Prevent the stale pre-collision AIR Kick attack from
+     * being consumed later in this same normal-sprite/presentation pass. */
+    if (snes_foreign_state() != NULL &&
+        snes_foreign_state()->state == FL_WAIT) {
+        s_last_move.state = FL_WAIT;
+        memset(&s_last_move.attack, 0, sizeof(s_last_move.attack));
+        smw_falcon_combat_ledger_update(&s_combat_ledger, FL_WAIT, 0);
+        s_kick_contact_slots = 0;
+    }
+    snes_foreign_trace_note_native(player_xpos, player_ypos);
+    s_pending = 0;
+}
+
 void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
 {
     ForeignCollisionResult bounce;
@@ -722,6 +771,7 @@ void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 {
     unsigned slot = 12u;
+    smw_falcon_finish_skipped_direct_air_kick_landing();
     /* ProcessNormalSprites calls $01:80D2 once per ordinary sprite. Its first
      * instruction saves the current X; later in the same per-slot body it
      * invokes $01:A7E4 CheckPlayerToNormalSpriteCollision. Thus hook entry
