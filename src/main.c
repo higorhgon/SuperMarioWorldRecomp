@@ -1944,6 +1944,18 @@ error_reading:;
         RtlSaveLoad(kSaveLoad_Load, ls);
       }
     }
+    {
+      /* TCP `savestate N` is queued by the debug-server thread.  Consume it
+       * here, at the same unpaused main-thread boundary as loadstate: save
+       * serialization walks live CPU/PPU/APU state and is not thread-safe. */
+      int ss = debug_server_consume_savestate();
+      if (ss >= 0) {
+#ifdef SMW_COOP_BUILD
+        if (!snes_netplay_request_save(ss))
+#endif
+        RtlSaveLoad(kSaveLoad_Save, ss);
+      }
+    }
     debug_server_wait_if_paused();
 
     /* Drive the SNES controller bits in g_input_state from keybinds.ini.

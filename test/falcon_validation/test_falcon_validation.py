@@ -19,6 +19,14 @@ SPEC.loader.exec_module(falcon)
 
 
 class FalconValidationTests(unittest.TestCase):
+    def test_tcp_savestate_is_consumed_on_the_main_thread(self) -> None:
+        source = (REPO / "src" / "main.c").read_text(encoding="utf-8")
+        save_consume = source.index("debug_server_consume_savestate()")
+        save_call = source.index("RtlSaveLoad(kSaveLoad_Save, ss)", save_consume)
+        pause_wait = source.index("debug_server_wait_if_paused()")
+        self.assertLess(save_consume, save_call)
+        self.assertLess(save_call, pause_wait)
+
     def test_launch_refuses_an_already_owned_tcp_port(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
             listener.bind(("127.0.0.1", 0))
