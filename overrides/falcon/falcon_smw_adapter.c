@@ -172,7 +172,8 @@ static void smw_falcon_remember_wall_safe_ground(void)
     if (!snes_foreign_active() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
         misc_game_mode != 0x14 || player_current_state != 0 ||
-        player_in_air_flag != 0 || (player_blocked_flags & 0x04u) == 0)
+        player_in_air_flag != 0 || (player_blocked_flags & 0x04u) == 0 ||
+        player_xpos >= 0xF000u)
         return;
     s_wall_safety_valid = 1;
     s_wall_safety_x = player_xpos;
@@ -196,6 +197,8 @@ static int smw_falcon_wall_safety_should_restore(void)
      * expire before the pit/OOB check crosses its threshold. */
     if (player_current_state == 9)
         return 1;
+    if (player_xpos >= 0xF000u)
+        return 1;
     if (s_wall_safety_recent_frames == 0)
         return 0;
     if (dy > 24 && player_in_air_flag != 0)
@@ -210,10 +213,17 @@ static int smw_falcon_restore_wall_safe_ground(void)
     ForeignCollisionResult wall;
     ForeignState *state;
     int direction;
+    uint8_t observed_side;
+    uint8_t restore_blocked;
 
     if (!smw_falcon_wall_safety_should_restore())
         return 0;
 
+    observed_side = (uint8_t)(player_blocked_flags & 0x03u);
+    restore_blocked = (uint8_t)(((observed_side != 0
+                                  ? observed_side
+                                  : (s_wall_safety_blocked & 0x03u)) |
+                                 0x04u));
     player_current_state = 0;
     player_in_air_flag = 0;
     player_xpos = s_wall_safety_x;
@@ -223,7 +233,7 @@ static int smw_falcon_restore_wall_safe_ground(void)
     player_xspeed = player_yspeed = 0;
     player_sub_xspeed = player_sub_yspeed = 0;
     player_facing_direction = s_wall_safety_facing;
-    player_blocked_flags = s_wall_safety_blocked;
+    player_blocked_flags = restore_blocked;
     if (timer_player_hurt == 1)
         timer_player_hurt = 0;
 
@@ -239,10 +249,10 @@ static int smw_falcon_restore_wall_safe_ground(void)
         snes_foreign_resolve(&wall);
     }
 
-    direction = (s_wall_safety_blocked & 0x01u) ? 1 :
-                (s_wall_safety_blocked & 0x02u) ? -1 :
+    direction = (restore_blocked & 0x01u) ? 1 :
+                (restore_blocked & 0x02u) ? -1 :
                 (s_wall_safety_facing ? 1 : -1);
-    smw_falcon_install_current_step_wall_latch(direction, s_wall_safety_blocked);
+    smw_falcon_install_current_step_wall_latch(direction, restore_blocked);
     s_pending = 0;
     s_force_airborne_pending = 0;
     s_force_airborne_frames = 0;

@@ -406,6 +406,43 @@ int main(void)
         player_blocked_flags != 0x04)
         return fail("wall safety rollback restores last safe grounded Falcon");
 
+    /* Slot1 left-wall sprint can underflow X to $FFFF while native state is
+     * still ordinary player state 00. This is already OOB and must restore
+     * immediately, preserving the observed left-wall side bit as $06. */
+    SmwFalconOnStateLoaded();
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0x001B;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0x56;
+    player_sub_ypos = 0x78;
+    player_blocked_flags = 0x04;
+    player_facing_direction = 0;
+    state = snes_foreign_state();
+    state->state = FL_RUN;
+    state->grounded = 1;
+    state->facing = -1.0f;
+    io_controller_hold1 = 0x02;
+    ++snes_frame_counter;
+    SmwFalconBeforePhysics(NULL);
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 0xFFFF;
+    player_ypos = 0x0160;
+    player_sub_xpos = 0xA0;
+    player_sub_ypos = 0xB0;
+    player_xspeed = 0x9B;
+    player_yspeed = 0;
+    player_blocked_flags = 0x06;
+    SmwFalconBeforeNormalSprites(NULL);
+    if (player_current_state != 0 || player_xpos != 0x001B ||
+        player_ypos != 0x0160 || player_sub_xpos != 0x56 ||
+        player_sub_ypos != 0x78 || player_in_air_flag != 0 ||
+        player_xspeed != 0 || player_yspeed != 0 ||
+        player_blocked_flags != 0x06)
+        return fail("wall safety rollback catches X underflow without native death");
+
     /* A player-collision nonlocal return can omit CD36/AfterPhysics.  The
      * first guaranteed normal-sprite seam must still arm the observer which
      * adopts SMW's exact successful stomp impulse from $01:AA33. */
