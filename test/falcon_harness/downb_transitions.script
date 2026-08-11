@@ -37,9 +37,55 @@ expect_state FALCON_KICK_BOUND
 expect_grounded 0 0
 roundtrip
 
-# Direct SpecialAirLw has landing-only ProcMap: a side wall preserves its
-# aerial status but exposes no crossed source delta or residual horizontal
-# speed. It must never be promoted to Ground SpecialLw Bound.
+# Late Ground SpecialLw is outside the source flag1 Bound window. It must
+# consume the remaining forward root at the native wall face rather than
+# letting the next endpoint sample tunnel it out of bounds.
+reset
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 32
+expect_state FALCON_KICK_GROUND
+pos_x 745
+host_wall
+frames 1
+expect_state WAIT
+expect_grounded 1 1
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+
+# Ground-origin SpecialLw that has already continued into its air spelling
+# is likewise not eligible for Bound. A side wall consumes its root and falls
+# safely with no carried X.
+reset
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 11
+frames 1
+pos_y 10000
+host_fall
+frames 1
+frames 19
+frames 1
+expect_state FALCON_KICK_GROUND_AIR
+pos_x 745
+host_wall
+frames 1
+expect_state FALL
+expect_grounded 0 0
+expect_vel_air_x 0 0
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+
+# Direct SpecialAirLw has landing-only ProcMap: a side wall must never be
+# promoted to Ground SpecialLw Bound. Consume its root and fall safely.
 reset
 pos_y 1000
 host_fall
@@ -48,10 +94,15 @@ special down
 frames 1
 special up
 expect_state FALCON_KICK_AIR
+pos_x 745
 host_wall
 frames 1
-expect_state FALCON_KICK_AIR
+expect_state FALL
 expect_grounded 0 0
+expect_vel_air_x 0 0
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
 roundtrip
 
 # An ordinary jump wall collision does not become Falcon Kick Bound.

@@ -635,6 +635,29 @@ static int is_falcon_kick_wall_state(int state)
            state == FL_FALCON_KICK_AIR;
 }
 
+/* A Ground SpecialLw side contact outside flag1 is not SpecialLwBound in
+ * Smash.  Likewise, SpecialAirLw has no BoundCheck at all.  In either case
+ * the source map owns the solid wall each following tick; this 2D host can
+ * lose that side flag on the next endpoint sample, so retaining a TransN
+ * status would re-apply its forward root delta through the wall.  Consume
+ * only that rejected move root: floor contact returns to ordinary Wait (or
+ * the direct-air landing), while an airborne contact falls with zero carried
+ * X.  This is a bounded host wall stop, not a second Bound action. */
+static void enter_falcon_kick_wall_stop(FalconFighter *f, int grounded)
+{
+    f->vel_ground_x = 0.0;
+    f->vel_air_x = f->vel_air_y = 0.0;
+    if (grounded) {
+        if (f->state == FL_FALCON_KICK_AIR)
+            enter_falcon_kick_landing(f);
+        else
+            enter_wait(f);
+    } else {
+        f->grounded = 0;
+        enter_fall(f);
+    }
+}
+
 static void enter_falcon_dive(FalconFighter *f, int from_ground)
 {
     f->grounded = 0;
@@ -1556,14 +1579,18 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
         return;
     }
 
+    if (kick_wall) {
+        if (is_falcon_kick_ground_bound_window(f))
+            enter_falcon_kick_bound(f);
+        else
+            enter_falcon_kick_wall_stop(f, hit->grounded);
+        return;
+    }
+
     if (in_air) {
         /* Sign convention: the host reports +y as DOWN, the source works in
          * +y UP. The adapter converts; here vel_air_y > 0 is upward. */
         if (hit->hit_ceiling && f->vel_air_y > 0.0) f->vel_air_y = 0.0;
-        if (kick_wall && is_falcon_kick_ground_bound_window(f)) {
-            enter_falcon_kick_bound(f);
-            return;
-        }
         if (hit->hit_wall) {
             f->vel_air_x = 0.0;
         }
@@ -1618,10 +1645,6 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
             return;
         }
     } else {
-        if (kick_wall && is_falcon_kick_ground_bound_window(f)) {
-            enter_falcon_kick_bound(f);
-            return;
-        }
         if (hit->hit_wall) {
             f->vel_ground_x = 0.0;
         }

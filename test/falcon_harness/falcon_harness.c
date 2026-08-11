@@ -22,6 +22,7 @@
  *   jump down|up          jump button state (edge is derived)
  *   attack down|up        attack button state (edge is derived)
  *   neutral               stick to 0,0 and both buttons up
+ *   pos_x <units>         set the private horizontal position for a trace
  *   pos_y <units>         teleport above the floor (+y is up)
  *   host_impose_vy <v>    host imposes a vertical velocity for ONE frame
  *                         (stomp bounce, spring, killed jump), source units
@@ -42,6 +43,7 @@
  *   expect_audio <mask>    assert exact FalconAudioCue bitset (decimal/hex)
  *   expect_vel_air_x <lo> <hi>  assert horizontal air velocity is in [lo,hi]
  *   expect_vel_air_y <lo> <hi>  assert takeoff/air velocity is in [lo,hi]
+ *   expect_pos_x <lo> <hi>      assert current horizontal position
  *   expect_pos_y <lo> <hi>      assert current vertical position
  *   expect_peak_y <lo> <hi>     assert the highest pos_y since reset_peak
  *   reset_peak            start a new peak-height measurement here
@@ -268,6 +270,8 @@ static int run_script(const char *path)
             /* Place the fighter above the flat floor, so a host-driven fall has
              * somewhere to fall from. +y is up in this world. */
             f.pos_y = atof(arg);
+        } else if (!strcmp(cmd, "pos_x")) {
+            f.pos_x = atof(arg);
         } else if (!strcmp(cmd, "host_launch")) {
             /*
              * Simulate a host that owns its own jump trigger: it reports the
@@ -356,6 +360,8 @@ static int run_script(const char *path)
             check_range("vel_air_y", f.vel_air_y, arg);
         } else if (!strcmp(cmd, "expect_pos_y")) {
             check_range("pos_y", f.pos_y, arg);
+        } else if (!strcmp(cmd, "expect_pos_x")) {
+            check_range("pos_x", f.pos_x, arg);
         } else if (!strcmp(cmd, "expect_peak_y")) {
             check_range("peak_y", g_peak_y, arg);
         } else if (!strcmp(cmd, "reset_peak")) {

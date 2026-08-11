@@ -79,16 +79,14 @@ static void cf_tick(ForeignState *state, const ForeignInput *input,
                 const int dive_launch =
                     s_fighter.state == FL_FALCON_DIVE_GROUND ||
                     s_fighter.state == FL_FALCON_DIVE_AIR;
-                /* SpecialLwBound remains the approved FalconDiveEnd1 asset,
-                 * but it is evaluated through BattleShip's airborne TransN
-                 * transform rather than Ground SpecialLw's facing-only
-                 * projection.  At a side-wall transition its TopN/TransN
-                 * orientation is the recoil basis: the same local Z delta
-                 * must leave the wall, not be re-projected through it.  The
-                 * compact host has no TopN rotation, so encode that exact
-                 * 180-degree recoil basis only for SpecialLwBound.  Direct
-                 * SpecialAirLw and Falcon Dive End1 keep their normal source
-                 * facing transform. */
+                /* BattleShip ftPhysicsGetAirVelTransN first applies local
+                 * TransN Z through lr, then its TopN basis. SpecialLwBound's
+                 * FalconDiveEnd1 root has the recoil local direction (the
+                 * source initial TraZ is negative); the compact host has no
+                 * TopN basis, so preserve that recoil by reversing only this
+                 * Bound local sample before lr. Direct SpecialAirLw and the
+                 * separate Falcon Dive End1 action keep their normal source
+                 * facing projection. */
                 const double transn_z =
                     s_fighter.state == FL_FALCON_KICK_BOUND
                         ? -(double)delta_z : (double)delta_z;
