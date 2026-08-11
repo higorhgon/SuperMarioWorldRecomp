@@ -100,6 +100,19 @@ static void frame(uint8_t hold1, uint8_t press1, CpuState *cpu)
     SmwFalconAfterPhysics(cpu);
 }
 
+static void normal_frame(uint8_t hold1, uint8_t press1, uint8_t normal_press,
+                         CpuState *cpu)
+{
+    io_controller_hold1 = hold1;
+    io_controller_press1 = press1;
+    io_controller_hold2 = normal_press;
+    io_controller_press2 = normal_press;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    SmwFalconAfterPhysics(cpu);
+}
+
 static void model_later_side_damage(void)
 {
     if (timer_player_hurt == 0) player_current_state = 9;
@@ -223,6 +236,81 @@ int main(void)
     SmwFalconBeforeNormalSprites(&cpu);
     if (timer_player_hurt != 0)
         return fail("Punch guard clears before the following unhit slot");
+
+    /* Oracle review requires this to remain special-only. A real Jab and a
+     * real forward tilt can still apply their ordinary native consequence at
+     * $01:80D2, but neither may put the accepted slot in the Punch/Kick
+     * $1497 handoff mask: side damage on that same pass must stay native. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for Jab no-guard contract");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 100;
+    player_ypos = 200;
+    timer_player_hurt = 0;
+    memset(spr_current_status, 0, 12);
+    spr_current_status[8] = 8;
+    spr_spriteid[8] = 0x05;
+    spr_xpos_lo[8] = 130;
+    spr_ypos_lo[8] = 220;
+    s_native_contacts = 0;
+    for (int i = 0; i != 6; ++i)
+        normal_frame(0, 0, i == 0 ? 0x40 : 0, &cpu);
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_state()->state != FL_JAB ||
+        !smw_falcon_last_attack()->active)
+        return fail("Jab reaches its active normal-sprite seam");
+    cpu.DB = 1;
+    cpu.X = 8;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (s_native_contacts != 1 || spr_current_status[8] != 4 ||
+        timer_player_hurt != 0)
+        return fail("Jab consequence receives no special-only guard");
+    model_later_side_damage();
+    if (player_current_state != 9)
+        return fail("Jab-connected slot remains native-dangerous");
+
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for FTilt no-guard contract");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_xpos = 100;
+    player_ypos = 200;
+    timer_player_hurt = 0;
+    memset(spr_current_status, 0, 12);
+    spr_current_status[8] = 8;
+    spr_spriteid[8] = 0x05;
+    spr_xpos_lo[8] = 130;
+    spr_ypos_lo[8] = 220;
+    s_native_contacts = 0;
+    for (int i = 0; i != 10; ++i)
+        normal_frame(i == 0 ? 0x01 : 0, i == 0 ? 0x01 : 0,
+                     i == 0 ? 0x40 : 0, &cpu);
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_state()->state != FL_FTILT ||
+        !smw_falcon_last_attack()->active)
+        return fail("FTilt reaches its active normal-sprite seam");
+    cpu.DB = 1;
+    cpu.X = 8;
+    SmwFalconBeforeNormalSprites(&cpu);
+    if (s_native_contacts != 1 || spr_current_status[8] != 4 ||
+        timer_player_hurt != 0)
+        return fail("FTilt consequence receives no special-only guard");
+    model_later_side_damage();
+    if (player_current_state != 9)
+        return fail("FTilt-connected slot remains native-dangerous");
 
     /* A player-collision exit may skip inline $00:CD36 entirely.  Direct
      * SpecialAirLw must nevertheless complete at the first grounded native

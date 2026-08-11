@@ -58,12 +58,15 @@ typedef struct {
 /* Exact entries from SMW's shared GetSpriteClippingA/B tables:
  * $03:B56C X offset, $03:B5A8 width, $03:B5E4 Y offset, $03:B620 height.
  * $01:A7DC calls GetSpriteClippingA ($03:B69F) before CheckForContact
- * ($03:B72B); Banzai's $02:D587 explicitly JSLs that $01:A7DC body. These
- * are interaction bounds, not drawn tile dimensions. Keep this deliberately
- * small: only the two newly admitted source signatures consume this table in
- * the Falcon host boundary. */
+ * ($03:B72B); Banzai's $02:D587 explicitly JSLs that $01:A7DC body. The
+ * oracle's vanilla property rows are $9F: B=$B6/C=$31/D=$01 and
+ * $91: B=$0D/C=$0B/D=$F9. B is masked with $3F by GetSpriteClippingA, so
+ * Banzai selects index $36 rather than index $00. These are interaction
+ * bounds, not drawn tile dimensions. Keep this deliberately small: only the
+ * two newly admitted source signatures consume this table in the Falcon host
+ * boundary. */
 static const SmwFalconNativeSpriteClip k_big_target_clips[] = {
-    { 0x00u,  2,  3, 12, 10 }, /* Banzai Bill ($9F) */
+    { 0x36u,  8,  8, 52, 46 }, /* Banzai Bill ($9F), $B6 & $3F */
     { 0x0Du,  0, -4, 15, 16 }, /* Chargin' Chuck ($91) */
 };
 
@@ -171,18 +174,18 @@ static SmwFalconSpriteConsequence sprite_target_consequence(const CpuState *cpu,
 {
     const uint8_t status = ram8(cpu, SMW_SPR_STATUS + slot);
     const uint8_t id = ram8(cpu, 0x009Eu + slot);
-    const uint8_t clip = ram8(cpu, SMW_SPR_TWEAKER_B + slot) & 0x3Fu;
+    const uint8_t tweaker_b = ram8(cpu, SMW_SPR_TWEAKER_B + slot);
     const uint8_t tweaker_c = ram8(cpu, SMW_SPR_TWEAKER_C + slot);
     const uint8_t tweaker_d = ram8(cpu, SMW_SPR_TWEAKER_D + slot);
 
     /* These two source sprites opt out of the generic cape/star routes, not
      * of all player damage.  Their exact ID/tweaker/clip signatures keep the
      * exceptional admission narrow and reject ROM-hack variants. */
-    if (status == 8 && id == 0x9Fu && clip == 0x00u &&
-        tweaker_c == 0x30u && tweaker_d == 0xA2u)
+    if (status == 8 && id == 0x9Fu && tweaker_b == 0xB6u &&
+        tweaker_c == 0x31u && tweaker_d == 0x01u)
         return SMW_FALCON_SPRITE_CONSEQUENCE_SPIN;
-    if (status == 8 && id == 0x91u && clip == 0x0Du &&
-        tweaker_c == 0xE3u && tweaker_d == 0x81u)
+    if (status == 8 && id == 0x91u && tweaker_b == 0x0Du &&
+        tweaker_c == 0x0Bu && tweaker_d == 0xF9u)
         return SMW_FALCON_SPRITE_CONSEQUENCE_STAR_KILL;
 
     if ((status != 8 && status != 9 && status != 10) ||
@@ -269,7 +272,7 @@ static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
     for (i = 0; i < sizeof(k_big_target_clips) / sizeof(k_big_target_clips[0]); ++i) {
         const SmwFalconNativeSpriteClip *clip = &k_big_target_clips[i];
         if (clip->index == clip_index &&
-            ((id == 0x9Fu && clip_index == 0x00u) ||
+            ((id == 0x9Fu && clip_index == 0x36u) ||
              (id == 0x91u && clip_index == 0x0Du))) {
             SmwFalconAabb result = {
                 (double)(int32_t)x + clip->x_offset,

@@ -187,41 +187,55 @@ int main(void) {
     calls=s_sprite_calls; CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==calls);
 
-    /* Save-style big targets use their exact loaded $1662/$166E/$167A
-     * signatures.  The $03:B56C/B5A8/B5E4/B620 clip index $00 makes Banzai
-     * [x+2,x+14) x [y+3,y+13): at x=162 the Punch right edge is exactly 164
+    /* Oracle vanilla source row $9F is $1662/$166E/$167A = $B6/$31/$01.
+     * $03:B69F masks B with $3F, and $03:B56C/B5A8/B5E4/B620 index $36 is
+     * [x+8,x+60) x [y+8,y+54). At x=156 the Punch right edge is exactly 164
      * and must not touch; moving one pixel left must use the framed spin
-     * transaction despite Banzai's cape/star-exclusion tweak bits. */
+     * transaction. This is the $02:D587 -> $01:A7DC interaction body, not
+     * Banzai's larger drawn OAM body. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,100); put16(0x96,100);
-    install_big_target(5,0x9f,162,120,0x00,0x30,0xa2);
+    install_big_target(5,0x9f,156,120,0xb6,0x31,0x01);
     begin(&ledger,FL_FALCON_PUNCH_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==0 && s_ram[0x14cd]==8);
-    s_ram[0x00e4 + 5]=161;
+    s_ram[0x00e4 + 5]=155;
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
           s_spin_kill_calls==1 && s_spin_star_calls==1 &&
           s_spin_score_calls==1 && s_star_kill_calls==0 &&
           s_ram[0x14cd]==4 && ledger.new_hit_slots==(1u<<5));
 
-    /* Kick shares that Banzai route; its narrower source hitbox only reaches
-     * the native [x+2,x+14) clip at x=157, not a guessed drawn-tile union. */
+    /* Kick shares the same oracle `$B6 & $3F == $36` Banzai interaction
+     * body. Its narrower source hitbox reaches the 52x46 native body at
+     * x=151; it does not substitute a guessed drawn-tile union. */
     cpu=fresh(); a=kick(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,100); put16(0x96,100);
-    install_big_target(3,0x9f,157,120,0x00,0x30,0xa2);
+    install_big_target(3,0x9f,151,120,0xb6,0x31,0x01);
     begin(&ledger,FL_FALCON_KICK_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
           s_spin_kill_calls==1 && s_spin_star_calls==1 &&
           s_spin_score_calls==1 && s_ram[0x14cb]==4 &&
           ledger.new_hit_slots==(1u<<3));
 
-    /* Chargin' Chuck's source clip index $0D is [x,x+15) x [y-4,y+12).
+    /* The high bits in vanilla Banzai's `$1662 == $B6` are signature data,
+     * not disposable geometry noise. `$36/$31/$01` has the same masked clip
+     * index but is a non-vanilla property row and must not enter the special
+     * native route. */
+    cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100);
+    install_big_target(3,0x9f,155,120,0x36,0x31,0x01);
+    begin(&ledger,FL_FALCON_PUNCH_GROUND); memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
+          s_sprite_calls==0 && s_ram[0x14cb]==8 && ledger.new_hit_slots==0);
+
+    /* Oracle vanilla source row $91 is $1662/$166E/$167A = $0D/$0B/$F9.
+     * Chargin' Chuck's source clip index $0D is [x,x+15) x [y-4,y+12).
      * Its custom $02:C79D interaction is never re-entered after host
      * geometry; user-selected one-hit behavior is the framed $02:C7B1
      * post-star defeat, preserving the live $15E9 selector. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,100); put16(0x96,100); s_ram[0x15e9]=0xa5;
-    install_big_target(6,0x91,148,124,0x0d,0xe3,0x81);
+    install_big_target(6,0x91,148,124,0x0d,0x0b,0xf9);
     begin(&ledger,FL_FALCON_PUNCH_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
           s_spin_kill_calls==0 && s_spin_star_calls==0 &&
@@ -233,7 +247,7 @@ int main(void) {
      * this deliberately narrow combat tranche. */
     cpu=fresh(); a=punch(); memset(&ledger,0,sizeof(ledger));
     put16(0x94,100); put16(0x96,100);
-    install_big_target(6,0x91,148,124,0x0d,0xe2,0x81);
+    install_big_target(6,0x91,148,124,0x0d,0x0a,0xf9);
     begin(&ledger,FL_FALCON_PUNCH_GROUND); memset(&hit,0,sizeof(hit));
     CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==0 && s_ram[0x14ce]==8 && ledger.new_hit_slots==0);
