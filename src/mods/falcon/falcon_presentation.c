@@ -111,7 +111,12 @@ typedef struct { PV v[3]; const Texture *texture; float depth; } DrawTriangle;
 static float edge(PV a,PV b,float x,float y){return(x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);}
 static void tri(const FalconPresentationTarget*t,const Texture*tex,PV a,PV b,PV c){float area=edge(a,b,c.x,c.y);int x0,x1,y0,y1,x,y;if(fabsf(area)<.0001f)return;x0=(int)floorf(fminf(a.x,fminf(b.x,c.x)));x1=(int)ceilf(fmaxf(a.x,fmaxf(b.x,c.x)));y0=(int)floorf(fminf(a.y,fminf(b.y,c.y)));y1=(int)ceilf(fmaxf(a.y,fmaxf(b.y,c.y)));if(x0<0)x0=0;if(y0<0)y0=0;if(x1>=t->width)x1=t->width-1;if(y1>=t->height)y1=t->height-1;for(y=y0;y<=y1;y++)for(x=x0;x<=x1;x++){float w0=edge(b,c,x+.5f,y+.5f)/area,w1=edge(c,a,x+.5f,y+.5f)/area,w2=1-w0-w1,u,v;int tx,ty;if(w0<0||w1<0||w2<0)continue;u=w0*a.u+w1*b.u+w2*c.u;v=w0*a.v+w1*b.v+w2*c.v;tx=(int)floorf(u);ty=(int)floorf(v);if(tx<0)tx=0;if(ty<0)ty=0;if(tx>=tex->w)tx=tex->w-1;if(ty>=tex->h)ty=tex->h-1;{uint32_t q=tex->pixels[ty*tex->w+tx];if(q>>24)t->framebuffer[y*t->pitch_pixels+x]=over(t->framebuffer[y*t->pitch_pixels+x],q);}}}
 static void card(const FalconPresentationTarget*t,const Texture*tex,float cx,float cy,float w,float h){PV a={cx-w*.5f,cy-h,0,0,0},b={cx+w*.5f,cy-h,0,(float)tex->w-.01f,0},c={cx+w*.5f,cy,0,(float)tex->w-.01f,(float)tex->h-.01f},d={cx-w*.5f,cy,0,0,(float)tex->h-.01f};tri(t,tex,a,b,c);tri(t,tex,a,c,d);}
-static void card_rotated(const FalconPresentationTarget*t,const Texture*tex,float cx,float cy,float w,float h,float radians){float c=cosf(radians),s=sinf(radians),x=w*.5f,y=h*.5f;PV a={-x,-y,0,0,0},b={x,-y,0,(float)tex->w-.01f,0},d={-x,y,0,0,(float)tex->h-.01f},q={x,y,0,(float)tex->w-.01f,(float)tex->h-.01f};PV *v[4]={&a,&b,&q,&d};unsigned i;for(i=0;i<4;i++){float px=v[i]->x,py=v[i]->y;v[i]->x=cx+px*c-py*s;v[i]->y=cy+px*s+py*c;}tri(t,tex,a,b,q);tri(t,tex,a,q,d);}
+/* The owner cards acquire their screen-facing direction from their source
+ * geometry: source LR mirrors the card itself, which reverses its U axis.
+ * Our compact side-view cards do not inherit that geometry transform, so
+ * mirror their U coordinates explicitly for a left-facing Falcon. */
+static void card_facing(const FalconPresentationTarget*t,const Texture*tex,float cx,float cy,float w,float h,int flip_x){float u0=flip_x?(float)tex->w-.01f:0,u1=flip_x?0:(float)tex->w-.01f;PV a={cx-w*.5f,cy-h,0,u0,0},b={cx+w*.5f,cy-h,0,u1,0},c={cx+w*.5f,cy,0,u1,(float)tex->h-.01f},d={cx-w*.5f,cy,0,u0,(float)tex->h-.01f};tri(t,tex,a,b,c);tri(t,tex,a,c,d);}
+static void card_rotated_facing(const FalconPresentationTarget*t,const Texture*tex,float cx,float cy,float w,float h,float radians,int flip_x){float c=cosf(radians),s=sinf(radians),x=w*.5f,y=h*.5f,u0=flip_x?(float)tex->w-.01f:0,u1=flip_x?0:(float)tex->w-.01f;PV a={-x,-y,0,u0,0},b={x,-y,0,u1,0},d={-x,y,0,u0,(float)tex->h-.01f},q={x,y,0,u1,(float)tex->h-.01f};PV *v[4]={&a,&b,&q,&d};unsigned i;for(i=0;i<4;i++){float px=v[i]->x,py=v[i]->y;v[i]->x=cx+px*c-py*s;v[i]->y=cy+px*s+py*c;}tri(t,tex,a,b,q);tri(t,tex,a,q,d);}
 static void particle(const FalconPresentationTarget *t, uint32_t color,
                      float x, float y, float width, float height)
 {
@@ -213,19 +218,22 @@ int falcon_presentation_joint_screen_position(const FalconPresentation *p,
 
 static void effect(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){
     float s=t->scale>0?t->scale:1,dir=pose->facing_right?1:-1,x,y;
+    const int flip_x = !pose->facing_right;
     if(pose->state==FALCON_PRESENT_PUNCH&&pose->frame>=42&&pose->frame<55){
         const Texture*q=&p->textures[p->punch_first+((unsigned)pose->frame-42)%3];
         if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_PUNCH_HAND,&x,&y))
-            card(t,q,x+dir*8*s,y+8*s,24*s,24*s);
+            card_facing(t,q,x+dir*8*s,y+8*s,24*s,24*s,flip_x);
     }else if(pose->state==FALCON_PRESENT_KICK&&pose->frame>=12&&pose->frame<32){
         const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
         if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_GROUND_KICK_FOOT,&x,&y))
-            card_rotated(t,q,x+dir*5*s,y,30*s,18*s,0.f);
+            card_rotated_facing(t,q,x+dir*5*s,y,30*s,18*s,0.f,flip_x);
     }else if(pose->state==FALCON_PRESENT_KICK_AIR&&pose->frame>=12&&pose->frame<32){
         const Texture*q=&p->textures[p->punch_first+3+((unsigned)pose->frame-12)%2];
         if(falcon_presentation_joint_screen_position(p,pose,t,FALCON_PRESENT_JOINT_AIR_KICK_FOOT,&x,&y))
-            card_rotated(t,q,x+dir*4*s,y,30*s,18*s,
-                         dir*(float)(3.14159265358979323846/3.0));
+            /* CaptainSpecial2 rolls -LR*60 degrees.  Screen Y grows down,
+             * just as it does in the NES compositor, so retain that sign. */
+            card_rotated_facing(t,q,x+dir*4*s,y,30*s,18*s,
+                         -dir*(float)(3.14159265358979323846/3.0),flip_x);
     }else dive_particles(pose,t,s,dir);
 }
 int falcon_presentation_draw(const FalconPresentation*p,const FalconPresentationPose*pose,const FalconPresentationTarget*t){

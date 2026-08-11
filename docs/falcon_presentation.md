@@ -9,7 +9,7 @@ framebuffer, width, height, row pitch, and foot anchor.
 ## Provenance and scope
 
 The binary layout, animation semantics, 1.05 TopN root-motion scale, and
-Punch/Kick effect inventory were ported from the proven NES Falcon
+Punch/Kick effect inventory and source-LR orientation rules were ported from the proven NES Falcon
 `game_smash64_assets.{c,h}` implementation. The small triangle compositor is
 adapted from the immediate mesh path in
 `runner/{include,src}/voxel_renderer.{h,c}`. Neither dependency is included
@@ -55,8 +55,10 @@ order before alpha blending; equal-depth faces retain their blob order.
 ## Evidence
 
 The isolated C harness validates malformed rejection (including unterminated
-names), depth ordering, root sampling, and a fixed synthetic framebuffer hash
-(`700fe30a06e7965b`). With the verified external cache supplied by the user,
+names), depth ordering, root sampling, and fixed synthetic framebuffer hashes
+for right and left Punch/Kick cards. The synthetic card textures are asymmetric,
+so the left cases also pin U-axis reversal and aerial-Kick LR roll direction.
+With the verified external cache supplied by the user,
 it also produced these ignored evidence files:
 
 `_triage/falcon_owner_dive_particles.bmp` - Dive frame 13 with compact

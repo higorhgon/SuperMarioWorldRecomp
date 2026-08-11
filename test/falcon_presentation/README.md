@@ -8,7 +8,15 @@ _triage/falcon_presentation_harness.exe
 ```
 
 The first run creates a synthetic v4 blob in memory, rejects malformed variants,
-samples its root motion, and compares a pitch-strided ARGB8888 framebuffer hash.
+samples its root motion, and compares pitch-strided ARGB8888 framebuffer hashes
+for both facing directions of Punch, ground Kick, and aerial Kick. Its effect
+textures are intentionally asymmetric, so the left-facing hashes prove the
+owner card's U axis is mirrored rather than only testing a solid rectangle.
+Create the corresponding offline left/right review sheet with:
+
+```powershell
+_triage/falcon_presentation_harness.exe --synthetic-effect-sheet _triage/falcon_synthetic_effect_lr.bmp
+```
 When an externally verified owner cache is available, use:
 
 ```powershell
@@ -28,8 +36,8 @@ Create a four-frame host-side death-tumble sheet with:
 _triage/falcon_presentation_harness.exe --death-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_death_sheet.bmp
 ```
 
-Create the feedback sheet (ground Kick and `DownSpecialAir`, each facing both
-directions) with:
+Create the feedback sheet (Punch, ground Kick, and `DownSpecialAir`, each
+facing both directions) with:
 
 ```powershell
 _triage/falcon_presentation_harness.exe --feedback-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_feedback_sheet.bmp
@@ -54,7 +62,8 @@ _triage/falcon_presentation_harness.exe --attachment-sheet <external-cache>/falc
 ```
 
 Create the carry-anchor sheet with a green 32px OAM-group outline centred on
-the calibrated raised hand, first facing right then left:
+the calibrated carried-shell centre: five native pixels upward and five toward
+Falcon's body from the raised hand, first facing right then left:
 
 ```powershell
 _triage/falcon_presentation_harness.exe --carry-sheet <external-cache>/falcon_runtime.bin _triage/falcon_owner_carry_sheet.bmp

@@ -28,6 +28,8 @@
 #define FALCON_RUNTIME_MAX_BYTES (64u * 1024u * 1024u)
 #define FALCON_PLAYER_OAM_FIRST 64u /* $0300 / four bytes per OAM entry */
 #define FALCON_PLAYER_OAM_COUNT 12u /* $0300..$032f, SMW PlayerGFXRt */
+#define FALCON_CARRIED_SHELL_BODY_INSET 5.0f
+#define FALCON_CARRIED_SHELL_HAND_RAISE 5.0f
 
 static const uint8_t k_runtime_sha256[32] = {
     0x8a,0x8e,0x0a,0xc0,0x13,0x41,0x58,0x44,
@@ -394,6 +396,13 @@ static void relocate_carried_oam(Ppu *ppu, const FalconPresentationPose *pose) {
     if (!falcon_presentation_joint_screen_position(
             s_presentation, pose, &target, FALCON_PRESENT_JOINT_CARRY_HAND,
             &hand_x, &hand_y)) return;
+    /* The completed two-tile shell is reanchored by its centre.  The hand
+     * joint is an attachment pivot instead, so centre-on-joint leaves the
+     * card visibly forward of Falcon.  Bring it one small native-pixel step
+     * inward and upward; invert the inset with facing to preserve symmetry. */
+    hand_x += pose->facing_right ? -FALCON_CARRIED_SHELL_BODY_INSET
+                                 : FALCON_CARRIED_SHELL_BODY_INSET;
+    hand_y -= FALCON_CARRIED_SHELL_HAND_RAISE;
     /* OAM is still in native 256-wide coordinates; the renderer adds the
      * centred widescreen margin. */
     hand_x -= (float)((kPpuBufWidth - 256) / 2);
