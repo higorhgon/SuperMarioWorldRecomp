@@ -42,16 +42,15 @@ or invalid external cache yields no sampled root delta and never substitutes
 proprietary bytes or invented motion.
 
 A native side-wall collision during grounded SpecialLw's authored `flag1`
-contact window, or its ground-origin continuation, enters the existing source
-`FL_FALCON_KICK_BOUND` state (`ftcaptainspeciallw.c` Ground
-ProcMap/BoundCheck). The source mirror does not integrate the rejected
-horizontal delta before the Bound transition. The approved `FalconDiveEnd1`
-track is the fifth positional Captain SpecialL motion—the slot
-`ftcaptain.h` identifies as SpecialLwBound—so it supplies the authored rebound
-TransN. Direct SpecialAirLw is landing-only in its source ProcMap: a side wall
-remains direct aerial Kick with native horizontal clamp and is never promoted
-to Ground Bound. This is limited to Kick wall contact—ordinary jump/run wall
-handling is unchanged.
+contact window enters the existing source `FL_FALCON_KICK_BOUND` state
+(`ftcaptainspeciallw.c` Ground ProcMap/BoundCheck). The source mirror does not
+integrate the rejected horizontal delta before the Bound transition. The
+approved `FalconDiveEnd1` track is the fifth positional Captain SpecialL
+motion—the slot `ftcaptain.h` identifies as SpecialLwBound—so it supplies the
+authored rebound TransN. Ground-origin continuation and direct SpecialAirLw
+use their own map paths: a side wall retains that Kick state with native
+horizontal clamp and is never promoted to Ground Bound. This is limited to
+Kick wall contact—ordinary jump/run wall handling is unchanged.
 
 Source references: Smash decomp `054ffc23`,
 `src/ft/ftchar/ftcaptain/ftcaptainspeciallw.c`; mature NES bridge

@@ -624,11 +624,8 @@ static void enter_falcon_kick_bound(FalconFighter *f)
  * has landing-only ProcMap and must never enter this grounded Bound state. */
 static int is_falcon_kick_ground_bound_window(const FalconFighter *f)
 {
-    return (f->state == FL_FALCON_KICK_GROUND &&
-            f->state_frame >= 12.0 && f->state_frame < 32.0) ||
-           /* Ground-origin SpecialLw's air continuation retains the same
-            * sourced wall-rebound route. Direct SpecialAirLw is excluded. */
-           f->state == FL_FALCON_KICK_GROUND_AIR;
+    return f->state == FL_FALCON_KICK_GROUND &&
+           f->state_frame >= 12.0 && f->state_frame < 32.0;
 }
 
 static int is_falcon_kick_wall_state(int state)
