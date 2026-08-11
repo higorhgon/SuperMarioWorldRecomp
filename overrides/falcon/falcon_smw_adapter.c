@@ -252,10 +252,9 @@ static double smw_falcon_limit_ground_run_dx(const ForeignState *state,
 {
     /* SMW's native player collision is tile-sized and can miss fatal wall
      * crush/embedding cases when Falcon carries Smash 64's full ground run
-     * delta into a one-frame native integration.  Keep Dash/Run visibly fast
-     * but cap grounded horizontal travel to two native pixels per frame; wall
-     * contacts then have stable side/floor flags for the guard below. */
-    const double max_smw_px = 2.0;
+     * delta into a one-frame native integration.  Keep Dash/Run fast while
+     * still bounding native one-frame horizontal travel. */
+    const double max_smw_px = 4.0;
     const double max_source_delta = max_smw_px * SMW_TO_FALCON;
     if (state == NULL || !state->grounded ||
         !smw_falcon_ground_run_wall_state(state->state))
