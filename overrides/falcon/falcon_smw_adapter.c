@@ -40,6 +40,8 @@ static int s_stomp_contact_guard;
 static SmwFalconCombatLedger s_combat_ledger;
 static uint16_t s_kick_contact_slots;
 static int s_kick_slot_guard;
+static uint16_t s_dive_catch_slots;
+static int s_dive_catch_slot_guard;
 /* $01:80D2 executes once per normal-sprite slot.  A move consequence is
  * global to the frame, not to each slot, so remember the one pass which
  * committed it. */
@@ -390,10 +392,13 @@ void SmwFalconBeforePlayerPhysics(struct CpuState *cpu)
     /* ProcessNormalSprites is wholly within the preceding player frame. A
      * missing/aborted pass must never carry a pending Kick slot into the next
      * one, and the old exact guard value is safe to remove at D5F2. */
-    if (s_kick_slot_guard && timer_player_hurt == 1)
+    if ((s_kick_slot_guard || s_dive_catch_slot_guard) &&
+        timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_kick_slot_guard = 0;
+    s_dive_catch_slot_guard = 0;
     s_kick_contact_slots = 0;
+    s_dive_catch_slots = 0;
     s_foreign_pad.valid = 0;
     s_foreign_pad.carry_valid = 0;
 
@@ -630,22 +635,35 @@ static void smw_falcon_apply_combat_once(CpuState *cpu,
     ForeignCollisionResult ignored;
     ForeignCollisionResult *out = collision != NULL ? collision : &ignored;
     const ForeignState *state;
+    int is_dive_throw_release;
     int contacts;
 
+    state = snes_foreign_state();
+    is_dive_throw_release = state != NULL &&
+                            state->state == FL_FALCON_DIVE_THROW &&
+                            state->state_frame == 0;
     if (cpu == NULL || !snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
-        !s_last_move.attack.active ||
+        (!s_last_move.attack.active && !is_dive_throw_release) ||
         s_combat_apply_frame == snes_frame_counter || cpu->m_flag != 1 ||
         cpu->x_flag != 1 || (cpu->DB != 0 && cpu->DB != 1) || cpu->D != 0)
         return;
     s_combat_apply_frame = snes_frame_counter;
     memset(&ignored, 0, sizeof(ignored));
-    state = snes_foreign_state();
-    contacts = smw_falcon_combat_apply(cpu, &s_last_move.attack,
-                                       state != NULL ? state->facing : 1.0f,
-                                       &s_combat_ledger, out);
+    if (is_dive_throw_release) {
+        /* BattleShip keeps catch_gobj through Catch and releases it at
+         * ftCaptainSpecialHiThrowSetStatus: Throw frame zero. */
+        contacts = smw_falcon_combat_release_dive(cpu, &s_combat_ledger, out);
+    } else {
+        contacts = smw_falcon_combat_apply(cpu, &s_last_move.attack,
+                                           state != NULL ? state->facing : 1.0f,
+                                           &s_combat_ledger, out);
+    }
     if (contacts != 0 && smw_falcon_active_kick_state(s_last_move.state))
         s_kick_contact_slots |= s_combat_ledger.new_hit_slots;
+    if (contacts != 0 &&
+        (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) != 0)
+        s_dive_catch_slots |= s_combat_ledger.new_hit_slots;
 }
 
 void SmwFalconAfterPhysics(struct CpuState *cpu)
@@ -778,9 +796,11 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * has the unmodified current slot and is before that slot's hurt test.
      * Clear only our prior-slot exact value, then guard only a newly accepted
      * Kick slot. An untouched/behind slot receives $1497==0. */
-    if (s_kick_slot_guard && timer_player_hurt == 1)
+    if ((s_kick_slot_guard || s_dive_catch_slot_guard) &&
+        timer_player_hurt == 1)
         timer_player_hurt = 0;
     s_kick_slot_guard = 0;
+    s_dive_catch_slot_guard = 0;
     /* Live Ground Kick collisions can nonlocally leave the player collision
      * body before its inline $00:CD36 AfterPhysics callback.  $01:80D2 is
      * the guaranteed later normal-sprite pass and still precedes this slot's
@@ -790,14 +810,19 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
     if (!snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
         s_kick_contact_slots = 0;
+        s_dive_catch_slots = 0;
     } else if (cpu != NULL && cpu->x_flag == 1) {
         slot = cpu->X & 0xffu;
     }
     if (slot < 12u &&
-        (s_kick_contact_slots & (uint16_t)(1u << slot)) != 0 &&
+        ((s_kick_contact_slots | s_dive_catch_slots) &
+         (uint16_t)(1u << slot)) != 0 &&
         timer_player_hurt == 0) {
         timer_player_hurt = 1;
-        s_kick_slot_guard = 1;
+        if ((s_kick_contact_slots & (uint16_t)(1u << slot)) != 0)
+            s_kick_slot_guard = 1;
+        else
+            s_dive_catch_slot_guard = 1;
     }
     /* $01:80D2 remains the first safe carry-input bridge point: $00:CD36 is
      * earlier than native climb/door/player interactions, so Down must not
@@ -857,6 +882,8 @@ void SmwFalconOnStateLoaded(void)
     s_stomp_contact_guard = 0;
     s_kick_contact_slots = 0;
     s_kick_slot_guard = 0;
+    s_dive_catch_slots = 0;
+    s_dive_catch_slot_guard = 0;
     s_combat_apply_frame = -1;
     smw_falcon_combat_ledger_update(&s_combat_ledger, 0, 0);
     s_last_input_direction = 0;

@@ -1533,8 +1533,9 @@ void falcon_resolve(FalconFighter *f, const FalconCollision *hit)
     f->pos_y += hit->actual_dy;
 
     /* Falcon Dive's attack volume is a catch search, not a repeated damage
-     * hitbox. The host confirms exactly one supported target and applies its
-     * native consequence; Falcon immediately stops and plays Catch/Throw. */
+     * hitbox. The host confirms exactly one supported target; its bridge
+     * retains that identity through Catch and releases its consequence only
+     * when the authored Throw begins. */
     if (hit->attack_connected &&
         (f->state == FL_FALCON_DIVE_GROUND ||
          f->state == FL_FALCON_DIVE_AIR)) {

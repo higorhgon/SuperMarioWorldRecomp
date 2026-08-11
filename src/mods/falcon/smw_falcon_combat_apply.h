@@ -19,6 +19,10 @@ typedef struct {
      * consumes this exact per-frame mask at ProcessNormalSprites; it is never
      * a blanket player invulnerability request. */
     uint16_t new_hit_slots;
+    /* Falcon Dive is a source capture, not an impact.  Keep exactly one
+     * host sprite identity through Catch until Throw releases it. */
+    int dive_latched_slot;
+    uint8_t dive_latched_id;
 } SmwFalconCombatLedger;
 
 void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
@@ -34,5 +38,12 @@ void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
 int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
                             float facing, SmwFalconCombatLedger *ledger,
                             ForeignCollisionResult *out_collision);
+
+/* Release the one ordinary target accepted by a Falcon Dive catch.  This is
+ * deliberately separate from the contact-only search: the native defeat is
+ * authored by FalconDiveEnd1's Throw transition, never by contact. */
+int smw_falcon_combat_release_dive(CpuState *cpu,
+                                   SmwFalconCombatLedger *ledger,
+                                   ForeignCollisionResult *out_collision);
 
 #endif

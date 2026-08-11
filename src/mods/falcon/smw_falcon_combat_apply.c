@@ -131,6 +131,15 @@ static int sprite_is_loose_shell(const CpuState *cpu, unsigned slot)
            ram8(cpu, 0x009Eu + slot) <= 0x07u;
 }
 
+/* Falcon Dive's source catch category is a fighter/enemy capture.  A loose
+ * shell has a different native lifecycle and must not be silently converted
+ * into a grab target. */
+static int sprite_is_dive_catch_target(const CpuState *cpu, unsigned slot)
+{
+    return ram8(cpu, SMW_SPR_STATUS + slot) == 8 &&
+           sprite_is_supported_target(cpu, slot);
+}
+
 static void invoke_native_sprite_consequence(CpuState *cpu, unsigned slot,
                                              int loose_shell)
 {
@@ -219,6 +228,27 @@ static int apply_sprite_targets(CpuState *cpu, const ForeignAttackHitbox *attack
     return contacts;
 }
 
+static int latch_dive_target(CpuState *cpu, const ForeignAttackHitbox *attack,
+                             float facing, SmwFalconCombatLedger *ledger)
+{
+    SmwFalconAabb hit = smw_falcon_attack_world_aabb(
+        attack, ram16(cpu, SMW_PLAYER_X), ram16(cpu, SMW_PLAYER_Y), facing);
+    unsigned slot;
+
+    if (ledger->dive_latched_slot >= 0) return 0;
+    /* Slot order is the host's deterministic stand-in for Smash's single
+     * search_gobj.  Unlike Punch/Kick this stops at the first capture. */
+    for (slot = 0; slot < SMW_SPRITE_SLOTS; ++slot) {
+        if (!sprite_is_dive_catch_target(cpu, slot) ||
+            !smw_falcon_aabb_overlaps(hit, sprite_bounds(cpu, slot))) continue;
+        ledger->dive_latched_slot = (int)slot;
+        ledger->dive_latched_id = ram8(cpu, 0x009Eu + slot);
+        ledger->new_hit_slots |= (uint16_t)(1u << slot);
+        return 1;
+    }
+    return 0;
+}
+
 static SmwFalconMap16Class native_collision_block_class(const CpuState *cpu)
 {
     /* `$04 == 7` is the proven $00:F17F -> $02:8752 brick action. $1693 is
@@ -277,14 +307,27 @@ void smw_falcon_combat_ledger_update(SmwFalconCombatLedger *ledger,
     if (move_state == FL_FALCON_PUNCH_AIR)
         move_state = FL_FALCON_PUNCH_GROUND;
     if (ledger == NULL) return;
+    /* BattleShip ftCaptainSpecialHiProcCatch stores search_gobj in
+     * catch_gobj; Catch and Throw then retain that same identity until
+     * ftCaptainSpecialHiThrowSetStatus releases it.  Do not erase the host
+     * equivalent merely because these authored states have no hitbox. */
+    if (!attack_active && ledger->dive_latched_slot >= 0 &&
+        (move_state == FL_FALCON_DIVE_CATCH ||
+         move_state == FL_FALCON_DIVE_THROW)) {
+        ledger->active = 1;
+        ledger->move_state = move_state;
+        return;
+    }
     if (!attack_active) {
         memset(ledger, 0, sizeof(*ledger));
+        ledger->dive_latched_slot = -1;
         return;
     }
     if (!ledger->active || ledger->move_state != move_state) {
         memset(ledger, 0, sizeof(*ledger));
         ledger->active = 1;
         ledger->move_state = move_state;
+        ledger->dive_latched_slot = -1;
     }
 }
 
@@ -297,6 +340,16 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
         attack == NULL || !attack->active || ledger == NULL || !ledger->active)
         return 0;
     ledger->new_hit_slots = 0;
+    if ((attack->flags & FOREIGN_ATTACK_CONTACT_ONLY) != 0) {
+        sprite_contacts = latch_dive_target(cpu, attack, facing, ledger);
+        if (sprite_contacts != 0) {
+            out_collision->attack_connected = 1;
+            ledger->had_sprite_contact = 1;
+        }
+        /* A source catch never reaches either the native impact consequence
+         * nor the block route.  Throw handles its one accepted target later. */
+        return sprite_contacts;
+    }
     sprite_contacts = apply_sprite_targets(cpu, attack, facing, ledger);
     if (sprite_contacts != 0) {
         out_collision->attack_connected = 1;
@@ -311,4 +364,45 @@ int smw_falcon_combat_apply(CpuState *cpu, const ForeignAttackHitbox *attack,
         return 1;
     }
     return 0;
+}
+
+int smw_falcon_combat_release_dive(CpuState *cpu,
+                                   SmwFalconCombatLedger *ledger,
+                                   ForeignCollisionResult *out_collision)
+{
+    SmwFalconCpuSnapshot saved;
+    uint8_t scratch[SMW_SCRATCH_COUNT];
+    uint8_t current_sprite;
+    const int latched_slot = ledger != NULL ? ledger->dive_latched_slot : -1;
+    int released = 0;
+
+    if (out_collision != NULL) out_collision->attack_connected = 0;
+    if (!hook_contract_is_valid(cpu) || ledger == NULL || latched_slot < 0 ||
+        latched_slot >= (int)SMW_SPRITE_SLOTS) return 0;
+
+    /* The slot can have died or been reused during Catch.  Match the source
+     * GObj ownership rule conservatively: only the exact, still-catchable
+     * ordinary target may receive the Throw's native defeat. */
+    if (sprite_is_dive_catch_target(cpu, (unsigned)latched_slot) &&
+        ram8(cpu, 0x009Eu + latched_slot) == ledger->dive_latched_id) {
+        memcpy(scratch, cpu->ram + SMW_SCRATCH_FIRST, sizeof(scratch));
+        current_sprite = ram8(cpu, SMW_MINOR_SPRITE_PROC_INDEX);
+        save_cpu(cpu, &saved);
+        memset(cpu->ram + SMW_SCRATCH_FIRST, 0, sizeof(scratch));
+        /* $02:C7B1 is SMW's accepted no-geometry star/kick defeat route.
+         * It provides the one host-native consequence corresponding to
+         * Falcon Dive's authored 20-damage Throw release. */
+        prepare_bank02_call(cpu, (unsigned)latched_slot);
+        KillNormalSprite_AcceptedConsequence(cpu);
+        memcpy(cpu->ram + SMW_SCRATCH_FIRST, scratch, sizeof(scratch));
+        cpu->ram[SMW_MINOR_SPRITE_PROC_INDEX] = current_sprite;
+        restore_cpu(cpu, &saved);
+        ledger->hit_slots |= (uint16_t)(1u << latched_slot);
+        ledger->new_hit_slots |= (uint16_t)(1u << latched_slot);
+        if (out_collision != NULL) out_collision->attack_connected = 1;
+        released = 1;
+    }
+    ledger->dive_latched_slot = -1;
+    ledger->dive_latched_id = 0;
+    return released;
 }

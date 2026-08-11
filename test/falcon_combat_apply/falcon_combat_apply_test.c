@@ -66,6 +66,11 @@ static ForeignAttackHitbox kick(void) {
     a.offset_x=480; a.offset_y=40; a.width=900; a.height=600;
     a.flags=FOREIGN_ATTACK_BREAK_BLOCKS; return a;
 }
+static ForeignAttackHitbox dive(void) {
+    ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
+    a.offset_x=315; a.offset_y=260; a.width=470; a.height=300;
+    a.flags=FOREIGN_ATTACK_CONTACT_ONLY; return a;
+}
 static void install_sprite(unsigned slot, uint8_t status, uint8_t id,
                            uint16_t x, uint16_t y) {
     s_ram[0x14c8 + slot]=status; s_ram[0x9e + slot]=id;
@@ -129,6 +134,52 @@ int main(void) {
     CHECK(s_ram[0x14c9]==2 && s_ram[0x14cb]==8 && s_ram[0x14ce]==8);
     calls=s_sprite_calls; CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
           s_sprite_calls==calls);
+
+    /* Falcon Dive's hitbox is a one-target catch search.  BattleShip keeps
+     * search_gobj as catch_gobj through Catch; there is no damage/status
+     * transaction until FalconDiveEnd1 begins Throw.  A loose shell is not a
+     * fighter capture, and a second ordinary target stays untouched. */
+    cpu=fresh(); a=dive(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100);
+    install_sprite(2,9,0x05,126,104); /* rejected loose shell */
+    install_sprite(4,8,0x0f,142,104); install_sprite(6,8,0x0f,146,104);
+    begin(&ledger,FL_FALCON_DIVE_AIR); memset(&hit,0,sizeof(hit));
+    calls=s_sprite_calls;
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
+          hit.attack_connected && s_sprite_calls==calls &&
+          ledger.dive_latched_slot==4 && ledger.dive_latched_id==0x0f &&
+          ledger.new_hit_slots==(1u<<4) && s_ram[0x14cc]==8 &&
+          s_ram[0x14ce]==8);
+    /* Repeated catch frames cannot reselect the second enemy or invoke a
+     * native impact while Falcon is holding the captured identity. */
+    memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==0 &&
+          !hit.attack_connected && s_sprite_calls==calls);
+    smw_falcon_combat_ledger_update(&ledger,FL_FALCON_DIVE_CATCH,0);
+    CHECK(ledger.dive_latched_slot==4 && ledger.active);
+    smw_falcon_combat_ledger_update(&ledger,FL_FALCON_DIVE_THROW,0);
+    memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_release_dive(&cpu,&ledger,&hit)==1 &&
+          hit.attack_connected && s_sprite_calls==calls+1 &&
+          s_loose_kill_calls>=1 && s_ram[0x14cc]==2 && s_ram[0x14ce]==8 &&
+          ledger.dive_latched_slot==-1);
+    CHECK(smw_falcon_combat_release_dive(&cpu,&ledger,&hit)==0 &&
+          s_sprite_calls==calls+1);
+
+    /* If the captured slot has died or been reused while Catch plays, Throw
+     * releases nothing: source GObj identity must not strike a replacement. */
+    cpu=fresh(); a=dive(); memset(&ledger,0,sizeof(ledger));
+    put16(0x94,100); put16(0x96,100); install_sprite(5,8,0x0f,142,104);
+    begin(&ledger,FL_FALCON_DIVE_GROUND); memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_apply(&cpu,&a,1,&ledger,&hit)==1 &&
+          ledger.dive_latched_slot==5);
+    s_ram[0x9e + 5]=0x35; calls=s_sprite_calls;
+    smw_falcon_combat_ledger_update(&ledger,FL_FALCON_DIVE_CATCH,0);
+    smw_falcon_combat_ledger_update(&ledger,FL_FALCON_DIVE_THROW,0);
+    memset(&hit,0,sizeof(hit));
+    CHECK(smw_falcon_combat_release_dive(&cpu,&ledger,&hit)==0 &&
+          !hit.attack_connected && s_sprite_calls==calls && s_ram[0x14cd]==8 &&
+          ledger.dive_latched_slot==-1);
 
     /* A new move gets a fresh ledger, but its native block transaction still
      * runs only when this move has not touched a sprite. */
