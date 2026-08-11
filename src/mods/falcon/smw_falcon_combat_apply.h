@@ -46,4 +46,13 @@ int smw_falcon_combat_release_dive(CpuState *cpu,
                                    SmwFalconCombatLedger *ledger,
                                    ForeignCollisionResult *out_collision);
 
+/* Source CaptureCaptain physics draws both fighters together.  SMW has no
+ * corresponding captured-fighter state, so return only the conservative
+ * player-side portion for the host's pre-physics seam.  The delta is bounded
+ * to four whole pixels and is zero when the original captured slot changed
+ * lifecycle or identity. */
+int smw_falcon_combat_dive_snap_delta(const CpuState *cpu,
+                                      const SmwFalconCombatLedger *ledger,
+                                      int *out_dx, int *out_dy);
+
 #endif

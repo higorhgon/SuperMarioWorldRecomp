@@ -74,6 +74,23 @@ static FalconPresentationPose s_last_pose = { FALCON_PRESENT_IDLE, 0.0f, 1 };
 
 static int death_active(void) { return s_presentation && misc_game_mode == 0x14 && player_current_state == 9; }
 
+static int course_clear_active(void)
+{
+    const ForeignController *controller = snes_foreign_active();
+    /* This is presentation-only.  The adapter has already transferred this
+     * exact native end-of-level phase to SCRIPTED ownership, so no Falcon
+     * tick/input/WRAM mutation can interfere with the score and goal script.
+     * `$1B99` is set only after ordinary PlayerState00 end-level walking has
+     * completed; excluding the keyhole timer avoids its separate iris/freeze
+     * sequence, while GameMode14 excludes title/attract-demo dispatch. */
+    return s_presentation != NULL && controller != NULL &&
+           strcmp(controller->id, SMW_CAPTAIN_FALCON_ID) == 0 &&
+           snes_foreign_ownership() == FOREIGN_OWNERSHIP_SCRIPTED &&
+           misc_game_mode == 0x14 && player_current_state == 0 &&
+           timer_end_level != 0 && timer_end_level_via_keyhole == 0 &&
+           flag_show_victory_pose_during_level_end != 0;
+}
+
 /* Opt-in, path-free activation trace for TCP validation. The caller chooses
  * the external output file; no ROM/cache path or owner data is ever logged. */
 static void trace(const char *event) {
@@ -446,6 +463,11 @@ static int controllable(void) {
     return !strcmp(reason, "active");
 }
 
+static int presentation_active(void)
+{
+    return controllable() || death_active() || course_clear_active();
+}
+
 void smw_falcon_presentation_reset(void) {
     /* Voices are host-owned and intentionally excluded from savestates. Reset
      * (including activation/reload) drops them before state becomes visible. */
@@ -484,7 +506,7 @@ void smw_falcon_presentation_activate(const char *owner_rom_path) {
         note("set SNESRECOMP_FALCON_CACHE or install SNESRECOMP_FALCON_CACHE_HELPER");
 }
 
-int smw_falcon_presentation_is_active(void) { return controllable(); }
+int smw_falcon_presentation_is_active(void) { return presentation_active(); }
 
 int smw_falcon_presentation_root_delta(const char *animation, float frame,
                                        float *delta_y, float *delta_z) {
@@ -498,7 +520,7 @@ int smw_falcon_presentation_root_delta(const char *animation, float frame,
 void smw_falcon_presentation_prepare_ppu(Ppu *ppu) {
     if (!ppu) return;
     PpuClearOverlayCaptures(ppu);
-    if (!controllable() && !death_active()) { s_suppression_active = 0; return; }
+    if (!presentation_active()) { s_suppression_active = 0; return; }
     if (!s_bound) {
         if (!PpuBindOverlaySurface(ppu, kPpuOverlaySource_Obj,
                                    (uint8_t *)s_obj_scratch,
@@ -544,7 +566,7 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     const ForeignState *state;
     FalconPresentationTarget target;
     FalconPresentationPose pose;
-    if ((!controllable() && !death_active()) || !pixels || pitch % sizeof(uint32_t)) {
+    if (!presentation_active() || !pixels || pitch % sizeof(uint32_t)) {
         s_mesh_draw_active = 0;
         return;
     }
@@ -564,7 +586,15 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     /* Mature NES port convention: Captain's authored front/back axis must be
      * yawed 88 degrees into the 2D host plane for readable left/right profile. */
     target.yaw_degrees = 88.0f;
-    if (state) {
+    if (course_clear_active()) {
+        /* The source controller is intentionally frozen while native SMW
+         * runs Course Clear.  Do not leave a stale Punch/Kick frame on its
+         * victory screen; render a stable, native-facing Wait pose instead. */
+        pose.state = FALCON_PRESENT_IDLE;
+        pose.frame = 0.0f;
+        pose.facing_right = player_facing_direction != 0;
+        s_last_pose = pose;
+    } else if (state) {
         pose = smw_falcon_presentation_pose_for_state(
             state->state, state->state_frame, state->facing);
         s_last_pose = pose;

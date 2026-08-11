@@ -179,6 +179,24 @@ static void smw_falcon_advance_dive_iframes(int state)
     }
 }
 
+static void smw_falcon_snap_dive_toward_target(CpuState *cpu,
+                                                const ForeignState *state)
+{
+    int dx, dy;
+
+    if (cpu == NULL || state == NULL ||
+        (state->state != FL_FALCON_DIVE_CATCH &&
+         state->state != FL_FALCON_DIVE_THROW) ||
+        !smw_falcon_combat_dive_snap_delta(cpu, &s_combat_ledger, &dx, &dy))
+        return;
+    /* This runs before SMW's ordinary movement/collision pass.  The combat
+     * helper caps each requested vector at four pixels (well below a 16px
+     * tile), so native collision still owns any wall correction rather than
+     * a host teleport crossing level geometry. */
+    player_xpos = (uint16_t)(player_xpos + dx);
+    player_ypos = (uint16_t)(player_ypos + dy);
+}
+
 static int smw_falcon_active_kick_state(int state)
 {
     return state == FL_FALCON_KICK_GROUND || state == FL_FALCON_KICK_AIR;
@@ -486,7 +504,6 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
     ForeignState *state;
     ForeignInput input;
     int departure_started = 0;
-    (void)cpu;
 
     /* BoostMarioSpeed runs later in ProcessNormalSprites. Never let its
      * previous-frame observation cross a reset, handoff, or next tick. */
@@ -531,6 +548,11 @@ void SmwFalconBeforePhysics(struct CpuState *cpu)
         smw_falcon_reseed(state);
         snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
     }
+
+    /* Smash CaptureCaptain moves both bodies toward the capture anchor.
+     * Apply the bounded Falcon-side convergence before native physics so
+     * SMW, not a post-collision host write, remains authoritative for walls. */
+    smw_falcon_snap_dive_toward_target(cpu, state);
 
     /* This must precede state->grounded.  A floor rediscovered after the
      * previous tick is a host quantization artefact until native collision
@@ -876,6 +898,7 @@ void SmwFalconOnNativeStompBounce(struct CpuState *cpu)
 void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
 {
     unsigned slot = 12u;
+    ForeignCollisionResult skipped_cd36_hit;
     smw_falcon_finish_skipped_direct_air_kick_landing();
     /* Some player-collision branches return before the inline $00:CD36
      * callback.  A pending foreign tick still reaches this guaranteed
@@ -902,7 +925,24 @@ void SmwFalconBeforeNormalSprites(struct CpuState *cpu)
      * the guaranteed later normal-sprite pass and still precedes this slot's
      * $01:A7E4 side-damage check.  Commit the move once here when CD36 did
      * not run, then arm only the exact accepted Kick slots below. */
-    smw_falcon_apply_combat_once(cpu, NULL);
+    memset(&skipped_cd36_hit, 0, sizeof(skipped_cd36_hit));
+    smw_falcon_apply_combat_once(cpu, &skipped_cd36_hit);
+    if (skipped_cd36_hit.attack_connected &&
+        (s_last_move.attack.flags & FOREIGN_ATTACK_CONTACT_ONLY) != 0) {
+        const ForeignState *resolved;
+        /* The durable $01:80D2 fallback can be the only seam reached after a
+         * native player-collision nonlocal return.  A Dive latch is not
+         * complete until the controller sees this same-frame connection and
+         * enters Catch; otherwise the ledger keeps an inert slot forever. */
+        snes_foreign_resolve(&skipped_cd36_hit);
+        resolved = snes_foreign_state();
+        if (resolved != NULL && resolved->state == FL_FALCON_DIVE_CATCH) {
+            s_last_move.state = resolved->state;
+            memset(&s_last_move.attack, 0, sizeof(s_last_move.attack));
+            smw_falcon_combat_ledger_update(&s_combat_ledger,
+                                            resolved->state, 0);
+        }
+    }
     if (!snes_foreign_active() || !smw_falcon_playable() ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) {
         s_kick_contact_slots = 0;

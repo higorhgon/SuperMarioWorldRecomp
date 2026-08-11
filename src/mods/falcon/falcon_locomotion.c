@@ -1346,11 +1346,13 @@ static void emit_attack(const FalconFighter *f, FalconMotion *out)
         break;
     case FL_FALCON_DIVE_GROUND:
     case FL_FALCON_DIVE_AIR:
-        /* Source spheres: r100 at z180 and a one-frame r150 tip at z400.
-         * The conservative host rectangle covers their catchable union.
-         * SMB maps the eventual 20-damage throw to one native enemy defeat. */
+        /* SMW's 16x24 sprite boxes and one-pass normal-sprite seam need the
+         * same deliberately generous, front-only contact union as Falcon
+         * Punch.  It reaches 56px from Falcon's centre (not behind him),
+         * keeps the source frame-13 catch timing, and maps the eventual
+         * 20-damage throw to one native enemy defeat. */
         if (t >= 13.0 && t < 45.0) {
-            set_attack(out, 315.0, 260.0, 470.0, 300.0,
+            set_attack(out, 350.0, 100.0, 700.0, 650.0,
                        20, 0.0, 82.0, 0);
             out->attack.contact_only = 1;
         }

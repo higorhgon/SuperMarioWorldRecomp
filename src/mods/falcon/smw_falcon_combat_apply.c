@@ -5,6 +5,7 @@
 
 #include "funcs.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -29,6 +30,7 @@
 
 #define SMW_SPRITE_SLOTS 12u
 #define SMW_RAM_SIZE 0x20000u
+#define SMW_FALCON_DIVE_SNAP_MAX_PX 4.0
 
 typedef struct {
     uint16_t A, X, Y, S, D;
@@ -188,15 +190,25 @@ static int sprite_is_dive_catch_target(const CpuState *cpu, unsigned slot)
            sprite_is_supported_target(cpu, slot);
 }
 
+static uint16_t sprite_xpos(const CpuState *cpu, unsigned slot)
+{
+    return (uint16_t)(ram8(cpu, SMW_SPR_X_LO + slot) |
+                      ((uint16_t)ram8(cpu, SMW_SPR_X_HI + slot) << 8));
+}
+
+static uint16_t sprite_ypos(const CpuState *cpu, unsigned slot)
+{
+    return (uint16_t)(ram8(cpu, SMW_SPR_Y_LO + slot) |
+                      ((uint16_t)ram8(cpu, SMW_SPR_Y_HI + slot) << 8));
+}
+
 static SmwFalconAabb sprite_bounds(const CpuState *cpu, unsigned slot)
 {
     uint16_t x;
     uint16_t y;
     /* $00D8/$14D4 and $00E4/$14E0 are low/high position tables. */
-    x = (uint16_t)(ram8(cpu, SMW_SPR_X_LO + slot) |
-                   ((uint16_t)ram8(cpu, SMW_SPR_X_HI + slot) << 8));
-    y = (uint16_t)(ram8(cpu, SMW_SPR_Y_LO + slot) |
-                   ((uint16_t)ram8(cpu, SMW_SPR_Y_HI + slot) << 8));
+    x = sprite_xpos(cpu, slot);
+    y = sprite_ypos(cpu, slot);
     /* Upright targets use the conservative 16x24 union. Native loose shells
      * are 16x16, which still shares the same front/foot contact projection. */
     {
@@ -426,4 +438,42 @@ int smw_falcon_combat_release_dive(CpuState *cpu,
     ledger->dive_latched_slot = -1;
     ledger->dive_latched_id = 0;
     return released;
+}
+
+int smw_falcon_combat_dive_snap_delta(const CpuState *cpu,
+                                      const SmwFalconCombatLedger *ledger,
+                                      int *out_dx, int *out_dy)
+{
+    const int slot = ledger != NULL ? ledger->dive_latched_slot : -1;
+    int dx, dy;
+    double length;
+
+    if (out_dx != NULL) *out_dx = 0;
+    if (out_dy != NULL) *out_dy = 0;
+    if (cpu == NULL || cpu->ram == NULL || ledger == NULL || slot < 0 ||
+        slot >= (int)SMW_SPRITE_SLOTS ||
+        !sprite_is_dive_catch_target(cpu, (unsigned)slot) ||
+        ram8(cpu, 0x009Eu + (unsigned)slot) != ledger->dive_latched_id)
+        return 0;
+
+    /* BattleShip's ftCommonCaptureCaptainUpdatePositions pulls both Captain
+     * and his captured fighter toward the joint-29/TopN capture anchor and
+     * caps each source displacement at 180 units.  We do not have the
+     * captured fighter's state machine in SMW, so reproduce only Captain's
+     * half: align the 16x32 player centre with the captured 16x24 centre.
+     * 180 source units scale to 14.4 host pixels; use four whole pixels --
+     * one quarter of that cap and below a native 16px tile -- before SMW's
+     * ordinary physics/collision pass can correct the move. */
+    dx = (int)(int16_t)(sprite_xpos(cpu, (unsigned)slot) -
+                        ram16(cpu, SMW_PLAYER_X));
+    dy = (int)(int16_t)(sprite_ypos(cpu, (unsigned)slot) - 4u -
+                        ram16(cpu, SMW_PLAYER_Y));
+    length = sqrt((double)dx * (double)dx + (double)dy * (double)dy);
+    if (length > SMW_FALCON_DIVE_SNAP_MAX_PX) {
+        dx = (int)((double)dx * SMW_FALCON_DIVE_SNAP_MAX_PX / length);
+        dy = (int)((double)dy * SMW_FALCON_DIVE_SNAP_MAX_PX / length);
+    }
+    if (out_dx != NULL) *out_dx = dx;
+    if (out_dy != NULL) *out_dy = dy;
+    return dx != 0 || dy != 0;
 }

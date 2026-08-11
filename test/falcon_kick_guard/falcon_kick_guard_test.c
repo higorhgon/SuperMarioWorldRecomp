@@ -211,6 +211,49 @@ int main(void)
         snes_foreign_state()->grounded == 0 || smw_falcon_last_attack()->active)
         return fail("skipped-CD36 direct Air Kick lands as immediate idle");
 
+    /* The same skipped-CD36 route must deliver a Dive's catch contact to the
+     * source resolver.  Previously it only latched the ledger at $01:80D2,
+     * so all following frames saw an inert target and never entered Catch. */
+    SmwFalconOnStateLoaded();
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for skipped-CD36 Dive catch");
+    misc_game_mode = 0x14;
+    player_current_state = 0;
+    player_in_air_flag = 0;
+    player_blocked_flags = 4;
+    player_xpos = 100;
+    player_ypos = 200;
+    memset(spr_current_status, 0, 12);
+    frame(0x48, 0x48, &cpu); /* Up + Square/Y */
+    for (int i = 0; i != 40 && !smw_falcon_last_attack()->active; ++i)
+        frame(0, 0, &cpu);
+    if (!smw_falcon_last_attack()->active)
+        return fail("Dive reaches its capture window before fallback test");
+    spr_current_status[4] = 8;
+    spr_spriteid[4] = 0x0f;
+    spr_xpos_lo[4] = 150;
+    spr_ypos_lo[4] = 204; /* 16x32/16x24 centres already vertically aligned */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(&cpu);
+    cpu.DB = 1;
+    cpu.X = 4;
+    SmwFalconBeforeNormalSprites(&cpu); /* deliberately no AfterPhysics */
+    if (snes_foreign_state()->state != FL_FALCON_DIVE_CATCH)
+        return fail("skipped-CD36 Dive contact resolves into Catch");
+    /* Capture convergence is pre-physics and tile-safe: one 4px step toward
+     * the exact identity, never a host teleport through a 16px wall. */
+    {
+    const uint16_t catch_x = player_xpos;
+    const uint16_t catch_y = player_ypos;
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(&cpu);
+    if ((int16_t)(player_xpos - catch_x) != 4 || player_ypos != catch_y) {
+        return fail("Dive Catch takes bounded player-side capture snap");
+    }
+    }
+
     /* Up-B intentionally differs from Kick's exact-slot guard. Protect every
      * normal-sprite contact from startup through the source Catch/Throw, then
      * for exactly eight generic recovery frames. Drive a real controller

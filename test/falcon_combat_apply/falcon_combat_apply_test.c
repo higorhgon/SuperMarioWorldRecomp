@@ -111,7 +111,7 @@ static ForeignAttackHitbox kick(void) {
 }
 static ForeignAttackHitbox dive(void) {
     ForeignAttackHitbox a; memset(&a,0,sizeof(a)); a.active=1;
-    a.offset_x=315; a.offset_y=260; a.width=470; a.height=300;
+    a.offset_x=350; a.offset_y=100; a.width=700; a.height=650;
     a.flags=FOREIGN_ATTACK_CONTACT_ONLY; return a;
 }
 static void install_sprite(unsigned slot, uint8_t status, uint8_t id,
@@ -194,6 +194,17 @@ int main(void) {
           ledger.dive_latched_slot==4 && ledger.dive_latched_id==0x0f &&
           ledger.new_hit_slots==(1u<<4) && s_ram[0x14cc]==8 &&
           s_ram[0x14ce]==8);
+    {
+        int dx = 0, dy = 0;
+        /* Source CaptureCaptain permits 180 source units (14.4 host px),
+         * while SMW takes only a 4px pre-physics convergence step. */
+        CHECK(smw_falcon_combat_dive_snap_delta(&cpu,&ledger,&dx,&dy) &&
+              dx == 4 && dy == 0);
+        s_ram[0x9e + 4] = 0x35;
+        CHECK(!smw_falcon_combat_dive_snap_delta(&cpu,&ledger,&dx,&dy) &&
+              dx == 0 && dy == 0);
+        s_ram[0x9e + 4] = 0x0f;
+    }
     /* Repeated catch frames cannot reselect the second enemy or invoke a
      * native impact while Falcon is holding the captured identity. */
     memset(&hit,0,sizeof(hit));

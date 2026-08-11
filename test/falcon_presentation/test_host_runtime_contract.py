@@ -30,6 +30,20 @@ class FalconHostRuntimeContractTests(unittest.TestCase):
         hostile = r"C:\owner&cache|<bad>^%!$`;space"
         self.assertTrue(hostile.startswith("C:\\"))
 
+    def test_course_clear_is_presentation_only_and_excludes_demo_keyhole(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("static int course_clear_active(void)", source)
+        self.assertIn("snes_foreign_ownership() == FOREIGN_OWNERSHIP_SCRIPTED", source)
+        self.assertIn("misc_game_mode == 0x14 && player_current_state == 0", source)
+        self.assertIn("timer_end_level != 0 && timer_end_level_via_keyhole == 0", source)
+        self.assertIn("flag_show_victory_pose_during_level_end != 0", source)
+        self.assertIn("return controllable() || death_active() || course_clear_active();", source)
+        self.assertIn("if (!presentation_active()) { s_suppression_active = 0; return; }", source)
+        self.assertIn("if (!presentation_active() || !pixels", source)
+        # Carry OAM mutation remains live-control-only; Course Clear merely
+        # hides PlayerGFXRt and draws Falcon over the native score script.
+        self.assertIn("if (!ppu || !controllable()) return;", source)
+
 
 if __name__ == "__main__":
     unittest.main()
