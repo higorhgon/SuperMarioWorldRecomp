@@ -184,7 +184,6 @@ function(smw_add_recomp_target target_name generated_sources)
         SYSTEM_VOLUME_MIXER_AVAILABLE=0
         SNESRECOMP_TRACE=${_SMW_TRACE}
         SNESRECOMP_REVERSE_DEBUG=0
-        SNESRECOMP_LLE_BOUNCE_DEFAULT=0
     )
 
     if(NOT MSVC)
