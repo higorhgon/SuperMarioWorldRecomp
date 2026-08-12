@@ -99,8 +99,10 @@ Copy-Item -LiteralPath $assets -Destination $stage -Recurse
 # Release-owned mod catalog, when the build stages one. Ships as a nested
 # directory tree, which is exactly what made portable ZIP entry names matter
 # (see the archive writer below).
-if (Test-Path -LiteralPath $mods) {
-  Copy-Item -LiteralPath $mods -Destination $stage -Recurse
+if (Test-Path -LiteralPath (Join-Path $mods 'packages')) {
+  $stageMods = Join-Path $stage 'mods'
+  New-Item -ItemType Directory -Path $stageMods -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $mods 'packages') -Destination $stageMods -Recurse
 }
 
 # keybinds.ini is auto-generated next to the exe on first run (regenerated if

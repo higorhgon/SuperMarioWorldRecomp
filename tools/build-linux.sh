@@ -284,7 +284,8 @@ for manifest in "${REQUIRED_MOD_MANIFESTS[@]}"; do
 done
 if [ -d "$BUILT_MODS" ]; then
   echo "      staging mod catalog   -> AppDir/usr/bin/mods"
-  cp -r "$BUILT_MODS" "$APPDIR/usr/bin/mods"
+  mkdir -p "$APPDIR/usr/bin/mods"
+  cp -r "$BUILT_MODS/packages" "$APPDIR/usr/bin/mods/packages"
 fi
 
 # Custom AppRun. State policy: everything user-visible lives NEXT TO the
