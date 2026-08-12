@@ -78,6 +78,47 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len);
 static void EnsureConfigIni(void);
 static void RenderNumber(uint8 *dst, size_t pitch, int n, uint8 big);
 static void OpenOneGamepad(SDL_JoystickID i);
+
+static FILE *g_stall_log_file;
+static double g_stall_log_threshold_ms = -1.0;
+
+static double PerfDeltaMs(Uint64 start, Uint64 end) {
+  return (double)(end - start) * 1000.0 /
+         (double)SDL_GetPerformanceFrequency();
+}
+
+static void StallLogInit(void) {
+  if (g_stall_log_threshold_ms >= 0.0) return;
+  g_stall_log_threshold_ms = 0.0;
+  const char *path = getenv("SNESRECOMP_STALL_LOG");
+  if (!path || !path[0]) return;
+  const char *threshold = getenv("SNESRECOMP_STALL_MS");
+  g_stall_log_threshold_ms = threshold && threshold[0] ? atof(threshold) : 40.0;
+  if (g_stall_log_threshold_ms < 1.0) g_stall_log_threshold_ms = 40.0;
+  g_stall_log_file = fopen(path, "w");
+  if (g_stall_log_file) {
+    fprintf(g_stall_log_file,
+            "frame,total_ms,event_ms,run_ms,draw_ms,pace_ms,gm,state,air,"
+            "blocked,x,y,pipe_timer,pipe_action\n");
+    fflush(g_stall_log_file);
+  }
+}
+
+static void StallLogFrame(uint32 frame, Uint64 t0, Uint64 t_events,
+                          Uint64 t_run, Uint64 t_draw, Uint64 t_end) {
+  if (!g_stall_log_file) return;
+  double total = PerfDeltaMs(t0, t_end);
+  if (total < g_stall_log_threshold_ms) return;
+  uint16 px = (uint16)(g_ram[0x94] | ((uint16)g_ram[0x95] << 8));
+  uint16 py = (uint16)(g_ram[0x96] | ((uint16)g_ram[0x97] << 8));
+  fprintf(g_stall_log_file,
+          "%u,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u,%u,%u,%u,%u,%u,%u\n",
+          frame, total, PerfDeltaMs(t0, t_events),
+          PerfDeltaMs(t_events, t_run), PerfDeltaMs(t_run, t_draw),
+          PerfDeltaMs(t_draw, t_end), g_ram[0x100], g_ram[0x71],
+          g_ram[0x72], g_ram[0x77], px, py, g_ram[0x88], g_ram[0x89]);
+  fflush(g_stall_log_file);
+}
 static uint32 GetActiveControllers(void);
 static void RefreshKeybindControllerBits(void);
 #ifdef SMW_COOP_BUILD
@@ -1847,8 +1888,13 @@ error_reading:;
 #endif
 
   host_report_breadcrumb("entering main loop");
+  StallLogInit();
 
   while (running) {
+    Uint64 stall_t0 = SDL_GetPerformanceCounter();
+    Uint64 stall_t_events = stall_t0;
+    Uint64 stall_t_run = stall_t0;
+    Uint64 stall_t_draw = stall_t0;
     SDL_Event event;
 
     /* Inert unless SNESRECOMP_CRASH_TEST is set — support drill for the
@@ -1922,6 +1968,7 @@ error_reading:;
         break;
       }
     }
+    stall_t_events = SDL_GetPerformanceCounter();
 
     UpdateWidescreen();
 
@@ -2012,6 +2059,7 @@ error_reading:;
       RtlRunFrame(inputs | GetActiveControllers() |
                   debug_server_get_controller_active_mask());
     }
+    stall_t_run = SDL_GetPerformanceCounter();
 
 #ifdef ENABLE_ORACLE_BACKEND
     // Step the oracle emulator with the same input. First-light does
@@ -2087,6 +2135,7 @@ error_reading:;
        * on the raster IRQ). */
       g_rtl_game_info->draw_ppu_frame();
     }
+    stall_t_draw = SDL_GetPerformanceCounter();
 
     if (g_benchmark_frames > 0 &&
         frameCtr >= (uint32)g_benchmark_frames) {
@@ -2134,6 +2183,8 @@ error_reading:;
         lastTick = curTick;
       }
     }
+    StallLogFrame(frameCtr, stall_t0, stall_t_events, stall_t_run,
+                  stall_t_draw, SDL_GetPerformanceCounter());
   }
 
   if (g_config.autosave
