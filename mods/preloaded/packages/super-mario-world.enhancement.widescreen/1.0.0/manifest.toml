@@ -26,7 +26,7 @@ label = "View mode"
 description = "Adaptive follows the live window aspect at a fixed 224-line height, up to the sprite-safe ceiling. Fixed renders a constant 16:9 width."
 group = "Display"
 type = "choice"
-default = "adaptive"
+default = "16_9"
 
 [[option.choice]]
 value = "adaptive"
