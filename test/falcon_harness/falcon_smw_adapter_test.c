@@ -464,6 +464,7 @@ int main(void)
     SmwFalconAfterPhysics(NULL);
 
     player_timer_pipe_warping = 1;
+    player_pipe_action = 1;
     SmwFalconBeforePhysics(NULL);
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_SCRIPTED)
         return fail("pipe handoff is scripted, not foreign");
@@ -471,6 +472,41 @@ int main(void)
     /* Grounded Up-B publishes force_airborne. The boundary must consume it
      * instead of leaving a dead result that SMW immediately grounds again. */
     player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for pipe-top metadata");
+    player_timer_pipe_warping = 0x20;
+    player_pipe_action = 6; /* Pipe-top metadata, not an active handoff. */
+    snes_foreign_set_ownership(FOREIGN_OWNERSHIP_SCRIPTED);
+    player_in_air_flag = 0;
+    io_controller_hold1 = io_controller_press1 = 0;
+    io_controller_hold2 = io_controller_press2 = 0x40; /* X */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    SmwFalconBeforePhysics(NULL);
+    if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN ||
+        snes_foreign_trace_last(1, &trace) != 1 ||
+        trace.state != FL_JAB)
+        return fail("pipe-top $88=20/$89=6 remains Falcon-controllable");
+    SmwFalconAfterPhysics(NULL);
+    player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
+
+    if (!snes_foreign_select(SMW_CAPTAIN_FALCON_ID))
+        return fail("reset selected controller for native pipe-entry input");
+    player_timer_pipe_warping = 0x20;
+    player_pipe_action = 6;
+    io_controller_hold1 = io_controller_press1 = 0x44; /* Down + Square/Y */
+    io_controller_hold2 = io_controller_press2 = 0x40; /* X */
+    ++snes_frame_counter;
+    SmwFalconBeforePlayerPhysics(NULL);
+    if (io_controller_hold1 != 0x04 || io_controller_press1 != 0x04 ||
+        io_controller_hold2 != 0 || io_controller_press2 != 0)
+        return fail("pipe-top metadata passes only native Up/Down into SMW");
+    player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
+
     player_in_air_flag = 0;
     player_blocked_flags = 0;
     io_controller_hold1 = io_controller_press1 = 0;
@@ -782,11 +818,13 @@ int main(void)
     if (io_controller_hold1 != 0x40)
         return fail("carry bridge prepared handoff cleanup case");
     player_timer_pipe_warping = 1;
+    player_pipe_action = 1;
     SmwFalconBeforePhysics(NULL);
     if ((io_controller_hold1 & 0x44) != 0 ||
         snes_foreign_ownership() != FOREIGN_OWNERSHIP_SCRIPTED)
         return fail("pipe handoff clears translated carry input");
     player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
     snes_foreign_set_ownership(FOREIGN_OWNERSHIP_FOREIGN);
     io_controller_hold1 = 0x44;
     timer_end_level = 1;
@@ -813,12 +851,14 @@ int main(void)
     spr_table00c2[5] = 1;
     timer_yoshi_tongue_is_out = timer_yoshi_tongue_init = 7;
     player_timer_pipe_warping = 1;
+    player_pipe_action = 1;
     SmwFalconBeforeYoshi(NULL);
     if (player_riding_yoshi_flag || timer_yoshi_tongue_is_out ||
         timer_yoshi_tongue_init || spr_table00c2[5] != 0 ||
         !yoshi_persistence_intact())
         return fail("pipe handoff dismounts without corrupting Yoshi persistence");
     player_timer_pipe_warping = 0;
+    player_pipe_action = 0;
 
     player_riding_yoshi_flag = 1;
     spr_table00c2[5] = 1;

@@ -95,12 +95,26 @@ static int course_clear_active(void)
     return misc_game_mode == 0x0b;
 }
 
+static int active_pipe_handoff(void)
+{
+    return flag_about_to_warp_in_pipe != 0 ||
+           (player_pipe_action != 0 && player_pipe_action < 4);
+}
+
+static int scripted_pipe_active(void)
+{
+    if (s_presentation == NULL || !falcon_controller_selected()) return 0;
+    /* Presentation-only.  Native SMW owns pipe travel, but the parody player
+     * must remain Falcon while the pipe pose/slide runs. `$89 >= 4` and
+     * `$88=20,$89=06` are persistent pipe-adjacent metadata and are covered by
+     * normal controllable play; this predicate covers the scripted side. */
+    return misc_game_mode == 0x14 &&
+           (active_pipe_handoff() || player_timer_pipe_warping != 0) &&
+           timer_end_level == 0 && timer_end_level_via_keyhole == 0;
+}
+
 static int scripted_water_active(void)
 {
-    const int active_pipe_handoff =
-        player_timer_pipe_warping != 0 || flag_about_to_warp_in_pipe != 0 ||
-        (player_pipe_action != 0 && player_pipe_action < 4);
-
     if (s_presentation == NULL || !falcon_controller_selected()) return 0;
     /* Water levels can be entered through native transitions where ownership
      * is briefly SCRIPTED even though gameplay is already back in ordinary
@@ -109,7 +123,7 @@ static int scripted_water_active(void)
      * seam and continues to own water movement. `$89 >= 4` is persistent
      * entrance metadata, not a still-active pipe, once the pipe timer is zero. */
     return misc_game_mode == 0x14 && player_current_state == 0 &&
-           flag_underwater_level != 0 && !active_pipe_handoff &&
+           flag_underwater_level != 0 && !active_pipe_handoff() &&
            timer_end_level == 0 && timer_end_level_via_keyhole == 0;
 }
 
@@ -481,8 +495,7 @@ static const char *controllable_reason(void) {
     if (snes_foreign_ownership() != FOREIGN_OWNERSHIP_FOREIGN) return "controller handoff";
     if (misc_game_mode != 0x14) return "not level gameplay";
     if (player_current_state != 0) return "nonordinary player state";
-    if (player_timer_pipe_warping || flag_about_to_warp_in_pipe ||
-        (player_pipe_action != 0 && player_pipe_action < 4)) return "pipe handoff";
+    if (active_pipe_handoff()) return "pipe handoff";
     if (timer_end_level || timer_end_level_via_keyhole) return "goal handoff";
     return "active";
 }
@@ -499,7 +512,8 @@ static int controllable(void) {
 static int presentation_active(void)
 {
     return controllable() || death_active() || course_clear_active() ||
-           powerup_animation_active() || scripted_water_active();
+           powerup_animation_active() || scripted_water_active() ||
+           scripted_pipe_active();
 }
 
 void smw_falcon_presentation_reset(void) {
@@ -640,7 +654,8 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
         pose.frame = 0.0f;
         pose.facing_right = player_facing_direction != 0;
         s_last_pose = pose;
-    } else if (scripted_water_active() && !controllable()) {
+    } else if ((scripted_water_active() || scripted_pipe_active()) &&
+               !controllable()) {
         pose = s_last_pose;
         pose.facing_right = player_facing_direction != 0;
     } else if (state) {

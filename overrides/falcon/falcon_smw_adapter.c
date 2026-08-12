@@ -421,14 +421,15 @@ static void smw_falcon_hold_departure_edge(int advance_timeout)
 static int smw_falcon_playable(void)
 {
     const int active_pipe_handoff =
-        player_timer_pipe_warping != 0 || flag_about_to_warp_in_pipe != 0 ||
+        flag_about_to_warp_in_pipe != 0 ||
         (player_pipe_action != 0 && player_pipe_action < 4);
 
     /* `$89` is overloaded. Values 1..3 are active pipe/sublevel handoffs, but
      * values 4..7 are persistent level-entrance metadata after the native
-     * entry pipe returns the player to ordinary state. Water entrances can
-     * leave `$89=07`; treating that as a live pipe permanently stranded Falcon
-     * in SCRIPTED ownership and exposed native Mario. */
+     * entry pipe returns the player to ordinary state. Pipe tops can also
+     * leave `$88=20,$89=06` while the player is simply standing on them. Water
+     * entrances can leave `$89=07`; treating either as a live pipe permanently
+     * stranded Falcon in SCRIPTED ownership and exposed native Mario. */
     return misc_game_mode == 0x14 && player_current_state == 0 &&
            !active_pipe_handoff && timer_end_level == 0 &&
            timer_end_level_via_keyhole == 0;
@@ -508,6 +509,15 @@ static void smw_falcon_capture_and_mask_input(void)
     io_controller_press1 &= (uint8_t)~0xCF;
     io_controller_hold2 &= (uint8_t)~0xC0;  /* A carry, X normal */
     io_controller_press2 &= (uint8_t)~0xC0;
+
+    if (player_pipe_action >= 4) {
+        /* `$89 >= 4` marks pipe-adjacent/entrance metadata, not an active
+         * handoff.  Keep only native Up/Down visible so SMW can still start
+         * its own pipe-entry script while Falcon owns ordinary movement and
+         * action buttons. */
+        io_controller_hold1 |= (uint8_t)(s_foreign_pad.hold1 & 0x0Cu);
+        io_controller_press1 |= (uint8_t)(s_foreign_pad.press1 & 0x0Cu);
+    }
 }
 
 static void smw_falcon_clear_carry_bridge(void)
