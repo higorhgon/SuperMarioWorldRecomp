@@ -6,6 +6,10 @@
 
 #define SMW_FALCON_PLUGIN "super-mario-world.smash64.captain-falcon"
 
+const char *snes_mod_external_rom_path(const char *package_id,
+                                       const char *feature_id,
+                                       const char *resource_id);
+
 static void smw_falcon_reset(void)
 {
     smw_falcon_presentation_reset();

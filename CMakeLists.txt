@@ -129,6 +129,9 @@ file(GLOB SMW_OVERRIDE_SOURCES CONFIGURE_DEPENDS
 set(SMW_RUNTIME_SOURCES
     ${SNESRECOMP_RUNNER_SOURCES}
     src/config.c
+    src/foreign_controller.c
+    src/mod_audio.c
+    src/mod_external_rom_compat.c
     src/main.c
     src/opengl.c
     src/smw_00.c
