@@ -15,7 +15,7 @@
 
 #include "cpu_state.h"
 
-/* 1945 functions across all banks (5 decls each). */
+/* 1940 functions across all banks (5 decls each). */
 
 void I_RESET(CpuState *cpu);  /* $00:8000 alias */
 RecompReturn I_RESET_M0X0(CpuState *cpu);

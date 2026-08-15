@@ -184,6 +184,13 @@ function(smw_add_recomp_target target_name generated_sources)
         SYSTEM_VOLUME_MIXER_AVAILABLE=0
         SNESRECOMP_TRACE=${_SMW_TRACE}
         SNESRECOMP_REVERSE_DEBUG=0
+        # SMW's stock title attract demo is a recorded choreography under
+        # game mode $07. Letting the LLE scheduler bounce into generated AOT
+        # bodies by default skews that path enough for Mario to enter death
+        # state around frame 1026. Keep the stock runtime on the interpreted
+        # floor by default; Falcon/mod work can still opt into bounce with
+        # SNESRECOMP_LLE_BOUNCE=1 or a narrower target-specific exclusion.
+        SNESRECOMP_LLE_BOUNCE_DEFAULT=0
     )
 
     if(NOT MSVC)
