@@ -348,9 +348,10 @@ https://discord.gg/S4MvUGQFwd
 
 ## License
 
-PolyForm Noncommercial 1.0.0. See `LICENSE`. Code in this repo is original except where noted in
-**Acknowledgements** above; vendored dependencies under `third_party/`
-(and the `SMWDisX/` disassembly clone) retain their own licenses.
+PolyForm Noncommercial 1.0.0. See `LICENSE`. Code in this repo is original
+except where noted in **Acknowledgements** above; vendored dependencies under
+`third_party/` (and the `SMWDisX/` disassembly clone) retain their own
+licenses.
 
 The SMW ROM and any data extracted from it are **not** in this
 repo and are not licensed for redistribution.
