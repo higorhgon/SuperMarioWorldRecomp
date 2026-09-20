@@ -65,4 +65,5 @@ hw_trace.log
 SuperMarioWorldRecomp-windows-*.zip
 SuperMarioWorldRecomp-widescreen-windows-*.zip
 release-stage/
+release-linux/
 release/

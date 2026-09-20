@@ -74,6 +74,14 @@ static void spawn(void) {
   g_ram[0xe4]=0;g_ram[0x14e0]=8;cpu.X=0;
   SmwRendererDrawInfo(&cpu);assert(g_ram[0x15c4]==0 && cpu._flag_Z==1);
   g_ram[0x14e0]=9;SmwRendererDrawInfo(&cpu);assert(g_ram[0x15c4]==1);
+  /* All three ROM copies must also work when their caller is interpreted. */
+  const uint32_t draw_pcs[]={0x01A393,0x02D3A6,0x03B78E};
+  for(unsigned i=0;i<sizeof(draw_pcs)/sizeof(*draw_pcs);++i) {
+    g_ram[0x14e0]=8;SmwRendererGuestHook(&cpu,draw_pcs[i]);
+    assert(g_ram[0x15c4]==0 && cpu._flag_Z==1);
+    g_ram[0x14e0]=9;SmwRendererGuestHook(&cpu,draw_pcs[i]);
+    assert(g_ram[0x15c4]==1 && cpu._flag_Z==0);
+  }
 }
 typedef struct StateBuffer { SaveLoadInfo base; bool writing; size_t position; uint8_t data[256]; } StateBuffer;
 static void state_transfer(SaveLoadInfo *sli,void *data,size_t size) {
@@ -102,7 +110,7 @@ static void spawn_lifecycle(void) {
   g_ram[0x1938]=0; /* consumed by shell entry; source is still in the view */
   cpu.X=0;cpu.Y=1;
   for(int i=0;i<10;++i) { SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255); }
-  StateBuffer saved={{state_transfer},true,0,{0}};
+  StateBuffer saved={{state_transfer,NULL},true,0,{0}};
   SmwRendererSaveExtra(&saved.base);assert(saved.position==141);
   /* Leaving the region rearms the source, so a genuine return may respawn. */
   word(0x1a,3000);SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);

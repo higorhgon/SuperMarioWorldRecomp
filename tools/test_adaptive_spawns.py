@@ -23,7 +23,14 @@ from test_adaptive_renderer import ROOT, environment, rows
 def snapshot_ram(path):
     data = path.read_bytes()
     assert struct.unpack_from('<II',data) == (0x52544c53,7), 'fixture requires RTLS v7'
-    if data[-141:-137] == b'SMWS': data = data[:-141]
+    foreign_size = 12 + 4096 + 256  # SFW1 header + fixed controller capacity
+    combined_size = 4 + 141 + foreign_size
+    if data[-combined_size:-combined_size+4] == b'SMX1':
+        data = data[:-combined_size]
+    elif data[-foreign_size:-foreign_size+4] == b'SFW1':
+        data = data[:-foreign_size]
+    elif data[-141:-137] == b'SMWS':
+        data = data[:-141]
     # snes_saveload ends with WRAM, ramAdr (4), then the v7 joypad fields (7).
     ram = data[-0x20000-11:-11]
     assert len(ram) == 0x20000 and ram[0x100] == 20, 'fixture must be in a level'

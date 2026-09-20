@@ -45,6 +45,8 @@ def environment():
             env.pop(key)
     if Path('C:/msys64/mingw64/bin').is_dir():
         env['PATH'] = 'C:/msys64/mingw64/bin;' + env['PATH']
+    # Release runtimes leave execution coverage off unless explicitly asked.
+    env['SNESRECOMP_TIER2_CAPTURE'] = '1'
     return env
 
 def rows(path):
