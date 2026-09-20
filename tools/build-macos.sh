@@ -26,9 +26,9 @@ CMAKE_TARGET="SuperMarioWorldSNESRecomp"
 ROM_EXTS="sfc smc"
 EXTRA_ARGS=""
 REGEN_CMD="bash tools/regen.sh"
-# See build-linux.sh: ship the STANDARD (pristine-gen) variant on macOS too.
-PREBUILD_CMD="python3 tools/apply_overrides.py --restore --gen-dir src/gen"
-POSTBUILD_CMD="python3 tools/apply_overrides.py --check --gen-dir src/gen --manifest overrides/widescreen/overrides.manifest"
+# CMake installs the adaptive renderer hooks; disabled mods retain stock behavior.
+PREBUILD_CMD=""
+POSTBUILD_CMD=""
 PROD_CMAKE_FLAGS=( -DSNESRECOMP_ENABLE_TRACE=OFF )
 DEBUG_CMAKE_FLAGS=( -DSNESRECOMP_ENABLE_TRACE=ON )
 BUNDLE_ID="com.mstan.supermarioworldrecomp"

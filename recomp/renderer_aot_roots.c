@@ -1,15 +1,12 @@
 #include "cpu_state.h"
 #include "funcs.h"
 
-/* Generator-only root manifest for the widescreen override injector.
- *
- * v2 generation is LLE-first, so functions used only by build-time injected
- * widescreen hooks would otherwise remain interpreter-only and leave no C
- * block for tools/apply_overrides.py to patch. This file is scanned by
- * tools/regen.sh but is not compiled into the game. Authentic behavior is
- * unchanged until the runtime-gated overrides are injected for a release. */
-void WidescreenOverrideAotRoots(CpuState *cpu) {
+/* Host-call roots for the generated ownership and gameplay policy hooks.
+ * tools/apply_renderer_hooks.py verifies these sites after every regeneration.
+ * This manifest is scanned by the generator, never compiled into the game. */
+void SmwRendererAotRoots(CpuState *cpu) {
   GenericExtendedSpriteGFXRt_FireballEntry(cpu);
+  FinishOAMWrite_01B844(cpu);
   GetDrawInfo_Bank01_Recomp(cpu);
   GetDrawInfo_Bank23_Recomp(cpu);
   DrawWingTiles_ParaKoopaEntry(cpu);

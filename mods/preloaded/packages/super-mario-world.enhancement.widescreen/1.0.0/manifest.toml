@@ -1,9 +1,9 @@
 format_version = 1
 id = "super-mario-world.enhancement.widescreen"
 version = "1.0.0"
-name = "Super Mario World Widescreen"
+name = "SMW Adaptive Widescreen"
 author = "mstan"
-description = "Renders Super Mario World with a wider field of view using its game-specific spawn, culling, despawn, sprite-allocation, special-object OAM, and fireball work, plus an optional edge-split status bar."
+description = "An adaptive game view with fixed aspect ratios and a choice of screen-based or original enemy activation."
 license = "MIT"
 resolver = "declarative"
 save_compatibility = "shared"
@@ -14,44 +14,68 @@ rom_sha256 = "0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b"
 
 [[feature]]
 id = "widescreen"
-name = "Widescreen (16:9)"
-description = "Enable Super Mario World's game-specific widescreen rendering enhancement."
+name = "Adaptive widescreen"
+description = "Fit the game view to your screen, or choose a fixed aspect ratio."
 group = "Display"
 default_enabled = false
 
 [[option]]
 feature = "widescreen"
 id = "mode"
-label = "View mode"
-description = "Adaptive follows the live window aspect at a fixed 224-line height, up to the sprite-safe ceiling. Fixed renders a constant 16:9 width."
+label = "Aspect ratio"
+description = "Fit to screen follows your window or monitor as it changes."
 group = "Display"
 type = "choice"
 default = "adaptive"
 
 [[option.choice]]
 value = "adaptive"
-label = "Adaptive"
+label = "Fit to screen"
+
+[[option.choice]]
+value = "4_3"
+label = "4:3"
 
 [[option.choice]]
 value = "16_9"
-label = "16:9 fixed"
+label = "16:9"
+
+[[option.choice]]
+value = "16_10"
+label = "16:10"
+
+[[option.choice]]
+value = "21_9"
+label = "21:9"
+
+[[option.choice]]
+value = "32_9"
+label = "32:9"
+
+[[option.choice]]
+value = "48_9"
+label = "48:9"
+
+[[option.choice]]
+value = "100_9"
+label = "100:9"
 
 [[option]]
 feature = "widescreen"
-id = "hud"
-label = "Status bar"
-description = "Split spreads the status bar to the widescreen edges (lives cluster left, TIME/coins/score right, item box centered). Centered keeps the authentic 4:3 placement."
-group = "Display"
+id = "spawn"
+label = "Enemy spawn behavior"
+description = "Screen-based activates enemies just beyond the view. Original 4:3 preserves the original activation area; enemies may appear within a wider view."
+group = "Gameplay"
 type = "choice"
-default = "split"
+default = "adaptive"
 
 [[option.choice]]
-value = "split"
-label = "Split to edges"
+value = "adaptive"
+label = "Screen-based"
 
 [[option.choice]]
-value = "centered"
-label = "Authentic centered"
+value = "original"
+label = "Original 4:3"
 
 [[plugin]]
 feature = "widescreen"

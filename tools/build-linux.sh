@@ -42,8 +42,8 @@
 # -O3. On a memory-constrained host, too many concurrent jobs makes the compiler
 # die with no diagnostic. Lower --jobs before suspecting the sources.
 #
-# The widescreen object-lifecycle hooks are NOT handled here: CMakeLists.txt owns
-# their injection through the smw_widescreen_overrides stamp rule, so the Linux
+# CMakeLists.txt installs the adaptive renderer's guest hooks through the
+# smw_renderer_hooks stamp rule, so the Linux
 # and Windows builds get an identical generated tree by construction.
 #
 # Prereqs: cmake, a C/C++ toolchain, SDL3 (or SNESRECOMP_SDL_BACKEND=SDL2 with

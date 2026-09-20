@@ -488,8 +488,7 @@ void ParseConfigFile(const char *filename) {
    * hardcoded magnitude gate in HandleGamepadAxisInput). */
   g_config.deadzone[0] = 30;
   g_config.deadzone[1] = 30;
-  /* HUD-to-the-edges defaults on; inert in Standard view mode.
-   * `WidescreenHud = 0` keeps the authentic centered status bar. */
+  /* Retained for old config/launcher ABI; adaptive HUD anchoring is automatic. */
   g_config.widescreen_hud = true;
 
   /* An empty identity intentionally triggers recomp-ui's first-entry name
