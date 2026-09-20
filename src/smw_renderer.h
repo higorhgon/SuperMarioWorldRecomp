@@ -17,14 +17,15 @@ extern SmwViewport g_smw_viewport;
 SmwViewport SmwCalculateViewport(const SmwVideoSettings *settings, int w, int h);
 int SmwViewOffset(SmwViewport view, int camera, int level_width);
 void SmwDestination(SmwViewport view, int w, int h, int *x, int *y, int *dw, int *dh);
-void SmwRendererBeginFrame(const uint8_t *ram);
+void SmwRendererBeginFrame(void);
 void SmwRendererCaptureLine(const Ppu *ppu, int line);
 void SmwRendererDraw(uint8_t *pixels, size_t pitch, const uint8_t *stock);
 bool SmwRendererMapTile(const uint8_t *ram, unsigned layer, int x, int y, uint16_t *tile);
 /* Signed host coordinates paired with the exact OAM image, latched at NMI. */
 void SmwRendererRecordOam(unsigned slot, int x, uint16_t position, uint16_t attr);
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end);
-void SmwRendererLatchOam(void);
+/* Latch scene RAM and completed OAM ownership together, immediately before NMI. */
+void SmwRendererLatchFrame(void);
 void SmwRendererSpawnFrame(void);
 struct SaveLoadInfo;
 void SmwRendererSaveExtra(struct SaveLoadInfo *sli);

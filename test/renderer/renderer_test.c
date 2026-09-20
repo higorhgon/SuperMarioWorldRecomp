@@ -136,7 +136,7 @@ static void objects(void) {
   test_ppu.oam[128]=100*256;test_ppu.oam[129]=0x3000;
   word(0x300,100*256);word(0x302,0x3000);
   SmwRendererRecordSprite(0,2048,100,0,4);
-  SmwRendererLatchOam();SmwRendererBeginFrame(g_ram);
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
   for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
   SmwRendererDraw(surface,2134*4,native);
   const uint32_t *pixel=(const uint32_t *)surface;
@@ -144,7 +144,7 @@ static void objects(void) {
   assert(pixel[100*2134]==0); /* Never alias x=2048 into native x=0. */
   /* Reused OAM with different attributes must not retain the far owner. */
   test_ppu.oam[129]=0x3400;test_ppu.cgram[161]=0x03e0;
-  SmwRendererBeginFrame(g_ram);
+  SmwRendererBeginFrame();
   for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
   SmwRendererDraw(surface,2134*4,native);
   assert(pixel[100*2134+2048]==0);
@@ -159,7 +159,7 @@ static void objects(void) {
   word(0x304,test_ppu.oam[130]);word(0x306,test_ppu.oam[131]);
   SmwRendererRecordSprite(0,-80,100,0,8);
   SmwRendererRecordSprite(0,-70,116,4,8);
-  SmwRendererLatchOam();SmwRendererBeginFrame(g_ram);
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
   for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
   SmwRendererDraw(surface,568*4,native);
   assert(pixel[100*568+76]==0xff0000);
@@ -204,7 +204,7 @@ static void hud(void) {
     int width=widths[i],extra=(width-256)/2;
     word(0x1a,camera);g_smw_viewport=(SmwViewport){width,extra,width/192.0};
     test_ppu.screenEnabled[0]=4|16;
-    SmwRendererBeginFrame(g_ram);
+    SmwRendererLatchFrame();SmwRendererBeginFrame();
     for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
     SmwRendererDraw(surface,width*4,native);
     const uint32_t *pixel=(const uint32_t *)surface;
@@ -243,7 +243,11 @@ static void parallax(void) {
       if(origin>last)origin=last;
       word(0x1a,camera);g_ram[0x1413]=setting;
       g_smw_viewport=(SmwViewport){width,extra,width/192.0};
-      SmwRendererBeginFrame(g_ram);
+      SmwRendererLatchFrame();
+      /* The simulation advances after NMI; presentation must keep the camera
+       * belonging to the uploaded tiles even across either clamp threshold. */
+      word(0x1a,camera+4);
+      SmwRendererBeginFrame();
       for(int y=1;y<=224;++y) {
         test_ppu.hScroll[1]=37+(setting==0?0:setting==1?camera:camera/2)+(y>100?11:0);
         SmwRendererCaptureLine(&test_ppu,y);
@@ -261,13 +265,45 @@ static void parallax(void) {
    * changes the setting; never apply decorative-background compensation. */
   g_ram[0x1925]=1;g_ram[0x1413]=2;word(0x1a,700);
   g_smw_viewport=(SmwViewport){1118,431,1118.0/192};test_ppu.hScroll[1]=350;
-  SmwRendererBeginFrame(g_ram);
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
   for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
   SmwRendererDraw(surface,1118*4,native);
   for(int x=0;x<256;++x) {
     unsigned red=1+((x+350)&255)%15;
     assert(((uint32_t *)surface)[80*1118+431+x]==((red<<3)|(red>>2))<<16);
   }
+}
+static void camera_timing(void) {
+  /* Reuse parallax's uniquely colored tile strip as foreground terrain. */
+  g_ram[0x1925]=0;test_ppu.screenEnabled[0]=1|16;
+  test_ppu.bgXsc[0]=test_ppu.bgXsc[1];test_ppu.cgram[129]=0x7c00;
+  for(int i=0;i<128;++i)test_ppu.oam[i*2]=0xf000;
+  test_ppu.oam[128]=0x6428;test_ppu.oam[129]=0x3040;
+  for(int y=0;y<8;++y)test_ppu.vram[64*16+y]=0xff;
+  const int widths[]={558,2134}, cameras[]={0,24,28,150,151,152,938,939,940,1023,1024};
+  for(unsigned w=0;w<sizeof(widths)/sizeof(*widths);++w)
+    for(unsigned c=0;c<sizeof(cameras)/sizeof(*cameras);++c) {
+      int camera=cameras[c],width=widths[w],extra=(width-256)/2;
+      int origin=camera>extra?camera-extra:0,offset=camera-origin;
+      g_smw_viewport=(SmwViewport){width,extra,width/192.0};word(0x1a,camera);
+      SmwRendererRecordOam(64,40,0x6428,0x3040);
+      SmwRendererLatchFrame();
+      /* Upload the latched scene, then vary the NEXT simulation camera. */
+      test_ppu.hScroll[0]=camera&1023;
+      const int deltas[]={4,1,2,0,-1};
+      for(unsigned d=0;d<sizeof(deltas)/sizeof(*deltas);++d) {
+        word(0x1a,camera+deltas[d]);
+        SmwRendererBeginFrame();
+        for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+        SmwRendererDraw(surface,width*4,native);
+        const uint32_t *pixel=(const uint32_t *)surface;
+        for(int x=0;x<256;++x) {
+          unsigned red=1+((x+camera)&255)%15;
+          assert(pixel[80*width+offset+x]==((red<<3)|(red>>2))<<16);
+        }
+        assert(pixel[100*width+offset+40]==0x0000ff);
+      }
+    }
 }
 static void pipe_variants(void) {
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;
@@ -306,4 +342,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();parallax();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants, anchored HUD and background parallax: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }

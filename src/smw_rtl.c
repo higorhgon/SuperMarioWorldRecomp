@@ -18,7 +18,7 @@ static SnesrecompExecutionMode smw_execution_mode(void) {
 }
 
 void SmwDrawPpuFrame(void) {
-  SmwRendererBeginFrame(g_ram);
+  SmwRendererBeginFrame();
   SimpleHdma hdma_chans[3];
 
   Dma *dma = g_dma;
@@ -58,7 +58,7 @@ void SmwDrawPpuFrame(void) {
 
 void RunOneFrameOfGame(void) {
   SmwRendererSpawnFrame();
-  SmwRendererLatchOam();
+  SmwRendererLatchFrame();
   // First-call reset gate. Was previously `if (*(uint16*)$7F8000 == 0) I_RESET()`,
   // which silently relied on WRAM being zero-initialized at power-on. Real hardware
   // (and snes9x) power-on WRAM is 0x55, so that check would never fire and I_RESET

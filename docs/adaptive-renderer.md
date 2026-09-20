@@ -61,7 +61,11 @@ working directory authoritative for settings and saves.
 ## How it works
 
 `src/smw_renderer.c` composes an independent host surface. The native PPU
-stays 256x224. Immutable per-scanline registers, palette, VRAM and OAM preserve
+stays 256x224. Scene RAM and completed OAM ownership are latched together before
+NMI uploads that scene. The subsequent simulation tick can advance the camera
+without moving the already-uploaded terrain. Scanout and repeated draws use
+the latched camera, Map16 and sprite metadata, including after a resize.
+Immutable per-scanline registers, palette, VRAM and OAM preserve
 the game's IRQ/HDMA timing. Mode 1 tiles use captured VRAM in the native area
 and the full level's Map16 data outside it. Layer 2 level modes also use
 Map16. Horizontal repeating backgrounds project the native zero/full/half-speed
@@ -184,16 +188,22 @@ Fit with Screen-based spawning; original saves are copied and hash-checked.
 Scripted input supports combined buttons such as `press left+b+y 100` and
 `savestate N` as well as `loadstate N` for these repeatable checks.
 
-The background regression enters Yoshi's Island 2 from a fresh save and walks
-right with Screen-based spawning. Ten captures compare the actual sky pixels
-to the original PPU image at the expected parallax displacement. This rejects
-the old renderer as soon as the native camera moves inside the clamped wide
-view. At 16:9 the route also crosses the clamp into normal camera scrolling;
-the wider runs keep the visible origin stationary while the native camera
-advances. The native raster's short pipeline delay is preserved.
-The 2048x352, 100:9 and 16:9 runs each passed 122,880 sky pixel comparisons
-across all ten captures and rendered all 2900 simulated frames, with zero
-unexplained native-control differences or interpreter bailouts.
+The camera regression enters Yoshi's Island 2 from a fresh save and walks right
+with Screen-based spawning. It compares 24 captures, including consecutive
+frames across the reported 2095x720 window's camera threshold. Actual terrain
+pixels are compared at fixed world positions to a native PPU reference;
+captured sprite footprints exclude falling shells from the terrain samples.
+Sky pixels are checked independently at the expected parallax displacement.
+The old build fails as soon as the simulation camera advances past the uploaded
+camera. Stationary scenery must now have exactly zero drift; the prior test's
+two-pixel tolerance concealed the timing mismatch. Per-frame diagnostics also
+check that the presentation camera agrees with the actual PPU scroll.
+The latest terrain/sky checks pass at the reported width, 16:9 and during live
+resizing, with zero unexplained native-control differences. The saved-pipe
+regression also passes at 100:9. Scripted camera tests isolate controller
+bindings, and the standalone tests vary the next simulation camera while
+requiring the already-uploaded foreground, background and sprite positions to
+stay fixed. Original 4:3 spawning is not used for these playtests.
 
 Parallax intentionally changes the scenery within the original viewport too.
 With diagnostics enabled, the renderer additionally composes that viewport
@@ -210,12 +220,15 @@ Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 comma-separated frame numbers for a sequence of numbered dumps;
 `SMW_RENDER_CAPTURE_EVERY` controls periodic BMPs. Captures and ROM-derived
 data are local artifacts and are not committed.
-Diagnostics also record `spawns.csv` (candidates, successful loads, suppressed
+Frame diagnostics include the presentation and simulation cameras, captured
+raster scroll and native-view offset. Diagnostics also record `spawns.csv` (candidates, successful loads, suppressed
 reactivation and rearming) and `sprites.csv` (per-frame entity state).
 
 ## Remaining scope
 
-This is a playable renderer experiment, not a full-game compatibility claim.
+Testing has focused mostly on **World 1-2 (Yoshi's Island 2)**. The rest of the
+game has not yet been fully tested. This feature remains an experimental draft
+on its feature branch, pending broader level and gameplay coverage.
 The original 12 regular sprite slots and level-specific reserved allocations
 remain; very wide views can exhaust them before every visible enemy activates.
 Specialized sprite paths beyond the covered ownership hooks need more level

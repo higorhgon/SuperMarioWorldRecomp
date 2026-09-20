@@ -53,7 +53,12 @@ void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsign
     for (unsigned index=first;index<end;index+=4)
       sprite_owners[index/4] = (SpriteOwner){x,y,true};
 }
-void SmwRendererLatchOam(void) {
+void SmwRendererLatchFrame(void) {
+  /* NMI uploads this scene's scroll and OAM before the next simulation tick.
+   * Keep the camera, Map16 and sprite metadata from the same scene. Reading
+   * live RAM at scanout instead mixes the next camera with the uploaded tiles,
+   * making a clamped viewport move by the changing per-tick camera delta. */
+  if (g_smw_video.enabled) memcpy(frame_ram,g_ram,sizeof(frame_ram));
   /* SMW's small generic graphics paths do not call FinishOAMWrite. Their
    * GetDrawInfo call identifies the sprite's reserved OAM allocation. Bind
    * the completed pieces before NMI, with signed deltas to that draw origin.
@@ -76,13 +81,12 @@ void SmwRendererLatchOam(void) {
   memset(pending, 0, sizeof(pending));
   memset(sprite_owners,0,sizeof(sprite_owners));
 }
-void SmwRendererBeginFrame(const uint8_t *ram) {
+void SmwRendererBeginFrame(void) {
   captured = 0;
   if (!g_smw_video.enabled) return;
-  memcpy(frame_ram, ram, sizeof(frame_ram));
   native_x = g_smw_viewport.extra;
-  if (ram[0x100] == 0x14 && !(ram[0x5b] & 1))
-    native_x = SmwViewOffset(g_smw_viewport, read16(ram, 0x1a), (ram[0x5e]+1)*256);
+  if (frame_ram[0x100] == 0x14 && !(frame_ram[0x5b] & 1))
+    native_x = SmwViewOffset(g_smw_viewport, read16(frame_ram, 0x1a), (frame_ram[0x5e]+1)*256);
 }
 void SmwRendererCaptureLine(const Ppu *p, int line) {
   if (!g_smw_video.enabled || line < 1 || line > 224) return;
@@ -372,9 +376,14 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
   if(!trace) {
     snprintf(path,sizeof(path),"%s/frames.csv",directory);
     trace=fopen(path,"w");
-    if(trace) fprintf(trace,"frame,mode,camera,width,active,far,native_differences,unexplained_differences,parallax_differences\n");
+    if(trace) fprintf(trace,"frame,mode,camera,width,active,far,native_differences,unexplained_differences,parallax_differences,simulation_camera,raster_camera,native_offset\n");
   }
-  if(trace) { fprintf(trace,"%u,%u,%d,%d,%u,%u,%u,%u,%u\n",frame,frame_ram[0x100],camera,g_smw_viewport.width,active,far,differing,unexplained,parallax); fflush(trace); }
+  if(trace) {
+    fprintf(trace,"%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%u,%d\n",frame,frame_ram[0x100],camera,
+            g_smw_viewport.width,active,far,differing,unexplained,parallax,read16(g_ram,0x1a),
+            read16(lines[80].regs,offsetof(Ppu,hScroll)),native_x);
+    fflush(trace);
+  }
   static FILE *sprite_trace;
   if(!sprite_trace) {
     snprintf(path,sizeof(path),"%s/sprites.csv",directory);
