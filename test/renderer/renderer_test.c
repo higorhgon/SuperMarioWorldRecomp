@@ -167,4 +167,41 @@ static void hud(void) {
     assert(pixel[16*width+120]==0);
   }
 }
-int main(void) { geometry();spawn();objects();map16();hud();puts("geometry, spawn policy, signed OAM, Map16 and anchored HUD: passed");return 0; }
+static void pipe_variants(void) {
+  memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;
+  rom[0x3da9]=rom[0x3de9]=0xc0; /* both layers -> fixture screen table */
+  for(unsigned screen=0;screen<8;++screen) {
+    unsigned low=0xc800+screen*0x1b0;
+    rom[0x4000+screen*3]=low;rom[0x4001+screen*3]=low>>8;
+  }
+  const unsigned bases[]={0x8ab0,0x84e0,0x8af0,0x8b30};
+  for(unsigned variant=0;variant<4;++variant) {
+    unsigned table=(5<<15)+0x776+variant*2;
+    rom[table]=bases[variant];rom[table+1]=bases[variant]>>8;
+    for(unsigned block=0;block<8;++block) for(unsigned part=0;part<4;++part) {
+      unsigned address=(13<<15)+(bases[variant]&0x7fff)+block*8+part*2;
+      rom[address]=block*4+part;rom[address+1]=variant*4+0x20;
+    }
+  }
+  uint16_t tile;
+  for(unsigned layer=0;layer<2;++layer) for(unsigned screen=0;screen<8;++screen)
+    for(unsigned block=0;block<8;++block) for(unsigned current=0;current<4;++current) {
+      unsigned low=0xc800+screen*0x1b0;
+      g_ram[low]=0x33+block;g_ram[0x10000+low]=1;
+      word(0xfbe + (0x133+block)*2,bases[current]+block*8);
+      for(unsigned part=0;part<4;++part) {
+        assert(SmwRendererMapTile(g_ram,layer,screen*256+(part/2)*8,(part%2)*8,&tile));
+        assert(tile==((0x20+(screen%4)*4)<<8)+block*4+part);
+      }
+    }
+  /* Vertical levels and background definitions keep the native lookup. */
+  g_ram[0xc800]=0x33;g_ram[0x1c800]=1;word(0xfbe + 0x133*2,0x84e0);
+  g_ram[0x5b]=3;
+  for(unsigned layer=0;layer<2;++layer) {
+    assert(SmwRendererMapTile(g_ram,layer,0,0,&tile) && tile==0x2400);
+  }
+  g_ram[0x5b]=0;g_ram[0x1931]=0x10;
+  rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
+  assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
+}
+int main(void) { geometry();spawn();objects();map16();pipe_variants();hud();puts("geometry, spawn policy, signed OAM, Map16/pipe variants and anchored HUD: passed");return 0; }

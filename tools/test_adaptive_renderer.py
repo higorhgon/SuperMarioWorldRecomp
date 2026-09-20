@@ -105,8 +105,8 @@ def main():
     ap.add_argument('--output',choices=['SDL','OpenGL'],default='SDL')
     ap.add_argument('--window',default='2000x180')
     ap.add_argument('--audio',action='store_true')
-    ap.add_argument('--scenario',choices=['route','standing','yoshi'],default='route')
-    ap.add_argument('--state',type=Path,help='local F1 save for the yoshi visibility scenario')
+    ap.add_argument('--scenario',choices=['route','standing','yoshi','pipes'],default='route')
+    ap.add_argument('--state',type=Path,help='local save for the yoshi (F1) or pipes (F2) scenario')
     ap.add_argument('--rom',type=Path,default=ROOT/'smw.sfc')
     args=ap.parse_args();build=args.build.resolve();build.mkdir(parents=True,exist_ok=True)
     env=environment();gcc=shutil.which('gcc',path=env['PATH'])
@@ -131,15 +131,18 @@ def main():
     if not args.live:return
     if args.resize and os.name!='nt':ap.error('--resize requires Windows')
     if args.scenario!='route' and args.resize:ap.error('visibility scenarios use a fixed window')
-    if args.scenario=='yoshi' and not args.state:ap.error('--scenario yoshi requires --state')
+    if args.scenario in ('yoshi','pipes') and not args.state:ap.error(f'--scenario {args.scenario} requires --state')
     root=Path(tempfile.mkdtemp(prefix='smw-renderer-',dir=build));print(f'Artifacts: {root}',flush=True)
     frames=4000 if args.resize else 3400
     capture=2800
     route=ROUTE
     if args.scenario=='standing':route=ROUTE.split('wait 200')[0];frames=2800;capture=2700
-    if args.scenario=='yoshi':
+    if args.scenario in ('yoshi','pipes'):
         route='wait 240\nloadstate 0\n';frames=400;capture=300
         (root/'saves').mkdir();shutil.copy2(args.state.resolve(strict=True),root/'saves/save0.sav')
+    if args.scenario=='pipes':
+        route+='wait 60\npress left 150\npress right 110\n'
+        frames=580;capture=','.join(str(f) for f in range(300,581,20))
     (root/'route.script').write_text(route)
     (root/'config.ini').write_text('[General]\nAutosave=0\nDisableFrameDelay=1\nSkipLauncher=1\n'
         f'[Graphics]\nWindowSize={args.window}\nNewRenderer=1\nNoSpriteLimits=1\nOutputMethod={args.output}\n'
@@ -177,11 +180,14 @@ def main():
         max_native_differences=max(int(x['native_differences']) for x in data),
         max_unexplained_differences=max(int(x['unexplained_differences']) for x in data),
         max_far_enemies=max(int(x['far']) for x in data),resize=samples)
-    if args.scenario!='route':
+    if args.scenario=='pipes':
+        from renderer_visibility import check_pipes
+        report['visibility']=check_pipes(root,[int(f) for f in capture.split(',')])
+    elif args.scenario!='route':
         from renderer_visibility import check
         report['visibility']=check(root,capture,args.scenario)
     (root/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report),flush=True)
     assert report['max_unexplained_differences']==0,'pixels changed outside identified OAM alias corrections'
-    if args.spawn=='adaptive' and args.scenario!='yoshi':assert report['max_far_enemies']>0,'no offscreen activation exercised'
+    if args.spawn=='adaptive' and args.scenario not in ('yoshi','pipes'):assert report['max_far_enemies']>0,'no offscreen activation exercised'
 
 if __name__=='__main__':main()

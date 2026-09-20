@@ -11,7 +11,8 @@ OWNER_OFFSET = 0x20000 + 224 * LINE_SIZE
 
 class Capture:
     def __init__(self, root, frame):
-        self.raw = (root / 'frame.swr').read_bytes()
+        path = root / f'frame-{frame:06d}.swr'
+        self.raw = (path if path.exists() else root / 'frame.swr').read_bytes()
         assert len(self.raw) == OWNER_OFFSET + 128 * 12 + 256 * 224 * 4
         self.ram = self.raw[:0x20000]
         self.bmp = (root / f'frame-{frame:06d}.bmp').read_bytes()
@@ -92,3 +93,52 @@ def check(root, frame, scenario):
     assert len(slots) == 1, 'Yoshi fixture must contain one adult Yoshi'
     slot = 64+cap.ram[0x15ea+slots[0]]//4
     return dict(yoshi_head_pixels=cap.piece(slot), yoshi_body_pixels=cap.piece(slot+1), camera=cap.camera)
+
+
+def check_pipes(root, frames):
+    """Compare saved YI2 pipes across camera motion to their native PPU pixels.
+
+    The oracle frame has both pipes inside the native view, so this does not
+    duplicate the host's Map16 lookup or assume a particular palette. Interior
+    strips avoid rounded corners, Yoshi at the right lip, and the flying Koopa
+    passing the left edge of the shorter pipe in the 100:9 run.
+    """
+    captures = [Capture(root, frame) for frame in frames]
+    oracle = next((cap for cap in captures if cap.camera <= 2704 and cap.camera+256 >= 2768), None)
+    assert oracle is not None, 'route never put both saved pipes inside the native view'
+    native = OWNER_OFFSET + 128*12
+    def screen(cap, wx, wy):
+        sy = wy-cap.word(0x1c)-1
+        line = 0x20000+sy*LINE_SIZE
+        hscroll = struct.unpack_from('<H',cap.raw,line+14)[0]
+        vscroll = struct.unpack_from('<H',cap.raw,line+22)[0]
+        assert vscroll == cap.word(0x1c), 'fixture has an unexpected vertical raster offset'
+        # The captured raster may lag the frame-start camera by a few pixels.
+        dx = ((hscroll-cap.camera+512)&1023)-512
+        return wx-cap.camera-dx, sy
+    samples = []
+    for left, right, top in ((2720,2732,336), (2740,2752,320)):
+        for wy in range(top+2,384):
+            for wx in range(left,right):
+                sx, sy = screen(oracle,wx,wy)
+                expected = struct.unpack_from('<I', oracle.raw, native+(sy*256+sx)*4)[0] & 0xffffff
+                samples.append((wx,wy,expected))
+    areas = set()
+    failures = []
+    for frame, cap in zip(frames,captures):
+        assert cap.ram[0x100] == 20 and cap.word(0x1c) == 192, 'pipe fixture left the saved scene'
+        mismatches = 0
+        for wx,wy,expected in samples:
+            x, y = screen(cap,wx,wy)
+            sx = x+cap.offset
+            assert 0 <= sx < cap.width, 'pipe fixture requires a wider viewport'
+            areas.add('native' if 0 <= x < 256 else 'expanded')
+            actual = struct.unpack_from('<I', cap.bmp, cap.pixels+((223-y)*cap.width+sx)*4)[0] & 0xffffff
+            mismatches += actual != expected
+        if mismatches: failures.append((frame,mismatches))
+    pointers = {cap.word(0xfbe+0x133*2) for cap in captures}
+    assert areas == {'native','expanded'}, 'pipes did not cross the native viewport boundary'
+    assert len(pointers) == 4, 'route did not exercise all four transient pipe tables'
+    assert not failures, f'pipe pixels disagree with native PPU across camera motion: {failures}'
+    return dict(pipe_frames=len(captures), native_pipe_pixels=len(samples),
+                compared_pixels=len(samples)*len(captures), transient_pipe_tables=len(pointers))

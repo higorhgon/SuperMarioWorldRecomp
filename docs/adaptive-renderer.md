@@ -65,6 +65,11 @@ stays 256x224. Immutable per-scanline registers, palette, VRAM and OAM preserve
 the game's IRQ/HDMA timing. Mode 1 tiles use captured VRAM in the native area
 and the full level's Map16 data outside it. Layer 2 level modes also use
 Map16; repeating backgrounds retain their captured scroll and tilemap.
+Horizontal pipes select their ROM graphics variant from the pipe's world
+screen. SMW's live pipe pointer table belongs to the strip currently being
+streamed, so reusing it across the expanded view would change pipe colors
+as the camera moves. Vertical and background-only definitions retain their
+native pointer lookup.
 
 `src/smw_renderer_hooks.c` records signed sprite coordinates at the guest's
 draw paths and changes the optional activation/despawn policy. OAM ownership
@@ -87,10 +92,12 @@ python tools/test_adaptive_renderer.py --live --resize --audio
 python tools/test_adaptive_renderer.py --live --output OpenGL --aspect 21:9
 python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x720
 python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
+python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
-screen addressing, spawn lookahead/original policy, fireballs, OAM reuse and
+screen addressing, all eight pipe definitions across four screen variants,
+spawn lookahead/original policy, fireballs, OAM reuse and
 coordinates beyond 2048, and actual HUD pixels at three wide ratios and two
 camera positions. The generated hook pass is checked for idempotence.
 
@@ -130,10 +137,22 @@ checks pass at the reported 2133x720 window and at 100:9. A subsequent
 The Yoshi fixture is local and must be supplied explicitly. No save or ROM
 graphics are committed.
 
+The pipe scenario copies the supplied F2 fixture and walks left, then right,
+with Screen-based spawning. It obtains pipe colors from a captured native PPU
+frame while both pipes are inside the original viewport, then compares 1296
+interior pipe pixels in each of 15 captures as the pipes cross into the expanded
+view. This exercises all four transient pipe pointer tables. The check rejects
+the previous renderer and passes at the reported 2048x352 window and at 100:9,
+with 19,440 pixel comparisons per run and zero unexplained native differences.
+The checks account for the captured raster scroll offset separately from the
+frame-start camera, and avoid the pipe edges overlapped by Yoshi and a flying
+Koopa in the wider view.
+
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.
-`SMW_RENDER_CAPTURE_FRAME` captures one rendered frame plus a local raster
-dump; `SMW_RENDER_CAPTURE_EVERY` controls periodic BMPs. Captures and ROM-derived
+`SMW_RENDER_CAPTURE_FRAME` captures a frame plus a local raster dump, or accepts
+comma-separated frame numbers for a sequence of numbered dumps;
+`SMW_RENDER_CAPTURE_EVERY` controls periodic BMPs. Captures and ROM-derived
 data are local artifacts and are not committed.
 
 ## Remaining scope

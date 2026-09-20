@@ -99,6 +99,13 @@ bool SmwRendererMapTile(const uint8_t *ram, unsigned layer, int x, int y, uint16
   unsigned block = ram[low+index] | (ram[0x10000+low+index] << 8);
   if (block >= 512) return false;
   unsigned address = read16(ram, 0xfbe + block * 2);
+  /* $05877E rewrites the eight pipe pointers for the strip being streamed.
+   * That temporary table is not valid for other screens in the expanded view.
+   * Select the same ROM variant by this pipe's world screen, independently of
+   * camera direction. Vertical levels retain their native, fixed pointers;
+   * tilesets >= $10 use background definitions rather than these pipe tiles. */
+  if (!vertical && ram[0x1931] < 0x10 && block >= 0x133 && block <= 0x13a)
+    address = rom16(5, 0x8776 + (((unsigned)x >> 8) & 3) * 2) + (block - 0x133) * 8;
   address += (x & 8 ? 4 : 0) + (y & 8 ? 2 : 0);
   if (address < 0x8000 || address > 0xfffe) return false;
   *tile = (uint16_t)rom16(ram[0x1931] >= 0x10 ? 5 : 13, address);
@@ -338,7 +345,18 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
   const char *requested=getenv("SMW_RENDER_CAPTURE_FRAME");
   const char *interval=getenv("SMW_RENDER_CAPTURE_EVERY");
   unsigned every=interval && atoi(interval)>0?(unsigned)atoi(interval):300;
-  if(requested ? frame!=(unsigned)atoi(requested) : frame%every!=0) return;
+  bool selected=false;
+  if(requested) {
+    for(const char *cursor=requested;*cursor;) {
+      char *end;
+      unsigned long value=strtoul(cursor,&end,10);
+      if(end==cursor) break;
+      if(value==frame) selected=true;
+      if(*end!=',') break;
+      cursor=end+1;
+    }
+  } else selected=frame%every==0;
+  if(!selected) return;
   snprintf(path,sizeof(path),"%s/frame-%06u.bmp",directory,frame);
   FILE *f=fopen(path,"wb");
   if(!f) return;
@@ -350,7 +368,8 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
   for(int y=223;y>=0;--y) fwrite(image+(size_t)y*pitch,4,g_smw_viewport.width,f);
   fclose(f);
   if(requested) {
-    snprintf(path,sizeof(path),"%s/frame.swr",directory);
+    if(strchr(requested,',')) snprintf(path,sizeof(path),"%s/frame-%06u.swr",directory,frame);
+    else snprintf(path,sizeof(path),"%s/frame.swr",directory);
     f=fopen(path,"wb");
     if(f) {
       fwrite(frame_ram,1,sizeof(frame_ram),f);
