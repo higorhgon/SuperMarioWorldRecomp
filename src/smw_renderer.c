@@ -22,7 +22,25 @@ static unsigned captured;
 static int native_x;
 static Ppu raster;
 static uint16_t objects[SMW_RENDER_MAX_WIDTH];
+static uint32_t native_control[256*224];
+static bool world_layer(unsigned layer) {
+  return layer == 0 || (layer == 1 && frame_ram[0x1925] < 32 &&
+                       (0x800081feu & (1u << frame_ram[0x1925])));
+}
 static unsigned read16(const uint8_t *r, unsigned a) { return r[a] | (r[a+1] << 8); }
+static int background_shift(void) {
+  if (world_layer(1) || (frame_ram[0x5b] & 1)) return 0;
+  /* $00:F79D: BG2 follows BG1 at zero, full or half speed. Project that
+   * camera component from the visible origin, not the embedded 256px view.
+   * Otherwise the left clamp drags scenery with Mario until native_x stops
+   * growing. The difference retains captured animation/IRQ/HDMA offsets and
+   * native integer rounding, with no history to reset on load or resize. */
+  unsigned setting = frame_ram[0x1413];
+  if (!setting) return native_x;
+  if (setting == 1) return 0;
+  int camera = read16(frame_ram,0x1a), origin = camera-native_x;
+  return native_x + origin/2 - camera/2;
+}
 static unsigned rom16(unsigned bank, unsigned a) {
   if (!g_rom || a < 0x8000 || a > 0xfffe || bank > 15) return 0;
   return read16(g_rom, (bank << 15) | (a & 0x7fff));
@@ -199,9 +217,7 @@ static uint16_t background(const Ppu *p, const RasterLine *l, unsigned layer, in
   if ((sc&1) && (tx&32)) addr += 1024;
   if ((sc&2) && (ty&32)) addr += sc&1 ? 2048 : 1024;
   uint16_t tile = l->vram[addr&0x7fff];
-  bool world_layer = layer == 0 || (layer == 1 && frame_ram[0x1925] < 32 &&
-                       (0x800081feu & (1u << frame_ram[0x1925])));
-  if ((x < 0 || x >= 256) && world_layer && size == 8) {
+  if ((x < 0 || x >= 256) && world_layer(layer) && size == 8) {
     int camx = read16(frame_ram,0x1a+layer*4), camy = read16(frame_ram,0x1c+layer*4);
     int dx = ((p->hScroll[layer]-camx+512)&1023)-512;
     int dy = ((p->vScroll[layer]-camy+512)&1023)-512;
@@ -257,9 +273,28 @@ static void sprites(const Ppu *p, const RasterLine *l, int y) {
     }
   }
 }
+static uint32_t compose(const Ppu *p, const RasterLine *l, const uint8_t *brightness,
+                        const uint16_t *bg, uint16_t object, int x) {
+  uint16_t screens[2]={0x500,0x500};
+  for(int sub=0;sub<2;++sub) {
+    for(int layer=0;layer<3;++layer) {
+      if(!(p->screenEnabled[sub]&(1u<<layer))) continue;
+      if((p->screenWindowed[sub]&(1u<<layer)) && window(p,layer,x)) continue;
+      if(bg[layer]>screens[sub]) screens[sub]=bg[layer];
+    }
+    if((p->screenEnabled[sub]&16) &&
+       (!(p->screenWindowed[sub]&16) || !window(p,4,x)) &&
+       object>screens[sub]) screens[sub]=object;
+  }
+  return colour(p,l->palette,brightness,screens[0],screens[1],window(p,5,x));
+}
 void SmwRendererDraw(uint8_t *pixels,size_t pitch,const uint8_t *stock) {
   int width=g_smw_viewport.width;
   bool level=frame_ram[0x100]==0x14;
+  const char *directory=getenv("SMW_RENDER_DIAGNOSTICS");
+  bool control=directory && *directory;
+  int shift=background_shift();
+  if(control) memcpy(native_control,stock,sizeof(native_control));
   for(int y=0;y<224;++y) {
     uint32_t *dst=(uint32_t *)(pixels+y*pitch);
     const RasterLine *l=&lines[y];
@@ -275,19 +310,17 @@ void SmwRendererDraw(uint8_t *pixels,size_t pitch,const uint8_t *stock) {
     sprites(&raster,l,y);
     for(int sx=0;sx<width;++sx) {
       int x=sx-native_x;
-      uint16_t bg[3], screens[2]={0x500,0x500};
-      for(int layer=0;layer<3;++layer) bg[layer]=background(&raster,l,layer,x,y+1);
-      for(int sub=0;sub<2;++sub) {
-        for(int layer=0;layer<3;++layer) {
-          if(!(raster.screenEnabled[sub]&(1u<<layer))) continue;
-          if((raster.screenWindowed[sub]&(1u<<layer)) && window(&raster,layer,x)) continue;
-          if(bg[layer]>screens[sub]) screens[sub]=bg[layer];
-        }
-        if((raster.screenEnabled[sub]&16) &&
-           (!(raster.screenWindowed[sub]&16) || !window(&raster,4,x)) &&
-           objects[sx]>screens[sub]) screens[sub]=objects[sx];
+      uint16_t bg[3];
+      for(int layer=0;layer<3;++layer)
+        bg[layer]=background(&raster,l,layer,x+(layer==1?shift:0),y+1);
+      dst[sx]=compose(&raster,l,brightness,bg,objects[sx],x);
+      if(control && x>=0 && x<256) {
+        /* Compare the original projection to the native PPU as well. This
+         * checks every native-area pixel without excusing a sky rectangle
+         * that could also contain broken foreground, sprites or color math. */
+        if(shift) bg[1]=background(&raster,l,1,x,y+1);
+        native_control[y*256+x]=shift?compose(&raster,l,brightness,bg,objects[sx],x):dst[sx];
       }
-      dst[sx]=colour(&raster,l->palette,brightness,screens[0],screens[1],window(&raster,5,x));
     }
   }
 }
@@ -319,15 +352,15 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
   ++frame;
   if(!directory || !*directory) return;
   size_t size=(size_t)g_smw_viewport.width*224*4;
-  unsigned differing=0, unexplained=0, active=0, far=0;
+  unsigned differing=0, unexplained=0, parallax=0, active=0, far=0;
   /* Wide HUD anchoring is verified separately; its relocation is intentional. */
   for(int y=(g_smw_viewport.width==256?0:40);y<224;++y) for(int x=0;x<256;++x) {
     uint32_t a=((const uint32_t *)(image+y*pitch))[native_x+x];
     uint32_t b=((const uint32_t *)stock)[y*256+x];
-    if((a&0xffffff)!=(b&0xffffff)) {
-      ++differing;
-      if(!alias_footprint(x,y))++unexplained;
-    }
+    uint32_t c=native_control[y*256+x];
+    if((a&0xffffff)!=(b&0xffffff)) ++differing;
+    if((a&0xffffff)!=(c&0xffffff)) ++parallax;
+    if((c&0xffffff)!=(b&0xffffff) && !alias_footprint(x,y)) ++unexplained;
   }
   int camera=read16(frame_ram,0x1a);
   for(int i=0;i<12;++i) if(frame_ram[0x14c8+i]) {
@@ -339,9 +372,9 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
   if(!trace) {
     snprintf(path,sizeof(path),"%s/frames.csv",directory);
     trace=fopen(path,"w");
-    if(trace) fprintf(trace,"frame,mode,camera,width,active,far,native_differences,unexplained_differences\n");
+    if(trace) fprintf(trace,"frame,mode,camera,width,active,far,native_differences,unexplained_differences,parallax_differences\n");
   }
-  if(trace) { fprintf(trace,"%u,%u,%d,%d,%u,%u,%u,%u\n",frame,frame_ram[0x100],camera,g_smw_viewport.width,active,far,differing,unexplained); fflush(trace); }
+  if(trace) { fprintf(trace,"%u,%u,%d,%d,%u,%u,%u,%u,%u\n",frame,frame_ram[0x100],camera,g_smw_viewport.width,active,far,differing,unexplained,parallax); fflush(trace); }
   static FILE *sprite_trace;
   if(!sprite_trace) {
     snprintf(path,sizeof(path),"%s/sprites.csv",directory);

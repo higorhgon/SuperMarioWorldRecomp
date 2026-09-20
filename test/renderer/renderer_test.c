@@ -216,6 +216,59 @@ static void hud(void) {
     assert(pixel[16*width+120]==0);
   }
 }
+static void parallax(void) {
+  memset(g_ram,0,sizeof(g_ram));memset(&test_ppu,0,sizeof(test_ppu));
+  g_ram[0x100]=20;g_ram[0x5e]=31;
+  g_smw_video=(SmwVideoSettings){true,true,0};
+  test_ppu.inidisp=15;test_ppu.bgmode=1;test_ppu.screenEnabled[0]=2;
+  test_ppu.bgXsc[1]=0x20;
+  /* Every source pixel identifies its position in a repeating 256px strip.
+   * Exercise the composed pixels, including odd camera positions, both level
+   * edges and a per-scanline offset that must survive the projection. */
+  for(int i=1;i<16;++i)test_ppu.cgram[i]=i;
+  for(int ty=0;ty<32;++ty)for(int tx=0;tx<32;++tx)
+    test_ppu.vram[0x2000+ty*32+tx]=tx;
+  for(int tile=0;tile<32;++tile)for(int y=0;y<8;++y)for(int x=0;x<8;++x) {
+    unsigned value=1+(tile*8+x)%15;
+    for(int bit=0;bit<4;++bit) if(value&(1u<<bit))
+      test_ppu.vram[tile*16+y+(bit/2)*8] |= 1u<<(7-x+(bit%2)*8);
+  }
+  const int widths[]={342,1118,2134};
+  for(unsigned w=0;w<sizeof(widths)/sizeof(*widths);++w) {
+    int width=widths[w],extra=(width-256)/2,last=8192-width;
+    const int cameras[]={0,1,extra-1,extra,extra+1,1023,4096,last+extra-1,last+extra,last+extra+1,7936};
+    for(unsigned c=0;c<sizeof(cameras)/sizeof(*cameras);++c)for(int setting=0;setting<3;++setting) {
+      int camera=cameras[c],origin=camera-extra;
+      if(origin<0)origin=0;
+      if(origin>last)origin=last;
+      word(0x1a,camera);g_ram[0x1413]=setting;
+      g_smw_viewport=(SmwViewport){width,extra,width/192.0};
+      SmwRendererBeginFrame(g_ram);
+      for(int y=1;y<=224;++y) {
+        test_ppu.hScroll[1]=37+(setting==0?0:setting==1?camera:camera/2)+(y>100?11:0);
+        SmwRendererCaptureLine(&test_ppu,y);
+      }
+      SmwRendererDraw(surface,width*4,native);
+      const uint32_t *pixel=(const uint32_t *)surface;
+      int phase=37+(setting==0?0:setting==1?origin:origin/2);
+      for(int y=80;y<=120;y+=40)for(int x=0;x<width;++x) {
+        unsigned red=1+((x+phase+(y>100?11:0))&255)%15;
+        assert(pixel[y*width+x]==((red<<3)|(red>>2))<<16);
+      }
+    }
+  }
+  /* Layer-2 terrain keeps its full world projection even if a scroll command
+   * changes the setting; never apply decorative-background compensation. */
+  g_ram[0x1925]=1;g_ram[0x1413]=2;word(0x1a,700);
+  g_smw_viewport=(SmwViewport){1118,431,1118.0/192};test_ppu.hScroll[1]=350;
+  SmwRendererBeginFrame(g_ram);
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,1118*4,native);
+  for(int x=0;x<256;++x) {
+    unsigned red=1+((x+350)&255)%15;
+    assert(((uint32_t *)surface)[80*1118+431+x]==((red<<3)|(red>>2))<<16);
+  }
+}
 static void pipe_variants(void) {
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;
   rom[0x3da9]=rom[0x3de9]=0xc0; /* both layers -> fixture screen table */
@@ -253,4 +306,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants and anchored HUD: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();parallax();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants, anchored HUD and background parallax: passed");return 0; }

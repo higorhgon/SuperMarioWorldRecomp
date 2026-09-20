@@ -64,7 +64,12 @@ working directory authoritative for settings and saves.
 stays 256x224. Immutable per-scanline registers, palette, VRAM and OAM preserve
 the game's IRQ/HDMA timing. Mode 1 tiles use captured VRAM in the native area
 and the full level's Map16 data outside it. Layer 2 level modes also use
-Map16; repeating backgrounds retain their captured scroll and tilemap.
+Map16. Horizontal repeating backgrounds project the native zero/full/half-speed
+camera component from the visible viewport origin. This prevents scenery from
+sliding with the embedded 256-pixel camera while the wider view is clamped to
+either level edge. Captured animation, scanline offsets and tilemaps remain
+authoritative. Layer 2 terrain keeps its world projection. The correction is
+derived each frame, so resizing or loading a save needs no parallax history.
 Horizontal pipes select their ROM graphics variant from the pipe's world
 screen. SMW's live pipe pointer table belongs to the strip currently being
 streamed, so reusing it across the expanded view would change pipe colors
@@ -105,6 +110,9 @@ python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720
 python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
 python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav
 python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav --window 2000x180
+python tools/test_adaptive_background.py --window 2048x352
+python tools/test_adaptive_background.py --window 2000x180
+python tools/test_adaptive_background.py --window 1280x720
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
@@ -112,6 +120,8 @@ screen addressing, all eight pipe definitions across four screen variants,
 spawn lookahead/original policy, fireballs, OAM reuse and
 coordinates beyond 2048, and actual HUD pixels at three wide ratios and two
 camera positions. The generated hook pass is checked for idempotence.
+Background pixel checks cover zero/full/half-speed parallax, odd camera
+positions, both level edges, retained scanline offsets and Layer 2 terrain.
 
 Live tests start with fresh isolated saves and use ordinary controller input
 to reach Yoshi's Island 2. They record CSV diagnostics, screenshots and a
@@ -173,6 +183,26 @@ the tested encounter from happening. All preparation and verification use
 Fit with Screen-based spawning; original saves are copied and hash-checked.
 Scripted input supports combined buttons such as `press left+b+y 100` and
 `savestate N` as well as `loadstate N` for these repeatable checks.
+
+The background regression enters Yoshi's Island 2 from a fresh save and walks
+right with Screen-based spawning. Ten captures compare the actual sky pixels
+to the original PPU image at the expected parallax displacement. This rejects
+the old renderer as soon as the native camera moves inside the clamped wide
+view. At 16:9 the route also crosses the clamp into normal camera scrolling;
+the wider runs keep the visible origin stationary while the native camera
+advances. The native raster's short pipeline delay is preserved.
+The 2048x352, 100:9 and 16:9 runs each passed 122,880 sky pixel comparisons
+across all ten captures and rendered all 2900 simulated frames, with zero
+unexplained native-control differences or interpreter bailouts.
+
+Parallax intentionally changes the scenery within the original viewport too.
+With diagnostics enabled, the renderer additionally composes that viewport
+using the original background projection and compares it to the native PPU.
+This control still checks terrain, sprites, priority and color math instead
+of exempting background-shaped screen regions. CSV diagnostics retain raw
+native differences, count the parallax changes separately, and report any
+unexplained control differences. The sky regression independently verifies
+the corrected projection against captured native pixels.
 
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.
