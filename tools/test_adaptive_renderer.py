@@ -125,6 +125,10 @@ def main():
         assert 'fireball' in hits and patched.count('SmwRendererGuestHook(cpu, 0x02A1BEu)')==1
     patched,hits=hooks.apply('    cpu_trace_block(cpu, 0x02A823);\n    if (cpu->_flag_N == 1) { goto L_A84B; }\n')
     assert 'frontier' in hits and 'SmwRendererGuestHook(cpu, 0x02A826u)' in patched
+    patched,hits=hooks.apply('    cpu_trace_block(cpu, 0x019E3C);\n    if (cpu->_flag_Z == 0) { goto L_9E93_M1X1; }\n')
+    assert 'wing_cull' in hits and patched.count('SmwRendererGuestHook(cpu, 0x019E6Du)')==1
+    _,hits=hooks.apply('    cpu_trace_block(cpu, 0x019E3C);\n    if (cpu->_flag_Z == 0) { goto L_OTHER; }\n')
+    assert 'wing_cull' not in hits
     for path in (ROOT/'src/gen').glob('*.c'):
         a,_=hooks.apply(path.read_text());b,_=hooks.apply(a)
         assert a==b,path

@@ -85,6 +85,12 @@ draw paths and changes the optional activation/despawn policy. OAM ownership
 is paired with the exact emitted position and attributes, then latched before
 NMI, so OAM reuse cannot inherit a stale far-away owner. Draw origins are
 tracked per OAM piece; Yoshi's separate head/body passes retain both origins.
+The shared wing routine uses the visible horizontal bounds and records each
+completed wing. Single-tile generic draws record their exact OAM piece before
+composite sprites advance the allocation. This keeps adjacent sprites' inferred
+allocation spans from stealing a Piranha head. Final tile/attribute changes by
+the caller are retained when ownership is latched at NMI. Native vertical
+culling still applies.
 Fireballs have a separate ownership/lifecycle hook. Native initialization and allocation still
 run once; the renderer does not replay simulation or shift the guest camera.
 
@@ -110,6 +116,8 @@ python tools/test_adaptive_renderer.py
 python tools/test_adaptive_renderer.py --live --resize --audio
 python tools/test_adaptive_renderer.py --live --output OpenGL --aspect 21:9
 python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x720
+python tools/test_adaptive_sprite_parts.py --scenario wings --state /path/to/winged-block.sav
+python tools/test_adaptive_sprite_parts.py --scenario plant --state /path/to/jumping-piranha.sav --window 2000x180
 python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
 python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
 python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav
@@ -213,6 +221,17 @@ of exempting background-shaped screen regions. CSV diagnostics retain raw
 native differences, count the parallax changes separately, and report any
 unexplained control differences. The sky regression independently verifies
 the corrected projection against captured native pixels.
+
+The sprite-parts regression copies the reported winged-block and jumping-Piranha
+saves, verifies their hashes remain unchanged, and runs with Screen-based
+spawning. Both pass at the reported 2095x720 window and at 100:9. Nine captures
+check the block and both animated wings across the native viewport boundary
+(1044 wing pixels outside the block's overlapping footprint). Five captures
+check every opaque head pixel above the pipe in both animation poses (942
+pixels), with a separate stem check. Both tests reject the previous build's
+missing ownership. Native-control comparisons report zero unexplained
+differences. Yoshi, pipe-color and camera regressions also pass after this fix.
+These targeted saved scenes extend coverage, not the full-game testing claim.
 
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.

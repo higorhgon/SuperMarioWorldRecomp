@@ -16,7 +16,7 @@ typedef struct OamOwner { int x; uint16_t position, attr; bool valid; } OamOwner
 static RasterLine lines[224];
 static uint8_t frame_ram[0x20000];
 static OamOwner pending[128], latched[128];
-typedef struct SpriteOwner { int x,y; bool valid; } SpriteOwner;
+typedef struct SpriteOwner { int x,y; bool valid, exact; } SpriteOwner;
 static SpriteOwner sprite_owners[64];
 static unsigned captured;
 static int native_x;
@@ -51,7 +51,14 @@ void SmwRendererRecordOam(unsigned slot, int x, uint16_t pos, uint16_t attr) {
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end) {
   if (slot < 12 && first < end && end <= 256)
     for (unsigned index=first;index<end;index+=4)
-      sprite_owners[index/4] = (SpriteOwner){x,y,true};
+      if (!sprite_owners[index/4].exact)
+        sprite_owners[index/4] = (SpriteOwner){x,y,true,false};
+}
+void SmwRendererRecordSpriteTile(unsigned piece, int x, int y) {
+  /* The draw identifies this exact tile. Adjacent sprites' inferred reserved
+   * spans cannot replace it, but callers may still finish its tile/attributes.
+   * Bind the final OAM image at NMI just like the other generic graphics. */
+  if (piece < 64) sprite_owners[piece] = (SpriteOwner){x,y,true,true};
 }
 void SmwRendererLatchFrame(void) {
   /* NMI uploads this scene's scroll and OAM before the next simulation tick.

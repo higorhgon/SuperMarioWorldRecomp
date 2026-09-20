@@ -99,9 +99,40 @@ void SmwRendererDrawInfo(CpuState *c) {
 }
 
 void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
-  static int fireball_x;
+  static int fireball_x, wing_x;
+  static bool wing_draw;
   if(!active(c)) return;
   pc &= 0x7fffff;
+  if(pc==0x019E6D) {
+    /* DrawWingTiles has already subtracted the camera from both bytes.
+     * Its BNE normally rejects every wing outside the native 256px view.
+     * Keep the full signed coordinate and change only that draw decision. */
+    unsigned index=c->Y&255;
+    wing_x=(int16_t)(((c->A&255)<<8)|r8(c,0x300+index));
+    int left=left_margin(c);
+    wing_draw=wing_x+16>-left && wing_x<g_smw_viewport.width-left;
+    c->_flag_Z=wing_draw;
+    return;
+  }
+  if(pc==0x019E93) {
+    /* Successful draws have converted Y from a byte offset to a tile index;
+     * the culled branch reaches the same return with Y still unconverted. */
+    unsigned piece=c->Y&255;
+    if(wing_draw && piece<64)
+      SmwRendererRecordOam(64+piece,wing_x,r16(c,0x300+piece*4),r16(c,0x302+piece*4));
+    return;
+  }
+  if(pc==0x019F5A) {
+    /* Record the actual single-tile draw before a composite sprite advances
+     * its allocation (e.g. a jumping Piranha draws its head, then its stem).
+     * A later sprite's inferred allocation span must not steal this tile. */
+    unsigned slot=c->X&255, piece=c->Y&255;
+    if(slot>=12 || piece>=64 || (r8(c,0x186c+slot)&1)) return;
+    int x=(int16_t)((r8(c,0xe4+slot)|(r8(c,0x14e0+slot)<<8))-r16(c,0x1a));
+    int y=(int16_t)((r8(c,0xd8+slot)|(r8(c,0x14d4+slot)<<8))-r16(c,0x1c));
+    SmwRendererRecordSpriteTile(piece,x,y);
+    return;
+  }
   if(pc==0x02A1BE) {
     unsigned slot=c->X&255;
     if(slot>=10) return;
@@ -204,7 +235,8 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
   }
 }
 void SmwRendererInstallHooks(void) {
-  const uint32_t pcs[]={0x02A826,0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204};
+  const uint32_t pcs[]={0x02A826,0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204,
+                        0x019E6D,0x019E93,0x019F5A};
   for(unsigned i=0;i<sizeof(pcs)/sizeof(*pcs);++i)
     interp_bridge_set_pre_opcode_hook(pcs[i],SmwRendererGuestHook);
 }

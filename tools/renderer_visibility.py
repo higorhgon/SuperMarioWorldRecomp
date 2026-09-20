@@ -31,11 +31,12 @@ class Capture:
     def active(self):
         return [i for i in range(12) if self.ram[0x14c8+i]]
 
-    def piece(self, slot):
+    def piece(self, slot, occluders=()):
         """Require the independently decoded opaque OBJ pixels to be visible.
 
         These fixtures place the objects clear of occluding terrain/objects and
         use full brightness without OBJ color math; assert those prerequisites.
+        Explicit screen-space rectangles can exclude a known overlapping part.
         """
         x, pos, attr, valid = struct.unpack_from('<iHH?', self.raw, OWNER_OFFSET + slot*12)
         assert valid, f'OAM {slot}: missing host owner'
@@ -58,6 +59,8 @@ class Capture:
             for col in range(size):
                 sx, sy = self.offset+x+col, top+row
                 if not (0 <= sx < self.width and 0 <= sy < 224): continue
+                if any(left <= sx < right and upper <= sy < lower
+                       for left,upper,right,lower in occluders): continue
                 cx = size-1-col if attr & 0x4000 else col
                 cy = size-1-row if attr & 0x8000 else row
                 tile = (((attr & 255)//16 + cy//8) & 15)*16 + ((attr+cx//8) & 15)

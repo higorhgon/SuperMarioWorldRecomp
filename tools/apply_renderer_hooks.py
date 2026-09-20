@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 import re
 
-PCS = (0x02A82E, 0x01B844, 0x01AC7C, 0x02D076, 0x03B8A8, 0x02A204)
+PCS = (0x02A82E, 0x01B844, 0x01AC7C, 0x02D076, 0x03B8A8, 0x02A204, 0x019E93, 0x019F5A)
 MARKER = '/*SMW-HOST*/'
 def apply(text):
     if '/*WS-' in text:
@@ -25,6 +25,9 @@ def apply(text):
         m = re.search(r'cpu_trace_block\(cpu, 0x([0-9A-F]+)\)', line)
         if m: block = m[1]
         hook = None
+        if block == '019E3C' and 'if (cpu->_flag_Z == 0)' in line and 'goto L_9E93' in line:
+            out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x019E6Du); }\n')
+            found.add('wing_cull')
         if block == '02A823' and 'if (cpu->_flag_N == 1)' in line:
             out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x02A826u); }\n')
             found.add('frontier')
@@ -60,7 +63,7 @@ def main():
         changed, hits = apply(text)
         found |= hits
         if changed != text: updates.append((path, changed))
-    missing = set(PCS) | {'draw', 'fireball', 'frontier'}
+    missing = set(PCS) | {'draw', 'fireball', 'frontier', 'wing_cull'}
     missing -= found
     if missing: raise SystemExit(f'Missing required renderer hook sites: {missing}')
     for path, changed in updates: path.write_text(changed, encoding='utf-8', newline='\n')

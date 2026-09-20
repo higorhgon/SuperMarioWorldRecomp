@@ -10,6 +10,7 @@ void SmwRendererAotRoots(CpuState *cpu) {
   GetDrawInfo_Bank01_Recomp(cpu);
   GetDrawInfo_Bank23_Recomp(cpu);
   DrawWingTiles_ParaKoopaEntry(cpu);
+  GenericGFXRtDraw1Tile16x16_019F0F(cpu);
   Spr05F_BrownChainedPlatform(cpu);
   sub_1C9EC(cpu);
   SubOffscreen_Bank01_Entry4(cpu);

@@ -165,6 +165,58 @@ static void objects(void) {
   assert(pixel[100*568+76]==0xff0000);
   assert(pixel[116*568+86]==0x00ff00);
 }
+static void sprite_parts(void) {
+  memset(g_ram,0,sizeof(g_ram));memset(&test_ppu,0,sizeof(test_ppu));
+  g_ram[0x100]=20;g_ram[0x5e]=31;
+  g_smw_video=(SmwVideoSettings){true,true,0};
+  g_smw_viewport=(SmwViewport){2134,939,100.0/9};word(0x1a,4096);
+  CpuState cpu={0};cpu._flag_C=1;cpu._flag_N=1;
+  const int positions[]={-1000,-955,-954,-939,-52,0,256,1024,1194,1195};
+  for(unsigned policy=0;policy<2;++policy) {
+    g_smw_video.adaptive_spawns=policy;
+    for(unsigned i=0;i<sizeof(positions)/sizeof(*positions);++i) {
+      int x=positions[i];cpu.A=0xa500|(((uint16_t)x>>8)&255);
+      cpu.Y=0;word(0x300,100*256+(x&255));
+      unsigned a=cpu.A;
+      SmwRendererGuestHook(&cpu,0x019E6D);
+      assert(cpu._flag_Z==(x+16>-939 && x<1195));
+      assert(cpu.A==a && cpu._flag_C==1 && cpu._flag_N==1 && cpu.Y==0);
+    }
+  }
+  test_ppu.inidisp=15;test_ppu.bgmode=1;test_ppu.screenEnabled[0]=16;
+  test_ppu.cgram[129]=31;test_ppu.cgram[161]=0x03e0;
+  for(int y=0;y<8;++y)test_ppu.vram[y]=0xff;
+  for(int i=0;i<128;++i)test_ppu.oam[i*2]=0xf000;
+  cpu.A=4;word(0x300,0x6400);word(0x302,0x3000);
+  SmwRendererGuestHook(&cpu,0x019E6D);SmwRendererGuestHook(&cpu,0x019E93);
+  test_ppu.oam[128]=0x6400;test_ppu.oam[129]=0x3000;
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,2134*4,native);
+  const uint32_t *pixel=(const uint32_t *)surface;
+  assert(pixel[100*2134+1963]==0xff0000 && pixel[100*2134+939]==0);
+  /* Exact head draw survives a later neighbour claiming its allocation span,
+   * and uses the caller's FINAL tile/attributes rather than the generic ones. */
+  g_smw_viewport=(SmwViewport){558,151,558.0/192};word(0x1a,2284);
+  g_ram[0xe4]=2232&255;g_ram[0x14e0]=2232>>8;g_ram[0xd8]=100;
+  word(0x300,0x64cc);word(0x302,0x3000);
+  SmwRendererRecordSprite(0,-52,100,0,4);
+  SmwRendererGuestHook(&cpu,0x019F5A);
+  SmwRendererRecordSprite(1,308,100,0,4);
+  word(0x302,0x3400);test_ppu.oam[128]=0x64cc;test_ppu.oam[129]=0x3400;
+  test_ppu.highOam[16]=1;
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,558*4,native);
+  assert(pixel[100*558+99]==0x00ff00 && pixel[100*558+459]==0);
+  /* The native vertical culler hides tiles using x=$180, not y=$F0. */
+  g_ram[0x186c]=1;word(0x300,0x6480);test_ppu.oam[128]=0x6480;
+  SmwRendererGuestHook(&cpu,0x019F5A);
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,558*4,native);
+  for(int x=0;x<558;++x)assert(pixel[100*558+x]==0);
+}
 static void map16(void) {
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;
   rom[0x3da8]=0x00;rom[0x3da9]=0xc0; /* mode-0 screen table -> $00:C000 */
@@ -342,4 +394,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();objects();sprite_parts();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state, signed OAM/sprite parts, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }

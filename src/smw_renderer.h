@@ -24,6 +24,7 @@ bool SmwRendererMapTile(const uint8_t *ram, unsigned layer, int x, int y, uint16
 /* Signed host coordinates paired with the exact OAM image, latched at NMI. */
 void SmwRendererRecordOam(unsigned slot, int x, uint16_t position, uint16_t attr);
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end);
+void SmwRendererRecordSpriteTile(unsigned piece, int x, int y);
 /* Latch scene RAM and completed OAM ownership together, immediately before NMI. */
 void SmwRendererLatchFrame(void);
 void SmwRendererSpawnFrame(void);
