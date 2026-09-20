@@ -225,8 +225,8 @@ static void LoadScript(const char *path) {
     if (strcmp(cmd, "wait") == 0) {
       int frames = (sscanf(line, "%*s %d", &n) == 1) ? n : 0;
       pending_wait += frames;
-    } else if (strcmp(cmd, "loadstate") == 0) {
-      // loadstate N — load savestate slot N (0-indexed, F1=0)
+    } else if (strcmp(cmd, "loadstate") == 0 || strcmp(cmd, "savestate") == 0) {
+      // Snapshot commands use zero-based slots (F1=0).
       int slot = 0;
       sscanf(line, "%*s %d", &slot);
       if (g_script_count >= cap) {
@@ -234,7 +234,7 @@ static void LoadScript(const char *path) {
         g_script_entries = (ScriptEntry *)realloc(g_script_entries, cap * sizeof(ScriptEntry));
       }
       ScriptEntry *e = &g_script_entries[g_script_count++];
-      e->mask = 0x80000000 | (slot & 0xF);  // special flag: high bit = loadstate
+      e->mask = (strcmp(cmd, "savestate") == 0 ? 0x40000000u : 0x80000000u) | (slot & 0xF);
       e->hold_frames = 1;
       e->wait_frames = pending_wait;
       pending_wait = 0;
@@ -245,7 +245,9 @@ static void LoadScript(const char *path) {
         g_script_entries = (ScriptEntry *)realloc(g_script_entries, cap * sizeof(ScriptEntry));
       }
       ScriptEntry *e = &g_script_entries[g_script_count++];
-      e->mask = ParseButtonMask(arg1);
+      e->mask = 0;
+      for (char *button = strtok(arg1, "+"); button; button = strtok(NULL, "+"))
+        e->mask |= ParseButtonMask(button);
       e->hold_frames = hold;
       e->wait_frames = pending_wait;
       pending_wait = 0;
@@ -281,6 +283,10 @@ static uint32 TickScript(void) {
       if (e->mask & 0x80000000) {
         // loadstate command
         RtlSaveLoad(kSaveLoad_Load, e->mask & 0xF);
+        return 0;
+      }
+      if (e->mask & 0x40000000) {
+        RtlSaveLoad(kSaveLoad_Save, e->mask & 0xF);
         return 0;
       }
       return e->mask;

@@ -79,6 +79,16 @@ tracked per OAM piece; Yoshi's separate head/body passes retain both origins.
 Fireballs have a separate ownership/lifecycle hook. Native initialization and allocation still
 run once; the renderer does not replay simulation or shift the guest camera.
 
+Screen-based activation remembers each successfully loaded placement until its
+source leaves the view plus the 32-pixel lookahead. Native transformations can
+clear the game's load flag while still visible (a shell-less Koopa entering a
+shell calls the normal erase routine); that no longer creates another copy.
+Failed allocations remain eligible for retry. Level transitions and a changed
+sprite list reset the guard, and generators retain their original frontier.
+An optional `SMWS` version-1 game chunk in RTLS snapshots preserves activation
+history across save/load. Older saves are still accepted and use their native
+loaded flags; duplicates already present in an older save are not deleted.
+
 `tools/apply_renderer_hooks.py` injects small callbacks into generated banks
 and checks every required site. Interpreter hooks cover fallback execution.
 `recomp/renderer_aot_roots.c` preserves the compiled sites through regeneration.
@@ -93,6 +103,8 @@ python tools/test_adaptive_renderer.py --live --output OpenGL --aspect 21:9
 python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x720
 python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
 python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
+python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav
+python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav --window 2000x180
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
@@ -148,12 +160,28 @@ The checks account for the captured raster scroll offset separately from the
 frame-start camera, and avoid the pipe edges overlapped by Yoshi and a flying
 Koopa in the wider view.
 
+The spawn regression starts from the reported F3 fixture. It checks whether
+that saved game is paused before sending Start to resume it, then uses normal
+movement to leave the existing duplicate enemies behind. After they despawn,
+it approaches a fresh shell/Koopa pair and checks the actual shell-entry timer,
+target slot, and subsequent sprite records. The baseline creates record 11
+again immediately after shell entry; the fixed build retains only the occupied
+shell. Both reported-width and 100:9 runs verify the occupied Koopa's rendered
+head/body and save/reload a state whose native load flag has cleared. The 100:9
+test stages the pair before widening so the native slot budget cannot prevent
+the tested encounter from happening. All preparation and verification use
+Fit with Screen-based spawning; original saves are copied and hash-checked.
+Scripted input supports combined buttons such as `press left+b+y 100` and
+`savestate N` as well as `loadstate N` for these repeatable checks.
+
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.
 `SMW_RENDER_CAPTURE_FRAME` captures a frame plus a local raster dump, or accepts
 comma-separated frame numbers for a sequence of numbered dumps;
 `SMW_RENDER_CAPTURE_EVERY` controls periodic BMPs. Captures and ROM-derived
 data are local artifacts and are not committed.
+Diagnostics also record `spawns.csv` (candidates, successful loads, suppressed
+reactivation and rearming) and `sprites.csv` (per-frame entity state).
 
 ## Remaining scope
 

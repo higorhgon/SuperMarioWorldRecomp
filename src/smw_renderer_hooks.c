@@ -1,6 +1,71 @@
 #include "smw_renderer.h"
 #include "cpu_state.h"
 #include "snes/interp_bridge.h"
+#include "common_rtl.h"
+#include "snes/saveload.h"
+
+static unsigned spawn_frame;
+typedef struct SpawnState {
+  uint32_t list;
+  uint8_t visited[128], pending;
+} SpawnState;
+static SpawnState spawn_state={.pending=255}, restored_spawn;
+static bool restored_extra;
+static void reset_spawns(void) {
+  memset(&spawn_state,0,sizeof(spawn_state));
+  spawn_state.pending=255;
+}
+void SmwRendererSpawnFrame(void) {
+  ++spawn_frame;
+  if(!g_smw_video.enabled || !g_smw_video.adaptive_spawns || g_smw_viewport.width<=256 ||
+     g_ram[0x100]!=0x14 || (g_ram[0x5b]&1)) reset_spawns();
+}
+
+/* Optional RTLS game chunk: old saves remain readable. The activation guard
+ * is gameplay state and must rewind with WRAM, including consumed records
+ * whose native load flag is already clear. Stream fields without padding. */
+void SmwRendererSaveExtra(SaveLoadInfo *sli) {
+  uint32_t header[]={0x53574d53,1}; /* SMWS, version 1 */
+  sli->func(sli,header,sizeof(header));
+  sli->func(sli,&spawn_state.list,sizeof(spawn_state.list));
+  sli->func(sli,spawn_state.visited,sizeof(spawn_state.visited));
+  sli->func(sli,&spawn_state.pending,sizeof(spawn_state.pending));
+}
+void SmwRendererLoadExtra(SaveLoadInfo *sli,uint32_t version) {
+  (void)version;
+  uint32_t header[2]={0};
+  restored_extra=false;
+  sli->func(sli,header,sizeof(header));
+  if(header[0]!=0x53574d53 || header[1]!=1) return;
+  memset(&restored_spawn,0,sizeof(restored_spawn));
+  sli->func(sli,&restored_spawn.list,sizeof(restored_spawn.list));
+  sli->func(sli,restored_spawn.visited,sizeof(restored_spawn.visited));
+  sli->func(sli,&restored_spawn.pending,sizeof(restored_spawn.pending));
+  restored_extra=true;
+}
+void SmwRendererStateLoaded(uint32_t version) {
+  (void)version;
+  if(restored_extra) spawn_state=restored_spawn;
+  else reset_spawns();
+  restored_extra=false;
+}
+
+static void spawn_event(CpuState *c,const char *event,unsigned record,unsigned id,int x) {
+  const char *directory=getenv("SMW_RENDER_DIAGNOSTICS");
+  if(!directory || !*directory) return;
+  static FILE *trace;
+  if(!trace) {
+    char path[1024];snprintf(path,sizeof(path),"%s/spawns.csv",directory);
+    trace=fopen(path,"w");
+    if(trace) fprintf(trace,"frame,event,record,id,x,camera,load_flag\n");
+  }
+  if(trace) {
+    unsigned camera=cpu_read8(c,0x7e,0x1a)|(cpu_read8(c,0x7e,0x1b)<<8);
+    fprintf(trace,"%u,%s,%u,%u,%d,%u,%u\n",spawn_frame,event,record,id,x,camera,
+            cpu_read8(c,0x7e,(uint16_t)(0x1938+record)));
+    fflush(trace);
+  }
+}
 
 static unsigned r8(CpuState *c,unsigned a) { return cpu_read8(c,0x7e,(uint16_t)a); }
 static unsigned r16(CpuState *c,unsigned a) { return r8(c,a)|(r8(c,a+1)<<8); }
@@ -69,6 +134,22 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
      * Excluded records compare below $FF and continue instead of ending the
      * list early. No camera shifting, replayed game frames or forged OAM. */
     unsigned pointer=r16(c,c->D+0xce)|(r8(c,c->D+0xd0)<<16);
+    if(spawn_state.list!=pointer) {
+      reset_spawns();spawn_state.list=pointer;
+    }
+    /* The next record (including the terminator) is reached after allocation
+     * finishes. A full sprite pool clears the attempted load flag, so it must
+     * remain eligible for retry. Only successful loads consume the trigger. */
+    unsigned previous=spawn_state.pending;
+    spawn_state.pending=255;
+    if(previous<128 && r8(c,0x1938+previous)) {
+      spawn_state.visited[previous]=1;
+      unsigned source=pointer+1+previous*3;
+      unsigned a=cpu_read8(c,source>>16,source&65535);
+      unsigned b=cpu_read8(c,(source+1)>>16,(source+1)&65535);
+      unsigned id=cpu_read8(c,(source+2)>>16,(source+2)&65535);
+      spawn_event(c,"loaded",previous,id,(((a&2)<<3)|(b&15))*256+(b&0xf0));
+    }
     unsigned address=pointer+c->Y;
     unsigned a=cpu_read8(c,address>>16,address&65535);
     unsigned b=cpu_read8(c,(address+1)>>16,(address+1)&65535);
@@ -84,7 +165,27 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
       unsigned direction=r8(c,0x55);
       int edge=(camera+(direction==0?-48:direction==2?288:0))&~15;
       visible=x==edge;
+    } else if((c->X&0xffff)<128) {
+      unsigned record=c->X&0xffff;
+      if(!visible) {
+        if(spawn_state.visited[record]) spawn_event(c,"rearmed",record,id,x);
+        spawn_state.visited[record]=0;
+      } else {
+        if(r8(c,0x1938+record)) spawn_state.visited[record]=1;
+        if(spawn_state.visited[record]) {
+          /* Native transformations (e.g. a Koopa entering its shell) can clear
+           * the flag without the trigger leaving the screen. Do not treat
+           * that as another entry into the expanded activation region. */
+          if(!r8(c,0x1938+record) && spawn_state.visited[record]!=2) {
+            spawn_event(c,"suppressed",record,id,x);
+            spawn_state.visited[record]=2;
+          }
+          visible=false;
+        } else spawn_state.pending=(uint8_t)record;
+      }
     }
+    if(visible && (c->X&0xffff)<128 && !r8(c,0x1938+(c->X&0xffff)))
+      spawn_event(c,"candidate",c->X&0xffff,id,x);
     cpu_write8(c,0x7e,c->D,(uint8_t)(x&0xf0));
     cpu_write8(c,0x7e,c->D+1,visible?(uint8_t)(x>>8):255);
   } else if(pc==0x01AC7C || pc==0x02D076 || pc==0x03B8A8) {

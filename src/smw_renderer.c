@@ -342,6 +342,24 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
     if(trace) fprintf(trace,"frame,mode,camera,width,active,far,native_differences,unexplained_differences\n");
   }
   if(trace) { fprintf(trace,"%u,%u,%d,%d,%u,%u,%u,%u\n",frame,frame_ram[0x100],camera,g_smw_viewport.width,active,far,differing,unexplained); fflush(trace); }
+  static FILE *sprite_trace;
+  if(!sprite_trace) {
+    snprintf(path,sizeof(path),"%s/sprites.csv",directory);
+    sprite_trace=fopen(path,"w");
+    if(sprite_trace) fprintf(sprite_trace,"frame,slot,status,id,record,x,y,load_flag,enter_timer,target,paused\n");
+  }
+  if(sprite_trace) {
+    for(unsigned slot=0;slot<12;++slot) if(frame_ram[0x14c8+slot]) {
+      unsigned record=frame_ram[0x161a+slot];
+      fprintf(sprite_trace,"%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",frame,slot,
+              frame_ram[0x14c8+slot],frame_ram[0x9e + slot],record,
+              frame_ram[0xe4+slot]|(frame_ram[0x14e0+slot]<<8),
+              frame_ram[0xd8+slot]|(frame_ram[0x14d4+slot]<<8),
+              record<128?frame_ram[0x1938+record]:0,frame_ram[0x1558+slot],
+              frame_ram[0x1594+slot],frame_ram[0x13d4]);
+    }
+    fflush(sprite_trace);
+  }
   const char *requested=getenv("SMW_RENDER_CAPTURE_FRAME");
   const char *interval=getenv("SMW_RENDER_CAPTURE_EVERY");
   unsigned every=interval && atoi(interval)>0?(unsigned)atoi(interval):300;

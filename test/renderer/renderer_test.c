@@ -4,6 +4,7 @@
 #include <string.h>
 #include "cpu_state.h"
 #include "snes/interp_bridge.h"
+#include "snes/saveload.h"
 #include "smw_renderer.h"
 #include "common_rtl.h"
 uint8_t g_ram[0x20000];
@@ -73,6 +74,54 @@ static void spawn(void) {
   g_ram[0xe4]=0;g_ram[0x14e0]=8;cpu.X=0;
   SmwRendererDrawInfo(&cpu);assert(g_ram[0x15c4]==0 && cpu._flag_Z==1);
   g_ram[0x14e0]=9;SmwRendererDrawInfo(&cpu);assert(g_ram[0x15c4]==1);
+}
+typedef struct StateBuffer { SaveLoadInfo base; bool writing; size_t position; uint8_t data[256]; } StateBuffer;
+static void state_transfer(SaveLoadInfo *sli,void *data,size_t size) {
+  StateBuffer *buffer=(StateBuffer *)sli;
+  assert(buffer->position+size<=sizeof(buffer->data));
+  if(buffer->writing) memcpy(buffer->data+buffer->position,data,size);
+  else memcpy(data,buffer->data+buffer->position,size);
+  buffer->position+=size;
+}
+static void spawn_lifecycle(void) {
+  CpuState cpu={0};cpu.Y=1;
+  memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));
+  g_smw_video=(SmwVideoSettings){true,true,0};g_smw_viewport=(SmwViewport){1118,431,1118.0/192};
+  g_ram[0x100]=20;g_ram[0x5e]=31;word(0xce,0x8000);g_ram[0xd0]=2;
+  unsigned data=(2<<15)+1;
+  rom[data]=0x71;rom[data+1]=0x43;rom[data+2]=1;rom[data+3]=255; /* Koopa at x=832 */
+  SmwRendererStateLoaded(6);
+  /* Full pool: the native loader rolls the flag back to zero. Keep retrying. */
+  for(int attempt=0;attempt<3;++attempt) {
+    cpu.X=0;cpu.Y=1;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==3);
+    cpu.X=1;cpu.Y=4;SmwRendererGuestHook(&cpu,0x02A82E);
+  }
+  cpu.X=0;cpu.Y=1;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==3);
+  g_ram[0x1938]=1; /* successful native allocation */
+  cpu.X=1;cpu.Y=4;SmwRendererGuestHook(&cpu,0x02A82E);
+  g_ram[0x1938]=0; /* consumed by shell entry; source is still in the view */
+  cpu.X=0;cpu.Y=1;
+  for(int i=0;i<10;++i) { SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255); }
+  StateBuffer saved={{state_transfer},true,0,{0}};
+  SmwRendererSaveExtra(&saved.base);assert(saved.position==141);
+  /* Leaving the region rearms the source, so a genuine return may respawn. */
+  word(0x1a,3000);SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  word(0x1a,0);SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==3);
+  /* Rewind to the consumed record with a clear native flag: remain blocked. */
+  saved.writing=false;saved.position=0;
+  SmwRendererLoadExtra(&saved.base,6);SmwRendererStateLoaded(6);
+  SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  /* Legacy saves rebuild from native loaded flags, without inheriting history. */
+  SmwRendererStateLoaded(6);g_ram[0x1938]=1;
+  SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  g_ram[0x1938]=0;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  /* Same level/list after a death or transition starts a fresh visit. */
+  g_ram[0x100]=13;SmwRendererSpawnFrame();g_ram[0x100]=20;
+  SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==3);
+  /* A different list cannot inherit the old list's record guard either. */
+  g_ram[0x1938]=1;SmwRendererGuestHook(&cpu,0x02A82E);
+  g_ram[0x1938]=0;word(0xce,0x8100);memcpy(rom+data+256,rom+data,4);
+  SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==3);
 }
 static Ppu test_ppu;
 static uint8_t surface[2134*224*4], native[256*224*4];
@@ -204,4 +253,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();objects();map16();pipe_variants();hud();puts("geometry, spawn policy, signed OAM, Map16/pipe variants and anchored HUD: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();objects();map16();pipe_variants();hud();puts("geometry, spawn lifecycle/save state, signed OAM, Map16/pipe variants and anchored HUD: passed");return 0; }

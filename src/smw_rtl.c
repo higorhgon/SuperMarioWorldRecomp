@@ -57,6 +57,7 @@ void SmwDrawPpuFrame(void) {
 }
 
 void RunOneFrameOfGame(void) {
+  SmwRendererSpawnFrame();
   SmwRendererLatchOam();
   // First-call reset gate. Was previously `if (*(uint16*)$7F8000 == 0) I_RESET()`,
   // which silently relied on WRAM being zero-initialized at power-on. Real hardware

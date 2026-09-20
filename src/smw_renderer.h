@@ -25,4 +25,9 @@ bool SmwRendererMapTile(const uint8_t *ram, unsigned layer, int x, int y, uint16
 void SmwRendererRecordOam(unsigned slot, int x, uint16_t position, uint16_t attr);
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end);
 void SmwRendererLatchOam(void);
+void SmwRendererSpawnFrame(void);
+struct SaveLoadInfo;
+void SmwRendererSaveExtra(struct SaveLoadInfo *sli);
+void SmwRendererLoadExtra(struct SaveLoadInfo *sli, uint32_t version);
+void SmwRendererStateLoaded(uint32_t version);
 void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t pitch);
