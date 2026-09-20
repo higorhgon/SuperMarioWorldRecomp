@@ -27,7 +27,7 @@
 #include "common_cpu_infra.h"
 #include "framedump.h"
 #include "config.h"
-#include "widescreen.h"
+#include "smw_renderer.h"
 #ifdef SMW_COOP_BUILD
 #include "coop_patch.h"
 #include "snes_netplay.h"
@@ -49,12 +49,12 @@
 #include "launcher.h"
 #if defined(SNES_LAUNCHER) || defined(RECOMP_LAUNCHER)
 #if defined(RECOMP_LAUNCHER)
-/* Shared recomp-ui launcher (F:\Projects\recomp-ui) — the console-agnostic
+/* Shared recomp-ui launcher (F:\Projects\recomp-ui) â€” the console-agnostic
  * extraction of launcher_ng, consumed as a junction/submodule. recomp_ui.cmake
  * defines RECOMP_LAUNCHER. SMW drives it as the SNES profile
  * (launcher_profile_apply("snes", ...)). */
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() */
-#include "launcher_profile.h"  /* launcher_profile_apply("snes", &gi) — SNES identity */
+#include "launcher_profile.h"  /* launcher_profile_apply("snes", &gi) â€” SNES identity */
 #elif defined(SNES_LAUNCHER)
 #include "launcher/launcher_capi.h"
 #endif
@@ -142,23 +142,11 @@ void OpenGLRenderer_Create(struct RendererFuncs *funcs);
 
 struct SpcPlayer *g_spc_player;
 
-// Sized for the widescreen capacity (256 + 2*kPpuExtraLeftRight). With
-// widescreen off the PPU only writes the leading 256 columns, so this is
-// authentic-identical; the extra capacity is just unused tail.
-static uint8_t g_my_pixels[kPpuBufWidth * 4 * 240];
-
-// Widescreen border, in PPU columns per side (0 = authentic 256-wide).
-// Fixed by the selected aspect or derived from the live drawable, then
-// re-applied every frame (ppu_reset zeroes the PPU's copy).
-// Non-static: the game-logic override layer externs this to widen the sprite
-// spawn/cull window to match the extended view.
+// The native PPU stays at its hardware dimensions. Expanded pixels belong to
+// smw_renderer, and are written directly to the dynamically sized host texture.
+static uint8_t g_my_pixels[256 * 4 * 240];
+// Legacy engine symbols remain inert; no guest PPU expansion is used.
 int g_ws_extra = 0;
-
-// Runtime widescreen master switch, read by the game-logic override layer
-// (overrides/widescreen/*.c) and the dispatch prologues apply_overrides.py
-// injects into the generated banks. Canonical definition lives here so the
-// override sources can just `extern bool g_ws_active;` without a mandatory
-// new translation unit. False = authentic SMW behaviour.
 bool g_ws_active = false;
 
 enum {
@@ -180,7 +168,7 @@ enum {
 
 /* Export an environment variable for this process. `_putenv` is a
  * Windows-CRT name and does not exist in glibc, so every export goes
- * through here rather than through an #ifdef at each call site — an
+ * through here rather than through an #ifdef at each call site â€” an
  * unguarded `_putenv` only breaks the Linux link, which is easy to miss
  * from a Windows-only build. */
 static void SetEnvVar(const char *name, const char *value) {
@@ -284,8 +272,8 @@ static void LoadScript(const char *path) {
     if (strcmp(cmd, "wait") == 0) {
       int frames = (sscanf(line, "%*s %d", &n) == 1) ? n : 0;
       pending_wait += frames;
-    } else if (strcmp(cmd, "loadstate") == 0) {
-      // loadstate N — load savestate slot N (0-indexed, F1=0)
+    } else if (strcmp(cmd, "loadstate") == 0 || strcmp(cmd, "savestate") == 0) {
+      // Snapshot commands use zero-based slots (F1=0).
       int slot = 0;
       sscanf(line, "%*s %d", &slot);
       if (g_script_count >= cap) {
@@ -293,7 +281,7 @@ static void LoadScript(const char *path) {
         g_script_entries = (ScriptEntry *)realloc(g_script_entries, cap * sizeof(ScriptEntry));
       }
       ScriptEntry *e = &g_script_entries[g_script_count++];
-      e->mask = 0x80000000 | (slot & 0xF);  // special flag: high bit = loadstate
+      e->mask = (strcmp(cmd, "savestate") == 0 ? 0x40000000u : 0x80000000u) | (slot & 0xF);
       e->hold_frames = 1;
       e->wait_frames = pending_wait;
       pending_wait = 0;
@@ -304,7 +292,9 @@ static void LoadScript(const char *path) {
         g_script_entries = (ScriptEntry *)realloc(g_script_entries, cap * sizeof(ScriptEntry));
       }
       ScriptEntry *e = &g_script_entries[g_script_count++];
-      e->mask = ParseButtonMask(arg1);
+      e->mask = 0;
+      for (char *button = strtok(arg1, "+"); button; button = strtok(NULL, "+"))
+        e->mask |= ParseButtonMask(button);
       e->hold_frames = hold;
       e->wait_frames = pending_wait;
       pending_wait = 0;
@@ -329,7 +319,7 @@ static uint32 TickScript(void) {
   if (g_script_phase == 1) {
     // waiting
     if (g_script_counter > 0) { g_script_counter--; return 0; }
-    // done waiting — start hold
+    // done waiting â€” start hold
     g_script_phase = 0;
     g_script_counter = e->hold_frames;
   }
@@ -342,9 +332,13 @@ static uint32 TickScript(void) {
         RtlSaveLoad(kSaveLoad_Load, e->mask & 0xF);
         return 0;
       }
+      if (e->mask & 0x40000000) {
+        RtlSaveLoad(kSaveLoad_Save, e->mask & 0xF);
+        return 0;
+      }
       return e->mask;
     }
-    // hold done — advance
+    // hold done â€” advance
     g_script_index++;
     if (g_script_index < g_script_count) {
       e = &g_script_entries[g_script_index];
@@ -441,60 +435,19 @@ static SDL_HitTestResult HitTestCallback(SDL_Window *win, const SDL_Point *pt, v
 }
 
 void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
-  // Re-apply the widescreen border every frame (ppu_reset zeroes the PPU's
-  // copy on soft reset / load-state). Bounded screens — overworld, title,
-  // menus, transitions — have no valid BG past the authentic 256-wide view,
-  // so the border would show garbage. Restrict the widescreen border to actual
-  // in-level gameplay (misc_game_mode == 0x14) and pillarbox everything else.
-  size_t row_bytes = (size_t)g_snes_width * 4;
-  if (g_ws_extra > 0) {
-    bool in_level = (g_ram[0x100] == 0x14);  // misc_game_mode: level main routine
-    if (in_level) {
-      // Keep the fixed framebuffer budget, but expose only world columns that
-      // exist inside the level. At the first/last camera screen, rendering a
-      // full symmetric margin wraps the tilemap and produces a patterned slab
-      // of unrelated level data (especially obvious at Yoshi's House).
-      int camera_x = g_ram[0x1A] | (g_ram[0x1B] << 8);
-      int last_camera_x = g_ram[0x5E] << 8;
-      int left = IntMin(g_ws_extra, camera_x);
-      int right = IntMin(g_ws_extra, IntMax(0, last_camera_x - camera_x));
-      PpuSetExtraSpaceCentered(g_ppu, (uint8_t)g_ws_extra);
-      PpuSetExtraSideSpace(g_ppu, left, right, 0);
-      if (left != g_ws_extra || right != g_ws_extra)
-        memset(g_my_pixels, 0, row_bytes * g_snes_height);
-      // HUD split: the status bar lives on BG3 rows 1-4 (scanlines < 40).
-      // The 56/184 boundaries were screenshot-validated against both layouts:
-      // stock keeps MARIO/lives left, its middle item/time group centered, and
-      // score/coins right; co-op keeps MARIO/lives left, TIME/coins centered,
-      // and its two replacement player counters right. No cluster is bisected.
-      // Both outer chunks keep their authentic 16px inset from the edge.
-      // Message boxes render lower on BG3 and are unaffected.
-      PpuSetWidescreenHudSplit(g_ppu, g_config.widescreen_hud ? 40 : 0, 56, 184);
-      // The status bar occupies BG3 scanlines < 40; below it, level content on
-      // BG3 (water surface/body tiles) must fill the widescreen margins like
-      // BG1/BG2 instead of stopping at the authentic 256-wide edge.
-      PpuSetWidescreenBg3Widen(g_ppu, 40);
-    } else {
-      // Center the authentic 256 view and black out the side margins.
-      PpuSetExtraSpaceCentered(g_ppu, (uint8_t)g_ws_extra);
-      // Unlike PpuSetExtraSpace(), the centered variant intentionally keeps
-      // layer policies. Clear the level-only BG3 policies here so the
-      // overworld status bar remains part of the centered 4:3 picture.
-      PpuSetWidescreenHudSplit(g_ppu, 0, 0, 0);
-      PpuSetWidescreenBg3Widen(g_ppu, 0);
-      memset(g_my_pixels, 0, row_bytes * g_snes_height);
-    }
-  }
+  PpuSetExtraSpace(g_ppu, 0);
+  PpuBeginDrawing(g_ppu, g_my_pixels, 256 * 4, render_flags);
   smw_falcon_presentation_prepare_ppu(g_ppu);
   g_rtl_game_info->draw_ppu_frame();
-  /* Composite into the PPU-owned frame before it is copied to the display.
-   * This keeps the debug/TCP screenshot path (which reads g_ppu->renderBuffer)
-   * authoritative, without ever binding the PPU to transient texture memory. */
-  smw_falcon_presentation_present(g_my_pixels,
-                                  (size_t)g_snes_width * sizeof(uint32_t),
-                                  g_snes_width, g_snes_height);
-  RtlWidescreenPresent(pixel_buffer, pitch, g_my_pixels,
-                       g_snes_width, g_snes_height);
+  if (g_smw_video.enabled) {
+    SmwRendererDraw(pixel_buffer, pitch, g_my_pixels);
+    SmwRendererDiagnostics(g_my_pixels, pixel_buffer, pitch);
+  } else {
+    for (int y = 0; y < 224; ++y)
+      memcpy(pixel_buffer + y * pitch, g_my_pixels + y * 256 * 4, 256 * 4);
+  }
+  smw_falcon_presentation_present(pixel_buffer, pitch, g_snes_width,
+                                  g_snes_height);
 }
 
 static void DrawPpuFrameWithPerf(void) {
@@ -625,6 +578,8 @@ static void SetAudioPaused(bool paused) {
 static SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 static SDL_Rect g_sdl_renderer_rect;
+static SDL_Rect g_sdl_destination;
+static int g_texture_width;
 
 static bool SdlRenderer_Init(SDL_Window *window) {
   if (g_config.shader)
@@ -649,15 +604,13 @@ static bool SdlRenderer_Init(SDL_Window *window) {
             renderer_name ? renderer_name : "(unknown)",
             snesrecomp_sdl_get_render_vsync(renderer));
   }
-  if (!g_config.ignore_aspect_ratio)
-    snesrecomp_sdl_set_render_logical_size(
-        renderer, g_snes_width, g_snes_height);
+
 
   int tex_mult = 1;
-  // Texture at the full widescreen capacity so dynamic resizes never need a
-  // texture recreate; BeginDraw locks the current-width subrect.
+  g_texture_width = g_snes_width;
+  // BeginDraw recreates this texture when the adaptive width changes.
   g_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                (256 + 2 * kPpuExtraLeftRight) * tex_mult, g_snes_height * tex_mult);
+                                g_snes_width * tex_mult, g_snes_height * tex_mult);
   if (g_texture == NULL) {
     printf("Failed to create texture: %s\n", SDL_GetError());
     return false;
@@ -682,6 +635,22 @@ static void SdlRenderer_GetOutputSize(int *width, int *height) {
 }
 
 static void SdlRenderer_BeginDraw(int width, int height, uint8 **pixels, int *pitch) {
+  if (width != g_texture_width) {
+    SDL_Texture *next = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, width, height);
+    if (!next) Die(SDL_GetError());
+    SDL_DestroyTexture(g_texture);
+    g_texture = next;
+    g_texture_width = width;
+    snesrecomp_sdl_set_texture_linear(g_texture, g_config.linear_filtering != 0);
+    snesrecomp_sdl_set_texture_opaque(g_texture);
+  }
+  int w, h;
+  SdlRenderer_GetOutputSize(&w, &h);
+  SmwDestination(g_smw_viewport, w, h, &g_sdl_destination.x, &g_sdl_destination.y,
+                 &g_sdl_destination.w, &g_sdl_destination.h);
+  if (!g_smw_video.enabled && g_config.ignore_aspect_ratio)
+    g_sdl_destination = (SDL_Rect){0, 0, w, h};
   g_sdl_renderer_rect.w = width;
   g_sdl_renderer_rect.h = height;
   if (!snesrecomp_sdl_lock_texture(
@@ -699,69 +668,19 @@ static void SdlRenderer_EndDraw(void) {
   //  printf("%f ms\n", v * 1000);
   SDL_RenderClear(g_renderer);
   snesrecomp_sdl_render_texture(
-      g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
+      g_renderer, g_texture, &g_sdl_renderer_rect, &g_sdl_destination);
   SDL_RenderPresent(g_renderer); // vsyncs to 60 FPS?
 }
 
-static int AdaptiveWidescreenExtraForSize(int drawable_width,
-                                          int drawable_height) {
-  if (drawable_width <= 0 || drawable_height <= 0)
-    return g_ws_extra;
-
-  int64_t numerator = (int64_t)drawable_width * 224 -
-                      (int64_t)drawable_height * 256;
-  if (numerator <= 0)
-    return 0;
-
-  int64_t divisor = (int64_t)drawable_height * 2;
-  int64_t extra = (numerator + divisor / 2) / divisor;
-  int cap = IntMin(kPpuExtraLeftRight, kWsExtraMax);
-  return extra > cap ? cap : (int)extra;
-}
-
-static int Fixed16x9WidescreenExtra(void) {
-  int target_width = (g_snes_height * 16 + 4) / 9;
-  return IntMin((target_width - 256) / 2,
-                IntMin(kPpuExtraLeftRight, kWsExtraMax));
-}
-
-// Apply the selected view mode. Adaptive preserves the authentic logical
-// height and derives horizontal world coverage from the live drawable;
-// polling also follows fullscreen/display and HiDPI changes that do not
-// necessarily arrive as a window-size event.
 static void UpdateWidescreen(void) {
-  int drawable_width = 0, drawable_height = 0;
-  int extra = 0;
-  const char *mode_name = "standard";
-  if (g_config.widescreen_mode == kWidescreenMode_Fixed16x9) {
-    extra = Fixed16x9WidescreenExtra();
-    mode_name = "fixed-16:9";
-  } else if (g_config.widescreen_mode == kWidescreenMode_Adaptive) {
-    g_renderer_funcs.GetOutputSize(&drawable_width, &drawable_height);
-    extra = AdaptiveWidescreenExtraForSize(drawable_width, drawable_height);
-    mode_name = "adaptive";
-  }
-  if (extra == g_ws_extra)
-    return;
-
-  g_ws_extra = extra;
-  g_snes_width = 256 + 2 * extra;
-  g_ws_active = (extra > 0);
-
-  // Clear any wider live margin before changing pitch. RtlDrawPpuFrame applies
-  // SMW's in-level policy on the next draw; centered margins are the safe
-  // presentation for title screens, maps, transitions, and paused frames.
-  PpuSetExtraSpaceCentered(g_ppu, (uint8_t)extra);
-  PpuBeginDrawing(g_ppu, g_my_pixels, (size_t)g_snes_width * 4,
-                  g_ppu_render_flags);
-  if (g_renderer && !g_config.ignore_aspect_ratio)
-    snesrecomp_sdl_set_render_logical_size(
-        g_renderer, g_snes_width, g_snes_height);
-
-  host_report_breadcrumb(
-      "widescreen: mode=%s drawable=%dx%d logical=%dx%d extra=%d",
-      mode_name, drawable_width, drawable_height,
-      g_snes_width, g_snes_height, g_ws_extra);
+  int w = 0, h = 0;
+  g_renderer_funcs.GetOutputSize(&w, &h);
+  SmwViewport view = SmwCalculateViewport(&g_smw_video, w, h);
+  if (view.width == g_smw_viewport.width && view.aspect == g_smw_viewport.aspect) return;
+  g_smw_viewport = view;
+  g_snes_width = view.width;
+  host_report_breadcrumb("adaptive renderer: drawable=%dx%d width=%d aspect=%.6f spawns=%s",
+      w, h, view.width, view.aspect, g_smw_video.adaptive_spawns ? "adaptive" : "original");
 }
 
 static const struct RendererFuncs kSdlRendererFuncs = {
@@ -807,8 +726,8 @@ static void crash_handler(int sig) {
           sig, g_last_recomp_func ? g_last_recomp_func : "(unknown)");
   dump_sprite_state();
   RecompStackDump();
-  cpu_trace_dump_dbpb("CRASH — DB/PB mutations");
-  cpu_trace_dump_recent("CRASH — main trace ring", 256);
+  cpu_trace_dump_dbpb("CRASH â€” DB/PB mutations");
+  cpu_trace_dump_recent("CRASH â€” main trace ring", 256);
   fflush(stderr);
   recomp_post_mortem_dump("signal", NULL);
   _exit(128 + sig);
@@ -832,8 +751,8 @@ static LONG WINAPI seh_handler(EXCEPTION_POINTERS* info) {
   }
   dump_sprite_state();
   RecompStackDump();
-  cpu_trace_dump_dbpb("SEH CRASH — DB/PB mutations");
-  cpu_trace_dump_recent("SEH CRASH — main trace ring", 256);
+  cpu_trace_dump_dbpb("SEH CRASH â€” DB/PB mutations");
+  cpu_trace_dump_recent("SEH CRASH â€” main trace ring", 256);
   fflush(stderr);
   recomp_post_mortem_dump("seh", info);
   return EXCEPTION_EXECUTE_HANDLER;
@@ -913,7 +832,7 @@ int main(int argc, char** argv) {
   /* On Windows, do NOT install a SIGSEGV handler: the MSVC CRT's signal
    * shim intercepts access violations BEFORE the SetUnhandledExceptionFilter
    * SEH filter, so crashes would reach crash_handler with no
-   * EXCEPTION_POINTERS — no exception record in the minidump/report. With
+   * EXCEPTION_POINTERS â€” no exception record in the minidump/report. With
    * SIGSEGV left uninstalled, AVs reach seh_handler with full fault
    * context. SIGABRT (abort/assert) stays handled on all platforms. */
   signal(SIGSEGV, crash_handler);
@@ -1002,14 +921,14 @@ int main(int argc, char** argv) {
     argv[0] = (char *)AbsolutizePathArg(argv[0], rom_abs, sizeof(rom_abs));
   }
 
-  /* The config is config.ini next to the executable — nothing else,
+  /* The config is config.ini next to the executable â€” nothing else,
    * no directory walking. Anchoring cwd to the exe dir also pins
    * keybinds.ini, rom.cfg and saves/ there, however the process was
    * launched. (On read-only installs the anchor declines and cwd
    * stays authoritative; see launcher.h.) */
   {
     extern int snesrecomp_anchor_to_exe_dir(void);
-    int anchored = snesrecomp_anchor_to_exe_dir();
+    int anchored = config_file ? 0 : snesrecomp_anchor_to_exe_dir();
     host_report_breadcrumb("exe-dir anchor: %s",
                            anchored ? "ok" : "declined (cwd stays authoritative)");
   }
@@ -1143,7 +1062,8 @@ int main(int argc, char** argv) {
                    (framedump_dir != NULL) || g_benchmark_frames > 0;
     int have_positional = (argc >= 1 && argv[0] && argv[0][0] != '-' && argv[0][0] != '\0');
     const char *no_launcher = getenv("SNESRECOMP_NO_LAUNCHER");
-    int want_launcher = !headless && !have_positional && !(no_launcher && *no_launcher);
+    int want_launcher = force_launcher ||
+        (!headless && !have_positional && !(no_launcher && *no_launcher));
 #ifdef SMW_COOP_BUILD
     if (g_netplay_pending) want_launcher = 0;
 #endif
@@ -1351,7 +1271,7 @@ int main(int argc, char** argv) {
         /* Persist the launcher's choices so they're remembered next boot. */
         WriteConfigFile(config_file);
         /* The launcher's Hotkeys editor writes [KeyMap] straight into the
-         * config file, which was parsed before the launcher ran — re-apply
+         * config file, which was parsed before the launcher ran â€” re-apply
          * so rebinds work on THIS boot, not the next one. (WriteConfigFile
          * above preserves [KeyMap] lines, so order is safe.) */
         ConfigReloadKeyMap(config_file);
@@ -1462,7 +1382,7 @@ int main(int argc, char** argv) {
 
   // Initialize debug server. Production builds (SNESRECOMP_TRACE = 0) get
   // debug_server.h's static-inline no-op stubs and never compile
-  // debug_server.c, so nothing is listening — but the stub returns 0 for
+  // debug_server.c, so nothing is listening â€” but the stub returns 0 for
   // "success", which made a prod build announce a debug server it does not
   // have. Only report the port when the real server is compiled in.
   {
@@ -1474,7 +1394,7 @@ int main(int argc, char** argv) {
     if (start_paused) {
       debug_server_start_paused();
 #if SNESRECOMP_TRACE
-      fprintf(stderr, "[main] Started paused — send 'step N' or 'continue' via TCP\n");
+      fprintf(stderr, "[main] Started paused â€” send 'step N' or 'continue' via TCP\n");
 #endif
     }
   }
@@ -1507,64 +1427,29 @@ int main(int argc, char** argv) {
   g_snes_width = 256;
   g_snes_height = 224;
 
-  // Widescreen is optional. Fixed 16:9 establishes its logical width before
-  // the window is created; adaptive starts authentic-width and follows the
-  // live drawable once the renderer exists. SNESRECOMP_WIDESCREEN accepts
-  // Standard/0, Fixed16x9/1, or Adaptive/2 for quick testing.
-#ifndef SMW_COOP_BUILD
-  {
-    const char *ws_env = getenv("SNESRECOMP_WIDESCREEN");
-    if (ws_env && *ws_env) {
-      g_config.widescreen_mode =
-          StringEqualsNoCase(ws_env, "Adaptive") ? kWidescreenMode_Adaptive :
-          (StringEqualsNoCase(ws_env, "Fixed16x9") ||
-           StringEqualsNoCase(ws_env, "16:9")) ? kWidescreenMode_Fixed16x9 :
-          atoi(ws_env) >= kWidescreenMode_Adaptive ? kWidescreenMode_Adaptive :
-          atoi(ws_env) == kWidescreenMode_Fixed16x9 ? kWidescreenMode_Fixed16x9 :
-          kWidescreenMode_Standard;
-    }
+  /* Mods owns these defaults; environment overrides are for isolated QA. */
+  const char *aspect = getenv("SMW_RENDER_ASPECT");
+  if (aspect && *aspect) {
+    g_smw_video.enabled = strcmp(aspect, "off") != 0;
+    int n = 0, d = 0;
+    g_smw_video.aspect = sscanf(aspect, "%d:%d", &n, &d) == 2 && n > 0 && d > 0 ?
+                        (double)n / d : 0;
   }
-#else
-  /* Co-op is intentionally 4:3-only until its IPS-specific terrain streamer
-   * can fill the extended columns without corrupting the tilemap. */
-  g_config.widescreen_mode = kWidescreenMode_Standard;
-#endif
-  g_ws_extra = 0;
-  g_ws_active = false;
-  if (g_config.widescreen_mode == kWidescreenMode_Fixed16x9) {
-    g_ws_extra = Fixed16x9WidescreenExtra();
-    g_snes_width = 256 + 2 * g_ws_extra;
-    g_ws_active = g_ws_extra > 0;
-  }
-  extern void SmwWidescreenInterpPreOpcode(CpuState *cpu, uint32_t pc24);
-  if (g_config.widescreen_mode != kWidescreenMode_Standard) {
-    interp_bridge_set_pre_opcode_hook(0x02A828u,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x02A916u,
-                                      SmwWidescreenInterpPreOpcode);
+  const char *spawn = getenv("SMW_ENEMY_SPAWN");
+  if (spawn && *spawn) g_smw_video.adaptive_spawns = strcmp(spawn, "original") != 0;
 #ifdef SMW_COOP_BUILD
-    // The co-op IPS redirects Layer 1 column streaming into bank $1F.
-    interp_bridge_set_pre_opcode_hook(0x1FB206u,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x1FAA7Au,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x1FAB83u,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x1FAC23u,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x1FAC27u,
-                                      SmwWidescreenInterpPreOpcode);
-    interp_bridge_set_pre_opcode_hook(0x1FAC90u,
-                                      SmwWidescreenInterpPreOpcode);
+  g_smw_video.enabled = false;
 #endif
-  }
-  // A wider viewport can expose more sprites on one scanline than the SNES
-  // could see at 256px. Keep authentic caps configurable at 4:3, but lift them
-  // whenever widescreen is active so sprites do not disappear prematurely.
+  g_ws_active = false;
+  g_ws_extra = 0;
+  g_smw_viewport = SmwCalculateViewport(&g_smw_video, 4, 3);
+  g_snes_width = g_smw_viewport.width;
+  extern void SmwRendererInstallHooks(void);
+  SmwRendererInstallHooks();
+  // The host compositor has no hardware sprite cap. The native 4:3 fallback
+  // continues to honor the user's ordinary PPU settings.
   g_ppu_render_flags = g_config.new_renderer * kPpuRenderFlags_NewRenderer |
-    (g_config.no_sprite_limits ||
-     g_config.widescreen_mode != kWidescreenMode_Standard) *
-      kPpuRenderFlags_NoSpriteLimits;
+    g_config.no_sprite_limits * kPpuRenderFlags_NoSpriteLimits;
 
   if (g_config.fullscreen == 1)
     g_win_flags ^= SDL_WINDOW_FULLSCREEN;
@@ -1665,7 +1550,7 @@ error_reading:;
   snes_foreign_trace_init_dump();
 
   // Connect debug server to SNES RAM. Declared by debug_server.h, which in
-  // a production build resolves this to a no-op stub — do NOT redeclare it
+  // a production build resolves this to a no-op stub â€” do NOT redeclare it
   // `extern` here, or the call bypasses the stub and only fails at link
   // time on a non-Windows production build.
   debug_server_set_ram(snes->ram, 0x20000);
@@ -1807,7 +1692,7 @@ error_reading:;
     host_report_breadcrumb("audio disabled in config");
   }
 
-  PpuBeginDrawing(g_ppu, g_my_pixels, (size_t)g_snes_width * 4,
+  PpuBeginDrawing(g_ppu, g_my_pixels, 256 * 4,
                   g_ppu_render_flags);
 
   UpdateWidescreen();
@@ -1920,7 +1805,7 @@ error_reading:;
     Uint64 stall_t_draw = stall_t0;
     SDL_Event event;
 
-    /* Inert unless SNESRECOMP_CRASH_TEST is set — support drill for the
+    /* Inert unless SNESRECOMP_CRASH_TEST is set â€” support drill for the
      * whole crash-capture pipeline (minidump + report + crash copy). */
     host_report_crash_test_tick();
 
@@ -2101,7 +1986,7 @@ error_reading:;
 #ifdef ENABLE_ORACLE_BACKEND
     // Step the oracle emulator with the same input. First-light does
     // not guarantee input-bit parity between the runner's 12-bit-per-
-    // player layout and the bridge's SNES-hardware layout — good
+    // player layout and the bridge's SNES-hardware layout â€” good
     // enough for attract-demo comparison (no input), needs remapping
     // work before live gameplay divergence analysis.
     {
@@ -2111,7 +1996,7 @@ error_reading:;
     }
 #endif
 
-    // Bank validation removed — 100% oracle mode, no banks enabled.
+    // Bank validation removed â€” 100% oracle mode, no banks enabled.
 
     frameCtr++;
     if (frameCtr == 1)
@@ -2162,7 +2047,7 @@ error_reading:;
       DrawPpuFrameWithPerf();
     } else {
       /* Turbo (render skipped): SmwDrawPpuFrame / draw_ppu_frame is NOT purely
-       * cosmetic — it also simulates HDMA and fires the raster IRQ (I_IRQ).
+       * cosmetic â€” it also simulates HDMA and fires the raster IRQ (I_IRQ).
        * Under the default LLE scheduler the game runs the
        * REAL NMI/IRQ machinery, so skipping the raster IRQ 15/16 frames would
        * let an IRQ-gated guest path spin, the 5s watchdog longjmp out mid-frame
@@ -2203,7 +2088,7 @@ error_reading:;
      * produced at 1/60 s per frame) stays in sync with the sound device. On by
      * default. Power users on an exactly-60 Hz / vsync-correct display can set
      * DisableFrameDelay = 1 in config.ini (cfg-only, no UI) to skip it for
-     * slightly better perf — at the risk of audio desync on other displays. */
+     * slightly better perf â€” at the risk of audio desync on other displays. */
     if (!g_snes->disableRender && !g_config.disable_frame_delay) {
       static const uint8 delays[3] = { 17, 17, 16 }; // 60 fps
       lastTick += delays[frameCtr % 3];

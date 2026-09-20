@@ -76,7 +76,7 @@ The ROM is **never** redistributed — supply your own dump.
 
 ## Optional Lua scripting
 
-The v0.12.0 Windows/Linux packages include an opt-in localhost Lua server and
+The Windows/Linux packages include an opt-in localhost Lua server and
 a `lua/` folder with a **100-fireballs-per-second** hold-to-fire example.
 See [lua/README.md](lua/README.md) for activation and controls. Nothing runs or
 listens during ordinary play. Source builds enable this with
@@ -84,23 +84,22 @@ listens during ordinary play. Source builds enable this with
 
 ## Widescreen
 
-The one-player launcher's **Aspect ratio** setting offers three view modes: **Standard
-(4:3)**, **16:9 fixed**, and **Adaptive**. The same selection can be set under
-`[Graphics]` in `config.ini` with `Widescreen = Standard`, `Fixed16x9`, or
-`Adaptive`.
+Enable **SMW Adaptive Widescreen** in the one-player launcher's **Mods** page.
+Its two controls are **Aspect ratio** (Fit to screen by default, plus fixed
+4:3 through 100:9 choices) and **Enemy spawn behavior** (Screen-based by
+default, or Original 4:3 activation). The HUD anchors automatically: lives and
+bonus counters left, reserve item centered, TIME/coins/score right.
 
-Both widescreen modes retain the native 224-pixel logical height. Fixed mode
-always renders a roughly 398-pixel-wide 16:9 view. Adaptive derives the logical
-width from the live window or fullscreen aspect ratio, so resizing a window
-wider reveals more of the level; at the native aspect it returns to the
-authentic 256-pixel view.
+This experimental host renderer replaces the former PPU-expansion mod. Fit
+follows the live window or fullscreen aspect, with native pixel proportions
+and 224 lines; 100:9 renders 2134 columns without wrapping enemy coordinates.
+Title screens, the overworld, transitions, and unsupported PPU modes retain
+their native view. The original enemy-slot pool still limits how many enemies
+can be active across very wide views.
 
-The in-level status bar follows the wider view, and SMW's spawn and culling
-logic expands with the visible margins. Screens without valid extended level
-terrain, including the title screen, overworld, and transitions, remain
-centered and pillarboxed. The maximum logical width is 446 pixels because wider
-views cannot represent every sprite safely in the SNES's 9-bit OAM coordinate
-space.
+See [the renderer guide](docs/adaptive-renderer.md) for building, isolated
+playtesting, architecture, checks, and current limitations. Old `Widescreen`
+and `WidescreenHud` INI fields no longer control this mod.
 
 ## Simultaneous co-op build
 

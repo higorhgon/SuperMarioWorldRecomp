@@ -55,15 +55,9 @@ typedef struct Config {
   uint16 audio_samples;
   bool autosave;
   bool no_sprite_limits;
-  // Standard 4:3, fixed 16:9, or adaptive widescreen. Adaptive follows the
-  // live host aspect at a fixed 224-line height, up to the sprite-safe 446px
-  // ceiling. SMW's spawn, culling, and HUD behavior is supplied by the
-  // override layer.
+  // Legacy config compatibility. Active aspect/spawn settings belong to the
+  // adaptive renderer mod; these fields no longer configure PPU expansion.
   uint8 widescreen_mode;
-  // Split the status bar to the widescreen edges (lives cluster left,
-  // TIME/coins/score right, item box centered). Defaults on; only takes
-  // effect with widescreen active. `WidescreenHud = 0` keeps the
-  // authentic centered HUD.
   bool widescreen_hud;
   bool display_perf_title;
 

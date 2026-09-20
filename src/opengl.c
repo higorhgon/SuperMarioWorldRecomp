@@ -1,3 +1,4 @@
+#include "smw_renderer.h"
 #include "third_party/gl_core/gl_core_3_1.h"
 #include "desktop/sdl_compat.h"
 #include <stdio.h>
@@ -169,17 +170,14 @@ static void OpenGLRenderer_EndDraw(void) {
   snesrecomp_sdl_get_drawable_size(
       g_window, &drawable_width, &drawable_height);
   
-  int viewport_width = drawable_width, viewport_height = drawable_height;
-
-  if (!g_config.ignore_aspect_ratio) {
-    if (viewport_width * g_draw_height < viewport_height * g_draw_width)
-      viewport_height = viewport_width * g_draw_height / g_draw_width;  // limit height
-    else
-      viewport_width = viewport_height * g_draw_width / g_draw_height;  // limit width
+  int viewport_x, viewport_y, viewport_width, viewport_height;
+  SmwDestination(g_smw_viewport, drawable_width, drawable_height,
+      &viewport_x, &viewport_y, &viewport_width, &viewport_height);
+  if (!g_smw_video.enabled && g_config.ignore_aspect_ratio) {
+    viewport_x = viewport_y = 0;
+    viewport_width = drawable_width;
+    viewport_height = drawable_height;
   }
-
-  int viewport_x = (drawable_width - viewport_width) >> 1;
-  int viewport_y = (viewport_height - viewport_height) >> 1;
 
   glBindTexture(GL_TEXTURE_2D, g_texture.gl_texture);
   if (g_draw_width == g_texture.width && g_draw_height == g_texture.height) {

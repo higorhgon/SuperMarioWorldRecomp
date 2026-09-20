@@ -16,12 +16,12 @@ Never publish a bare `SuperMarioWorldSNESRecomp.exe` — it is broken
 without `SDL3.dll` and the recomp-ui `assets/` tree, and redundant next
 to the zip.
 
-Widescreen is **no longer a separate zip**. The override layer is
-runtime-gated and default-off, `CMakeLists.txt` owns its injection
-through the `smw_widescreen_overrides` stamp rule (so Windows and Linux
-get an identical generated tree by construction), and the player toggles
-16:9 in the launcher. `config.ini` ships `Widescreen = 0`; the launcher
-persists the player's choice.
+Widescreen is **no longer a separate zip**. Enable **SMW Adaptive Widescreen**
+in the launcher's Mods page. Its defaults are **Fit to screen** and
+**Screen-based** enemy spawning, with fixed aspect ratios and Original 4:3
+spawning available. CMake's `smw_renderer_hooks` stamp installs the adaptive
+renderer and the separate Falcon hooks identically on Windows and Linux.
+Mod settings persist in `mods/state.toml`; legacy Widescreen INI fields are inactive.
 
 The co-op executable is additive and opt-in
 (`-DSMW_BUILD_COOP=ON` / `--coop`); ship it only when the release notes
@@ -38,7 +38,7 @@ without overwriting user edits. Co-op currently rejects Lua builds.
 
 ```powershell
 # 1. configure. NOTE the quoting: PowerShell rewrites an unquoted
-#    -DSNESRECOMP_BUILD_VERSION=0.10.0 into "0", which would ship crash
+#    -DSNESRECOMP_BUILD_VERSION=0.13.0 into "0", which would ship crash
 #    reports that cannot be tied to this release. make_release.ps1 now
 #    refuses to package an exe that is not stamped with -Version, but
 #    quote it here and the guard never has to fire.
@@ -46,8 +46,9 @@ cmake -S . -B build-recompui -G Ninja -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_C_COMPILER=C:/msys64/mingw64/bin/gcc.exe `
   -DCMAKE_CXX_COMPILER=C:/msys64/mingw64/bin/g++.exe `
   -DSNESRECOMP_ENABLE_TRACE=OFF -DSNESRECOMP_SDL_BACKEND=SDL3 `
+  -DSNESRECOMP_ENABLE_LUA=ON `
   -DSDL3_DIR=F:/Projects/snesrecomp/_tools/SDL3-3.4.12/x86_64-w64-mingw32/lib/cmake/SDL3 `
-  "-DSNESRECOMP_BUILD_VERSION:STRING=0.10.0"
+  "-DSNESRECOMP_BUILD_VERSION:STRING=0.13.0"
 
 # 2. build. Keep -j modest: the generated banks are multi-MB TUs at -O3,
 #    and an over-subscribed build kills the compiler with NO diagnostic
@@ -55,7 +56,7 @@ cmake -S . -B build-recompui -G Ninja -DCMAKE_BUILD_TYPE=Release `
 cmake --build build-recompui --target SuperMarioWorldSNESRecomp -j 4
 
 # 3. package
-powershell -File tools\make_release.ps1 -Version 0.10.0 `
+powershell -File tools\make_release.ps1 -Version 0.13.0 `
   -BuildDir build-recompui -RuntimeBinDir C:\msys64\mingw64\bin
 ```
 
@@ -71,7 +72,7 @@ fonts at all.
 ## Linux
 
 ```bash
-bash tools/build-linux.sh --version 0.10.0 --jobs 4
+bash tools/build-linux.sh --version 0.13.0 --lua --jobs 4
 ```
 
 The AppImage lands in `release-linux/`. The script:
@@ -102,8 +103,8 @@ The AppImage lands in `release-linux/`. The script:
 2. Build and package both platforms (above).
 3. Smoke-test both from a scratch directory: extract/copy, drop a ROM
    beside the exe/AppImage, run, reach a level. Confirm the launcher
-   renders (proves `assets/` resolved) and that 16:9 fills in-level with
-   the split HUD when toggled on.
+   renders (proves `assets/` resolved) and that Fit to screen fills in-level
+   with the anchored HUD and Screen-based spawning enabled.
 4. Write the release notes (what changed, what's verified, caveats) and
    publish — only after the user has signed off on the artifacts:
 
@@ -122,5 +123,5 @@ The AppImage lands in `release-linux/`. The script:
    the path in `rom.cfg`. On Linux you can instead just drop the ROM
    beside the `.AppImage` and it is picked up automatically.
 3. Saves land in `saves/`; controller mapping in `keybinds.ini`; options
-   (including `Widescreen`) in `config.ini` — all next to the exe, or
+   in `config.ini` and mod choices in `mods/state.toml` — all next to the exe, or
    next to the `.AppImage` on Linux.

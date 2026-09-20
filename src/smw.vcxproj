@@ -326,8 +326,9 @@
     <ClCompile Include="glsl_shader.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="post_mortem.c" />
-    <ClCompile Include="..\overrides\widescreen\fireball.c" />
-    <ClCompile Include="..\overrides\widescreen\lle_hook.c" />
+    <ClCompile Include="smw_video.c" />
+    <ClCompile Include="smw_renderer.c" />
+    <ClCompile Include="smw_renderer_hooks.c" />
 
     <ClCompile Include="opengl.c" />
     <ClCompile Include="platform\win32\volume_control.c" />
@@ -457,5 +458,9 @@
   <Target Name="CopyCoopPatch" AfterTargets="Build" Condition="'$(Configuration)'=='CoopProduction'">
     <Copy SourceFiles="$(SolutionDir)recomp\coop\smw_coop.ips"
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="ApplyAdaptiveRendererHooks" BeforeTargets="ClCompile" Condition="'$(Configuration)'!='CoopProduction'">
+    <Exec WorkingDirectory="$(SolutionDir)" Command="python tools/apply_renderer_hooks.py --gen-dir src/gen" />
+    <Exec WorkingDirectory="$(SolutionDir)" Command="python tools/apply_overrides.py --check --gen-dir src/gen --manifest overrides/falcon/overrides.manifest" />
   </Target>
 </Project>

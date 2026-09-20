@@ -1,3 +1,4 @@
+#include "smw_renderer.h"
 /* Lua playground projectile pool. Each projectile executes SMW's original
  * extended-sprite routine on a private RAM bus and private CPU/stack. This
  * preserves native slopes, gravity and enemy-hit behavior without advancing
@@ -170,7 +171,7 @@ void smw_fire_stream_draw(Ppu *ppu, uint8_t *pixels, size_t pitch, int width, in
         const Projectile *p = &pool[i];
         if (!p->drawn) continue;
         int size = (p->size & 2) ? 16 : 8;
-        int x = p->sx + (width-256)/2, y = p->sy;
+        int x = p->sx + SmwRendererNativeOffset(), y = p->sy;
         unsigned base = p->attr & 1 ? PPU_objTileAdr2(ppu) : PPU_objTileAdr1(ppu);
         unsigned palette = 128 + ((p->attr >> 1) & 7)*16;
         for (int dy = 0; dy < size; ++dy) for (int dx = 0; dx < size; ++dx) {

@@ -1,3 +1,4 @@
+#include "smw_renderer.h"
 /* Game-owned bridge for the approved, external Falcon owner cache. */
 #include "smw_falcon_presentation_runtime.h"
 
@@ -625,7 +626,7 @@ void smw_falcon_presentation_present(uint8_t *pixels, size_t pitch,
     target.width = width;
     target.height = height;
     target.pitch_pixels = (int)(pitch / sizeof(uint32_t));
-    target.anchor_x = (float)((width - 256) / 2 + (int16_t)player_on_screen_pos_x + 8);
+    target.anchor_x = (float)(SmwRendererNativeOffset() + (int16_t)player_on_screen_pos_x + 8);
     /* $80 is PlayerGFXRt's 32px sprite origin. The projected mesh foot plane
      * contacts the terrain at its native $80 + 32 foot baseline. */
     target.anchor_y = smw_falcon_presentation_foot_anchor_y(

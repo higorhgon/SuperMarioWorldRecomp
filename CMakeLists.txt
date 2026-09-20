@@ -57,43 +57,21 @@ if(NOT SMW_STOCK_GEN_SOURCES)
         "verified smw.sfc at the repository root before building.")
 endif()
 
-# The extended viewport and SMW's object lifecycle must move together. The
-# generated bank hooks widen draw culling, despawn bounds, sprite allocation,
-# special-object OAM, and fireballs; building pristine generated C would widen
-# only the framebuffer and leave gameplay at the stock 256-pixel boundaries.
-#
-# Make every generated object depend on an idempotent injection stamp. A regen
-# makes the bank C newer than the stamp, so the hooks are restored before any
-# affected source recompiles. Keeping this in CMake also covers direct builds
-# that do not go through a release wrapper.
-set(SMW_WIDESCREEN_OVERRIDE_STAMP
-    ${CMAKE_CURRENT_BINARY_DIR}/smw_widescreen_overrides.stamp)
-set(SMW_FALCON_OVERRIDE_MANIFEST
-    ${CMAKE_SOURCE_DIR}/overrides/falcon/overrides.manifest)
-add_custom_command(
-    OUTPUT ${SMW_WIDESCREEN_OVERRIDE_STAMP}
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
-            --check
+set(SMW_RENDERER_HOOK_STAMP ${CMAKE_CURRENT_BINARY_DIR}/smw_renderer_hooks.stamp)
+add_custom_command(OUTPUT ${SMW_RENDERER_HOOK_STAMP}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/apply_renderer_hooks.py
             --gen-dir ${CMAKE_SOURCE_DIR}/src/gen
-            --manifest ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
-    COMMAND ${Python3_EXECUTABLE}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
+            --check --gen-dir ${CMAKE_SOURCE_DIR}/src/gen
+            --manifest ${CMAKE_SOURCE_DIR}/overrides/falcon/overrides.manifest
+    COMMAND ${CMAKE_COMMAND} -E touch ${SMW_RENDERER_HOOK_STAMP}
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/apply_renderer_hooks.py
             ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
-            --check
-            --gen-dir ${CMAKE_SOURCE_DIR}/src/gen
-            --manifest ${SMW_FALCON_OVERRIDE_MANIFEST}
-    COMMAND ${CMAKE_COMMAND} -E touch ${SMW_WIDESCREEN_OVERRIDE_STAMP}
-    DEPENDS
-        ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
-        ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
-        ${SMW_FALCON_OVERRIDE_MANIFEST}
-        ${CMAKE_SOURCE_DIR}/overrides/falcon/falcon_smw_adapter.c
-        ${SMW_STOCK_GEN_SOURCES}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Applying widescreen object-lifecycle hooks"
+            ${CMAKE_SOURCE_DIR}/overrides/falcon/overrides.manifest
+            ${SMW_STOCK_GEN_SOURCES}
     VERBATIM)
 set_source_files_properties(${SMW_STOCK_GEN_SOURCES} PROPERTIES
-    OBJECT_DEPENDS ${SMW_WIDESCREEN_OVERRIDE_STAMP})
+    OBJECT_DEPENDS ${SMW_RENDERER_HOOK_STAMP})
 
 if(SMW_BUILD_COOP)
     file(GLOB SMW_COOP_GEN_SOURCES CONFIGURE_DEPENDS
@@ -103,30 +81,6 @@ if(SMW_BUILD_COOP)
             "src/gen-coop/ is empty - run `bash tools/regen.sh --coop` with "
             "a verified stock smw.sfc before enabling SMW_BUILD_COOP.")
     endif()
-
-    # Keep the experimental co-op widescreen spike buildable for future work.
-    # The IPS emits separate object-lifecycle variants and moves its Layer 1
-    # streamer into bank $1F, so the generated co-op tree needs its own check.
-    # Runtime and launcher support remain gated off until streaming is reliable.
-    set(SMW_COOP_WIDESCREEN_OVERRIDE_STAMP
-        ${CMAKE_CURRENT_BINARY_DIR}/smw_coop_widescreen_overrides.stamp)
-    add_custom_command(
-        OUTPUT ${SMW_COOP_WIDESCREEN_OVERRIDE_STAMP}
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
-                --check
-                --gen-dir ${CMAKE_SOURCE_DIR}/src/gen-coop
-                --manifest ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
-        COMMAND ${CMAKE_COMMAND} -E touch ${SMW_COOP_WIDESCREEN_OVERRIDE_STAMP}
-        DEPENDS
-            ${CMAKE_SOURCE_DIR}/tools/apply_overrides.py
-            ${CMAKE_SOURCE_DIR}/overrides/widescreen/overrides.manifest
-            ${SMW_COOP_GEN_SOURCES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "Applying co-op widescreen object-lifecycle hooks"
-        VERBATIM)
-    set_source_files_properties(${SMW_COOP_GEN_SOURCES} PROPERTIES
-        OBJECT_DEPENDS ${SMW_COOP_WIDESCREEN_OVERRIDE_STAMP})
 endif()
 
 file(GLOB SMW_OVERRIDE_SOURCES CONFIGURE_DEPENDS
@@ -143,6 +97,9 @@ set(SMW_RUNTIME_SOURCES
     src/gen_stubs.c
     src/smw_cpu_infra.c
     src/smw_rtl.c
+    src/smw_video.c
+    src/smw_renderer.c
+    src/smw_renderer_hooks.c
     src/smw_spc_player.c
     src/mods/falcon/falcon_locomotion.c
     src/mods/falcon/captain_falcon_foreign.c

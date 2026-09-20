@@ -129,7 +129,7 @@ fi
 # Feed only handwritten runtime sources into host-root discovery. Scanning the
 # whole src/ tree would let src/gen and src/gen-coop discover each other's
 # generated symbols, coupling the variants and overflowing Windows argv limits.
-SOURCE_ROOT_ARGS=(--source-root recomp/widescreen_aot_roots.c)
+SOURCE_ROOT_ARGS=(--source-root recomp/renderer_aot_roots.c)
 while IFS= read -r source; do
   SOURCE_ROOT_ARGS+=(--source-root "$source")
 done < <(find src -type f -name '*.c' \
