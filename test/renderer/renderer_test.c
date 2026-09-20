@@ -135,7 +135,7 @@ static void ghost_house_capacity(void) {
   CpuState cpu={0};cpu.X=5;
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));
   g_smw_video=(SmwVideoSettings){true,true,0};g_smw_viewport=(SmwViewport){558,151,558.0/192};
-  g_ram[0x100]=20;g_ram[0x5e]=14;g_ram[0x1692]=0x11;g_ram[6]=255;
+  g_ram[0x100]=20;g_ram[0x5e]=14;g_ram[0x1692]=0x11;g_ram[6]=255;g_ram[5]=0x39;
   for(int i=0;i<6;++i)g_ram[0x14c8+i]=8;
   SmwRendererGuestHook(&cpu,0x02A916);assert(cpu.X==8);
   g_ram[0x14c8+8]=8;cpu.X=5;
@@ -149,12 +149,20 @@ static void ghost_house_capacity(void) {
   assert(cpu.Y==8 && cpu.A==0x1208 && !cpu._flag_N && !cpu._flag_Z);
   for(int i=6;i<=11;++i) {
     cpu.X=i;g_ram[0x15ea+i]=0xcc;SmwRendererGuestHook(&cpu,0x0180E5);
-    assert(g_ram[0x15ea+i]==(i==8?0:i==9?20:0xcc));
+    assert(g_ram[0x15ea+i]==(i==8?0xf8:i==9?0xfc:0xcc));
   }
   g_smw_video.adaptive_spawns=false;cpu.X=8;g_ram[0x15ea+8]=0xcc;
   SmwRendererGuestHook(&cpu,0x0180E5);assert(g_ram[0x15ea+8]==0xcc);
   cpu.X=5;g_ram[6]=255;SmwRendererGuestHook(&cpu,0x02A916);assert(cpu.X==5);
   g_smw_video.adaptive_spawns=true;
+  /* A free RAM slot is insufficient for a multi-tile hole or Koopa. The
+   * two tail allocations each fit exactly one Eerie; never overlap Mario. */
+  g_ram[0x14c8+8]=0;g_ram[0x14c8+9]=0;g_ram[6]=255;
+  const unsigned ids[]={0x38,0x39,0x52,0x05,0xda};
+  for(unsigned i=0;i<sizeof(ids)/sizeof(*ids);++i) {
+    cpu.X=5;g_ram[5]=ids[i];SmwRendererGuestHook(&cpu,0x02A916);
+    assert(cpu.X==(i<2?8:5));
+  }
   /* A blocked ordinary placement must not stop the reserved-pool record
    * after it. These are the ROM's preset-$11 bounds, with distinct pools. */
   word(0xce,0x8000);g_ram[0xd0]=2;SmwRendererStateLoaded(7);
@@ -163,9 +171,11 @@ static void ghost_house_capacity(void) {
   rom[0x10000+0x2786+17]=7;rom[0x10000+0x27bf+17]=5;
   rom[0x10001]=0x71;rom[0x10002]=0x91;rom[0x10003]=0x52;
   rom[0x10004]=0x30;rom[0x10005]=0xa1;rom[0x10006]=0xae;
-  g_ram[0x14c8+8]=8;cpu.X=0;cpu.Y=1;
+  cpu.X=0;cpu.Y=1;
   SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
   rom[0x10003]=0xda;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  rom[0x10003]=0x39;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==1);
+  g_ram[0x14c8+8]=g_ram[0x14c8+9]=8;
   rom[0x10003]=0xde;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
   cpu.X=1;cpu.Y=4;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==1);
   assert(!g_ram[0x1938] && !g_ram[0x1939]); /* native loader still owns allocation */

@@ -78,11 +78,12 @@ static int left_margin(CpuState *c) {
       SmwViewOffset(g_smw_viewport,r16(c,0x1a),(r8(c,0x5e)+1)*256);
 }
 
-/* Sprite-memory preset $11 gives six ordinary slots five OBJ tiles each,
- * and reserves slots 6/7 for Fishin' Boo. Its unused OBJ bytes $00-$27 can
- * supply two more five-tile allocations without touching those reservations
- * or the item/Yoshi allocations at $28/$2C. Keep the native twelve-slot RAM. */
-static int ghost_house_spare(CpuState *c) {
+/* Preset $11's ROM table ($07:F000) reserves $30-$7F for slots 6/7 and
+ * gives slots 0-5 five tiles each at $80-$F7. $00-$27 belongs to Mario/cape,
+ * not spare sprites. Only $F8/$FC remain free: one tile per extra Eerie.
+ * Both Eerie variants ($38/$39) use SubSprGfx2Entry1's single-tile draw. */
+static int ghost_house_spare(CpuState *c,unsigned id) {
+  if(id!=0x38 && id!=0x39) return -1;
   if(r8(c,0x1692)!=0x11 || (r8(c,0x5b)&1)) return -1;
   for(unsigned slot=8;slot<=9;++slot)
     if(!r8(c,0x14c8+slot)) return (int)slot;
@@ -112,7 +113,7 @@ static bool placement_has_slot(CpuState *c,unsigned id,int x) {
   if(top>=12 || end>=top) return true;
   for(int slot=top;slot>end;--slot)
     if(!r8(c,0x14c8+slot)) return true;
-  return top==5 && bottom==255 && ghost_house_spare(c)>=0;
+  return top==5 && bottom==255 && ghost_house_spare(c,id==0xde?0x39:id)>=0;
 }
 
 void SmwRendererDrawInfo(CpuState *c) {
@@ -201,14 +202,14 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
   if(pc==0x0180E5) {
     unsigned slot=c->X&0xffff;
     if(r8(c,0x1692)==0x11 && !(r8(c,0x5b)&1) && (slot==8 || slot==9))
-      cpu_write8(c,0x7e,0x15ea+slot,(uint8_t)((slot-8)*20));
+      cpu_write8(c,0x7e,0x15ea+slot,(uint8_t)(0xf8+(slot-8)*4));
     return;
   }
   if(pc==0x02A916) {
     if((c->X&0xffff)==5 && r8(c,c->D+6)==255) {
       bool full=true;
       for(unsigned slot=0;slot<6;++slot) if(!r8(c,0x14c8+slot)) full=false;
-      int spare=ghost_house_spare(c);
+      int spare=ghost_house_spare(c,r8(c,c->D+5));
       if(full && spare>=0) c->X=(uint16_t)spare;
     }
     return;
@@ -217,7 +218,7 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
     /* The five-Eerie factory uses the same six-slot pool through the common
      * finder. Only extend that factory; other dynamic spawners stay native. */
     if((c->Y&255)==255) {
-      int spare=ghost_house_spare(c);
+      int spare=ghost_house_spare(c,0x39);
       if(spare>=0) {
         c->Y=(uint16_t)spare;c->A=(c->A&0xff00)|(uint16_t)spare;
         c->_flag_N=0;c->_flag_Z=0;

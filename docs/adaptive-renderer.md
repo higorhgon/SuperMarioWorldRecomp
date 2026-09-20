@@ -108,8 +108,10 @@ and main's foreign-controller state. Legacy `SMWS` renderer saves and `SFW1`
 main-branch saves remain readable; `tools/test_smw_savestates.py` checks both.
 
 Ghost-house sprite-memory preset `$11` makes its two unused regular slots
-available to expanded-view placements and the five-Eerie factory, with separate
-OAM allocations. Fishin' Boo keeps its reserved slots. A full placement pool
+available to single-tile Eeries and the five-Eerie factory. Their OAM allocations
+use the two free tail tiles at `$F8/$FC`; `$00-$27` stays reserved for Mario and
+his cape. Multi-tile enemies and moving holes retain the ordinary pool, and
+Fishin' Boo keeps its reserved slots. A full placement pool
 defers that record while the scan continues to later eligible records, so one
 unavailable slot does not stall the whole visible area. Native initialization
 and physics still run; Original 4:3 and vertical-level allocation stay native.
@@ -142,6 +144,7 @@ python tools/test_adaptive_renderer.py --live --output OpenGL --aspect 21:9
 python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x720
 python tools/test_adaptive_sprite_parts.py --scenario wings --state /path/to/winged-block.sav
 python tools/test_adaptive_sprite_parts.py --scenario plant --state /path/to/jumping-piranha.sav --window 2000x180
+python tools/test_adaptive_mario.py --state /path/to/split-mario-ghost-house.sav
 python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
 python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
 python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav

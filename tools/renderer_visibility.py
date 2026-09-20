@@ -31,15 +31,21 @@ class Capture:
     def active(self):
         return [i for i in range(12) if self.ram[0x14c8+i]]
 
-    def piece(self, slot, occluders=()):
+    def piece(self, slot, occluders=(), native=False):
         """Require the independently decoded opaque OBJ pixels to be visible.
 
         These fixtures place the objects clear of occluding terrain/objects and
         use full brightness without OBJ color math; assert those prerequisites.
         Explicit screen-space rectangles can exclude a known overlapping part.
+        Native pieces must retain their original coordinate even if a host
+        ownership record accidentally claims them.
         """
         x, pos, attr, valid = struct.unpack_from('<iHH?', self.raw, OWNER_OFFSET + slot*12)
-        assert valid, f'OAM {slot}: missing host owner'
+        owner_x, owner_pos, owner_attr = x, pos, attr
+        if native:
+            pos, attr = struct.unpack_from('<HH', self.ram, 0x200+slot*4)
+        else:
+            assert valid, f'OAM {slot}: missing host owner'
         top = pos >> 8
         line = 0x20000 + top * LINE_SIZE
         regs = self.raw[line:line+64]
@@ -49,6 +55,10 @@ class Capture:
         assert (oam[slot*2], oam[slot*2+1]) == (pos, attr), 'owner does not match raster'
         vram = struct.unpack_from('<32768H', self.raw, line+1088)
         high = self.raw[line+66624+slot//4] >> (slot%4*2)
+        if native:
+            x = (pos & 255) - ((high & 1) << 8)
+            if valid and (owner_pos, owner_attr) == (pos, attr):
+                assert owner_x == x, f'OAM {slot}: native piece displaced from {x} to {owner_x}'
         sizes = ((8,16),(8,32),(8,64),(16,32),(16,64),(32,64),(16,32),(16,32))
         size = sizes[regs[1] >> 5][(high >> 1) & 1]
         base = (regs[1] & 7) * 8192
