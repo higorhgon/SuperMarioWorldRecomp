@@ -7,7 +7,8 @@ import argparse
 from pathlib import Path
 import re
 
-PCS = (0x02A82E, 0x01B844, 0x01AC7C, 0x02D076, 0x03B8A8, 0x02A204, 0x019E93, 0x019F5A)
+PCS = (0x02A82E, 0x01B844, 0x01AC7C, 0x02D076, 0x03B8A8, 0x02A204, 0x019E93, 0x019F5A,
+       0x02A916, 0x02AFB3)
 MARKER = '/*SMW-HOST*/'
 def apply(text):
     if '/*WS-' in text:
@@ -43,6 +44,9 @@ def apply(text):
         if 'GetDrawInfo' in name and 'cpu_write8' in line and '0x15c4 + (uint32)cpu->X' in line:
             hook = 'SmwRendererDrawInfo(cpu)'
             found.add('draw')
+        if 'ProcessNormalSprites_GetNormalSpriteOAMIndex' in name and 'cpu_write8' in line and '0x15ea + (uint32)cpu->X' in line:
+            hook = 'SmwRendererGuestHook(cpu, 0x0180E5u)'
+            found.add('sprite_allocation')
         if hook:
             symbol = hook.split('(')[0]
             declaration = ('CpuState *cpu, uint32_t pc' if symbol.endswith('GuestHook') else 'CpuState *cpu')
@@ -63,7 +67,7 @@ def main():
         changed, hits = apply(text)
         found |= hits
         if changed != text: updates.append((path, changed))
-    missing = set(PCS) | {'draw', 'fireball', 'frontier', 'wing_cull'}
+    missing = set(PCS) | {'draw', 'fireball', 'frontier', 'wing_cull', 'sprite_allocation'}
     missing -= found
     if missing: raise SystemExit(f'Missing required renderer hook sites: {missing}')
     for path, changed in updates: path.write_text(changed, encoding='utf-8', newline='\n')

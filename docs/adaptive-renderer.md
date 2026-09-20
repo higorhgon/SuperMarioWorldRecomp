@@ -104,6 +104,13 @@ An optional `SMWS` version-1 game chunk in RTLS snapshots preserves activation
 history across save/load. Older saves are still accepted and use their native
 loaded flags; duplicates already present in an older save are not deleted.
 
+Ghost-house sprite-memory preset `$11` makes its two unused regular slots
+available to expanded-view placements and the five-Eerie factory, with separate
+OAM allocations. Fishin' Boo keeps its reserved slots. A full placement pool
+defers that record while the scan continues to later eligible records, so one
+unavailable slot does not stall the whole visible area. Native initialization
+and physics still run; Original 4:3 and vertical-level allocation stay native.
+
 `tools/apply_renderer_hooks.py` injects small callbacks into generated banks
 and checks every required site. Interpreter hooks cover fallback execution.
 `recomp/renderer_aot_roots.c` preserves the compiled sites through regeneration.
@@ -142,6 +149,8 @@ python tools/test_adaptive_background.py --window 1280x720
 python tools/test_adaptive_transitions.py --scenario exit --state /path/to/right-exit.sav
 python tools/test_adaptive_transitions.py --scenario pipe --state /path/to/yi2-pipe-colors.sav
 python tools/test_adaptive_transitions.py --audio --state /path/to/right-exit.sav --window 2000x180
+python tools/test_adaptive_ghost_house.py --state /path/to/ghost-house.sav
+python tools/test_adaptive_ghost_house.py --state /path/to/ghost-house.sav --scenario standing
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
@@ -271,6 +280,16 @@ delivery checks, not a claim that all music/instruments have been compared
 against a synthesis reference. Existing benchmark-audio tests run unpaced and
 should not be used to judge real-time audio stability.
 
+The ghost-house check copies the reported F1 save and runs with Screen-based
+spawning. At the reported 2048x672 window, all twelve later placements activate
+at their expanded frontier during a 1150-frame run, including moving floor
+holes and Eeries. The previous build loads two Eeries 54 and 58 frames late
+and fails the same check. A stationary 100:9 check verifies the additional
+slots and Fishin' Boo's reserved allocation. These runs check 4334 and 406
+actual sprite pixels outside the native view, respectively, with zero
+unexplained native-control differences. This adds one saved ghost-house scene
+to the coverage; most testing remains in World 1-2.
+
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.
 `SMW_RENDER_CAPTURE_FRAME` captures a frame plus a local raster dump, or accepts
@@ -286,8 +305,9 @@ reactivation and rearming) and `sprites.csv` (per-frame entity state).
 Testing has focused mostly on **World 1-2 (Yoshi's Island 2)**. The rest of the
 game has not yet been fully tested. This feature remains an experimental draft
 on its feature branch, pending broader level and gameplay coverage.
-The original 12 regular sprite slots and level-specific reserved allocations
-remain; very wide views can exhaust them before every visible enemy activates.
+The original 12 regular sprite slots remain, with two previously unused slots
+reclaimed in ghost-house preset `$11`; very wide views can still exhaust the
+available pool before every visible enemy activates.
 Specialized sprite paths beyond the covered ownership hooks need more level
 coverage. Vertical levels retain native activation policy. Title screens,
 the overworld, Mode 7 and other unsupported PPU modes use the native view.

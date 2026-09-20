@@ -30,4 +30,6 @@ void SmwRendererAotRoots(CpuState *cpu) {
   SubOffscreen_Bank03_03B85F(cpu);
   ParseLevelSpriteList(cpu);
   ParseLevelSpriteList_Entry2(cpu);
+  ProcessNormalSprites_GetNormalSpriteOAMIndexAndDecrementTimers(cpu);
+  Spr0DE_Load5Eeries(cpu);
 }

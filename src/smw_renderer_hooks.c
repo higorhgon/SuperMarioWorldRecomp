@@ -78,6 +78,43 @@ static int left_margin(CpuState *c) {
       SmwViewOffset(g_smw_viewport,r16(c,0x1a),(r8(c,0x5e)+1)*256);
 }
 
+/* Sprite-memory preset $11 gives six ordinary slots five OBJ tiles each,
+ * and reserves slots 6/7 for Fishin' Boo. Its unused OBJ bytes $00-$27 can
+ * supply two more five-tile allocations without touching those reservations
+ * or the item/Yoshi allocations at $28/$2C. Keep the native twelve-slot RAM. */
+static int ghost_house_spare(CpuState *c) {
+  if(r8(c,0x1692)!=0x11 || (r8(c,0x5b)&1)) return -1;
+  for(unsigned slot=8;slot<=9;++slot)
+    if(!r8(c,0x14c8+slot)) return (int)slot;
+  return -1;
+}
+static bool placement_has_slot(CpuState *c,unsigned id,int x) {
+  /* The ordinary loader returns from the WHOLE list on allocation failure.
+   * With a wide sweep, that would also block later records using a different
+   * reserved pool. Defer only the blocked record, using the ROM's own bounds.
+   * Goal tape ($7B) may replace an occupied slot; leave that policy native. */
+  if((id>=0xc9 && id<0xda) || id==0xe0 || id>=0xe1 || id==0x7b) return true;
+  /* DA-DD/DF placed shells use the ordinary allocator too. DE's Eerie
+   * factory uses its common pool: do not consume that trigger with zero
+   * available slots. E0's platform factory and scene commands stay native. */
+  unsigned memory=r8(c,0x1692);
+  if(memory>=19) return true;
+  int top=cpu_read8(c,2,0xa773+memory);
+  unsigned bottom=cpu_read8(c,2,0xa7ac+memory);
+  if(id==cpu_read8(c,2,0xa7d2+memory)) {
+    top=cpu_read8(c,2,0xa786+memory);
+    bottom=cpu_read8(c,2,0xa7bf+memory);
+  }
+  if(id==cpu_read8(c,2,0xa7e4+memory) && (id!=0x64 || (x&0x10))) {
+    top=cpu_read8(c,2,0xa799+memory);bottom=255;
+  }
+  int end=bottom==255?-1:(int)bottom;
+  if(top>=12 || end>=top) return true;
+  for(int slot=top;slot>end;--slot)
+    if(!r8(c,0x14c8+slot)) return true;
+  return top==5 && bottom==255 && ghost_house_spare(c)>=0;
+}
+
 void SmwRendererDrawInfo(CpuState *c) {
   if(!active(c)) return;
   unsigned slot=c->X&0xffff;
@@ -155,6 +192,33 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
     return;
   }
   if(!g_smw_video.adaptive_spawns || !g_smw_viewport.extra) return;
+  if(pc==0x0180E5) {
+    unsigned slot=c->X&0xffff;
+    if(r8(c,0x1692)==0x11 && !(r8(c,0x5b)&1) && (slot==8 || slot==9))
+      cpu_write8(c,0x7e,0x15ea+slot,(uint8_t)((slot-8)*20));
+    return;
+  }
+  if(pc==0x02A916) {
+    if((c->X&0xffff)==5 && r8(c,c->D+6)==255) {
+      bool full=true;
+      for(unsigned slot=0;slot<6;++slot) if(!r8(c,0x14c8+slot)) full=false;
+      int spare=ghost_house_spare(c);
+      if(full && spare>=0) c->X=(uint16_t)spare;
+    }
+    return;
+  }
+  if(pc==0x02AFB3) {
+    /* The five-Eerie factory uses the same six-slot pool through the common
+     * finder. Only extend that factory; other dynamic spawners stay native. */
+    if((c->Y&255)==255) {
+      int spare=ghost_house_spare(c);
+      if(spare>=0) {
+        c->Y=(uint16_t)spare;c->A=(c->A&0xff00)|(uint16_t)spare;
+        c->_flag_N=0;c->_flag_Z=0;
+      }
+    }
+    return;
+  }
   if(pc==0x02A826 && !(r8(c,0x5b)&1)) {
     /* At the left level edge, the native leftward frontier is negative and
      * BMI exits before visiting any records. The adaptive record selection
@@ -213,6 +277,9 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
             spawn_state.visited[record]=2;
           }
           visible=false;
+        } else if(!placement_has_slot(c,id,x)) {
+          spawn_event(c,"deferred",record,id,x);
+          visible=false;
         } else spawn_state.pending=(uint8_t)record;
       }
     }
@@ -237,7 +304,7 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
 }
 void SmwRendererInstallHooks(void) {
   const uint32_t pcs[]={0x02A826,0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204,
-                        0x019E6D,0x019E93,0x019F5A};
+                        0x019E6D,0x019E93,0x019F5A,0x0180E5,0x02A916,0x02AFB3};
   for(unsigned i=0;i<sizeof(pcs)/sizeof(*pcs);++i)
     interp_bridge_set_pre_opcode_hook(pcs[i],SmwRendererGuestHook);
 }
