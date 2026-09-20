@@ -15,8 +15,10 @@ number. Views narrower than 4:3 are letterboxed; the host allocation ceiling
 is 16384 columns. The visible area stops at actual horizontal level bounds.
 
 Screen-based spawning uses the visible horizontal area plus a 32-pixel
-lookahead and extends ordinary despawn bounds. Original 4:3 leaves the native
-activation and despawn policy intact, so objects can appear within a wider
+lookahead and extends ordinary despawn bounds. It scans while stationary at
+the left level boundary too, including when the window becomes wider. Placed
+shells and enemy groups use this same activation area. Original 4:3 leaves
+the native activation and despawn policy intact, so objects can appear within a wider
 view. Both use signed host coordinates for rendering. Scroll commands and
 generators keep their native activation frontier, avoiding premature level
 progression when the entire area is visible.
@@ -67,8 +69,9 @@ Map16; repeating backgrounds retain their captured scroll and tilemap.
 `src/smw_renderer_hooks.c` records signed sprite coordinates at the guest's
 draw paths and changes the optional activation/despawn policy. OAM ownership
 is paired with the exact emitted position and attributes, then latched before
-NMI, so OAM reuse cannot inherit a stale far-away owner. Fireballs have a
-separate ownership/lifecycle hook. Native initialization and allocation still
+NMI, so OAM reuse cannot inherit a stale far-away owner. Draw origins are
+tracked per OAM piece; Yoshi's separate head/body passes retain both origins.
+Fireballs have a separate ownership/lifecycle hook. Native initialization and allocation still
 run once; the renderer does not replay simulation or shift the guest camera.
 
 `tools/apply_renderer_hooks.py` injects small callbacks into generated banks
@@ -82,6 +85,8 @@ SDL textures and OpenGL buffers follow the current host width.
 python tools/test_adaptive_renderer.py
 python tools/test_adaptive_renderer.py --live --resize --audio
 python tools/test_adaptive_renderer.py --live --output OpenGL --aspect 21:9
+python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x720
+python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
@@ -113,6 +118,17 @@ validation for this experiment:
 For subsequent playtests, keep **Screen-based** spawning enabled, including
 when selecting a fixed wide aspect. Original 4:3 was checked during initial
 validation; it remains a user option rather than the ongoing playtest policy.
+
+The visibility scenarios additionally verify the opening platform before
+Mario moves and a local F1 fixture with adult Yoshi left of the native view.
+They independently decode the captured OBJ tiles and require the actual
+rendered pixels: all eight Koopas (2044 opaque pixels across their heads and
+bodies) and both Yoshi pieces (183 head pixels, 158 body pixels in the supplied
+fixture). Both checks reject the original experimental build. The stationary
+checks pass at the reported 2133x720 window and at 100:9. A subsequent
+4000-frame resize/audio run also passes with zero unexplained differences.
+The Yoshi fixture is local and must be supplied explicitly. No save or ROM
+graphics are committed.
 
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.

@@ -25,6 +25,9 @@ def apply(text):
         m = re.search(r'cpu_trace_block\(cpu, 0x([0-9A-F]+)\)', line)
         if m: block = m[1]
         hook = None
+        if block == '02A823' and 'if (cpu->_flag_N == 1)' in line:
+            out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x02A826u); }\n')
+            found.add('frontier')
         # Both public entries emit the same horizontal cull: the generic
         # entry includes LDY in its block, while FireballEntry starts after it.
         if block in ('02A1A4', '02A1A7') and 'if (cpu->_flag_Z == 0)' in line:
@@ -57,7 +60,7 @@ def main():
         changed, hits = apply(text)
         found |= hits
         if changed != text: updates.append((path, changed))
-    missing = set(PCS) | {'draw', 'fireball'}
+    missing = set(PCS) | {'draw', 'fireball', 'frontier'}
     missing -= found
     if missing: raise SystemExit(f'Missing required renderer hook sites: {missing}')
     for path, changed in updates: path.write_text(changed, encoding='utf-8', newline='\n')

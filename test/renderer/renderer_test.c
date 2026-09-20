@@ -40,6 +40,11 @@ static void spawn(void) {
   CpuState cpu={0};cpu.Y=1;
   g_smw_video=(SmwVideoSettings){true,true,0};g_smw_viewport=(SmwViewport){2134,939,100.0/9};
   memset(g_ram,0,sizeof(g_ram));g_ram[0x100]=20;g_ram[0x5e]=31;
+  /* Standing at x=0 must not return before scanning the extended view. */
+  cpu._flag_N=1;SmwRendererGuestHook(&cpu,0x02A826);assert(cpu._flag_N==0);
+  g_smw_video.adaptive_spawns=false;
+  cpu._flag_N=1;SmwRendererGuestHook(&cpu,0x02A826);assert(cpu._flag_N==1);
+  g_smw_video.adaptive_spawns=true;
   word(0xce,0x8000);g_ram[0xd0]=2;
   unsigned data=(2<<15)+1;
   /* Enemy at x=2048, beyond every hardware OAM representation. */
@@ -54,6 +59,10 @@ static void spawn(void) {
   g_smw_video.adaptive_spawns=true;
   /* Generators/level commands still activate only at their native frontier. */
   rom[data+1]=8;rom[data+2]=0xe7;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==255);
+  /* DA-E0 are placed shells/groups, not global generator commands. */
+  for(unsigned id=0xda;id<=0xe0;++id) {
+    rom[data+2]=id;SmwRendererGuestHook(&cpu,0x02A82E);assert(g_ram[1]==8);
+  }
   /* Fireballs use their actual host coordinate and honor original lifecycle. */
   cpu.X=0;g_ram[0x171f]=0;g_ram[0x1733]=8;
   SmwRendererGuestHook(&cpu,0x02A1BE);assert(cpu._flag_Z==1);
@@ -91,6 +100,21 @@ static void objects(void) {
   SmwRendererDraw(surface,2134*4,native);
   assert(pixel[100*2134+2048]==0);
   assert(pixel[100*2134]==0x00ff00);
+  /* Yoshi's head and body call GetDrawInfo using the same sprite slot but
+   * different draw origins and adjacent OAM pieces. Keep both in a margin. */
+  g_smw_viewport=(SmwViewport){568,156,568.0/192};word(0x1a,512);
+  test_ppu.oam[128]=100*256+176;test_ppu.oam[129]=0x3000;
+  test_ppu.oam[130]=116*256+186;test_ppu.oam[131]=0x3400;
+  test_ppu.highOam[16]=5;
+  word(0x300,test_ppu.oam[128]);word(0x302,test_ppu.oam[129]);
+  word(0x304,test_ppu.oam[130]);word(0x306,test_ppu.oam[131]);
+  SmwRendererRecordSprite(0,-80,100,0,8);
+  SmwRendererRecordSprite(0,-70,116,4,8);
+  SmwRendererLatchOam();SmwRendererBeginFrame(g_ram);
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,568*4,native);
+  assert(pixel[100*568+76]==0xff0000);
+  assert(pixel[116*568+86]==0x00ff00);
 }
 static void map16(void) {
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;

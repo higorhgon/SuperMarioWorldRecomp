@@ -105,6 +105,8 @@ def main():
     ap.add_argument('--output',choices=['SDL','OpenGL'],default='SDL')
     ap.add_argument('--window',default='2000x180')
     ap.add_argument('--audio',action='store_true')
+    ap.add_argument('--scenario',choices=['route','standing','yoshi'],default='route')
+    ap.add_argument('--state',type=Path,help='local F1 save for the yoshi visibility scenario')
     ap.add_argument('--rom',type=Path,default=ROOT/'smw.sfc')
     args=ap.parse_args();build=args.build.resolve();build.mkdir(parents=True,exist_ok=True)
     env=environment();gcc=shutil.which('gcc',path=env['PATH'])
@@ -121,13 +123,24 @@ def main():
         source=f'    cpu_trace_block(cpu, 0x{entry});\n    if (cpu->_flag_Z == 0) {{ goto L_A211; }}\n'
         patched,hits=hooks.apply(source)
         assert 'fireball' in hits and patched.count('SmwRendererGuestHook(cpu, 0x02A1BEu)')==1
+    patched,hits=hooks.apply('    cpu_trace_block(cpu, 0x02A823);\n    if (cpu->_flag_N == 1) { goto L_A84B; }\n')
+    assert 'frontier' in hits and 'SmwRendererGuestHook(cpu, 0x02A826u)' in patched
     for path in (ROOT/'src/gen').glob('*.c'):
         a,_=hooks.apply(path.read_text());b,_=hooks.apply(a)
         assert a==b,path
     if not args.live:return
     if args.resize and os.name!='nt':ap.error('--resize requires Windows')
+    if args.scenario!='route' and args.resize:ap.error('visibility scenarios use a fixed window')
+    if args.scenario=='yoshi' and not args.state:ap.error('--scenario yoshi requires --state')
     root=Path(tempfile.mkdtemp(prefix='smw-renderer-',dir=build));print(f'Artifacts: {root}',flush=True)
-    (root/'route.script').write_text(ROUTE)
+    frames=4000 if args.resize else 3400
+    capture=2800
+    route=ROUTE
+    if args.scenario=='standing':route=ROUTE.split('wait 200')[0];frames=2800;capture=2700
+    if args.scenario=='yoshi':
+        route='wait 240\nloadstate 0\n';frames=400;capture=300
+        (root/'saves').mkdir();shutil.copy2(args.state.resolve(strict=True),root/'saves/save0.sav')
+    (root/'route.script').write_text(route)
     (root/'config.ini').write_text('[General]\nAutosave=0\nDisableFrameDelay=1\nSkipLauncher=1\n'
         f'[Graphics]\nWindowSize={args.window}\nNewRenderer=1\nNoSpriteLimits=1\nOutputMethod={args.output}\n'
         f'[Sound]\nEnableAudio={int(args.audio)}\n'
@@ -136,10 +149,10 @@ def main():
         '[KeyMap]\nTurbo=\nPause=\nPauseDimmed=\nReset=\nLoad=\nSave=\n')
     env.update(SMW_RENDER_ASPECT=args.aspect,SMW_ENEMY_SPAWN=args.spawn,
                SMW_RENDER_DIAGNOSTICS=str(root),SMW_RENDER_CAPTURE_EVERY='100')
-    if not args.resize:env['SMW_RENDER_CAPTURE_FRAME']='2800'
+    if not args.resize:env['SMW_RENDER_CAPTURE_FRAME']=str(capture)
     exe=build/('SuperMarioWorldSNESRecomp.exe' if os.name=='nt' else 'SuperMarioWorldSNESRecomp')
     command=[str(exe),'--config',str(root/'config.ini'),'--script',str(root/'route.script'),
-             '--benchmark-audio' if args.audio else '--benchmark','4000' if args.resize else '3400',str(args.rom.resolve(strict=True))]
+             '--benchmark-audio' if args.audio else '--benchmark',str(frames),str(args.rom.resolve(strict=True))]
     samples=[]
     with (root/'stdout.log').open('w') as out,(root/'stderr.log').open('w') as err:
         process=subprocess.Popen(command,cwd=root,env=env,stdout=out,stderr=err)
@@ -156,15 +169,19 @@ def main():
                 (root/'stdout.log').read_text().splitlines() if line.startswith('SNESRECOMP_BENCHMARK ')]
     assert len(benchmarks)==1,'missing completed benchmark'
     simulated=json.loads(benchmarks[0])['frames']
-    assert simulated==(4000 if args.resize else 3400),simulated
+    assert simulated==frames,simulated
     assert len(data)==simulated,f'missing rendered frames: {len(data)}/{simulated}'
-    assert any(int(x['camera'])>100 and x['mode']=='20' for x in data),'route did not reach moving gameplay'
+    if args.scenario=='route':
+        assert any(int(x['camera'])>100 and x['mode']=='20' for x in data),'route did not reach moving gameplay'
     report=dict(simulated_frames=simulated,rendered_frames=len(data),widths=sorted({int(x['width']) for x in data}),
         max_native_differences=max(int(x['native_differences']) for x in data),
         max_unexplained_differences=max(int(x['unexplained_differences']) for x in data),
         max_far_enemies=max(int(x['far']) for x in data),resize=samples)
+    if args.scenario!='route':
+        from renderer_visibility import check
+        report['visibility']=check(root,capture,args.scenario)
     (root/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report),flush=True)
     assert report['max_unexplained_differences']==0,'pixels changed outside identified OAM alias corrections'
-    if args.spawn=='adaptive':assert report['max_far_enemies']>0,'no offscreen activation exercised'
+    if args.spawn=='adaptive' and args.scenario!='yoshi':assert report['max_far_enemies']>0,'no offscreen activation exercised'
 
 if __name__=='__main__':main()

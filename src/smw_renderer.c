@@ -16,8 +16,8 @@ typedef struct OamOwner { int x; uint16_t position, attr; bool valid; } OamOwner
 static RasterLine lines[224];
 static uint8_t frame_ram[0x20000];
 static OamOwner pending[128], latched[128];
-typedef struct SpriteOwner { int x,y; unsigned first,end; bool valid; } SpriteOwner;
-static SpriteOwner sprite_owners[12];
+typedef struct SpriteOwner { int x,y; bool valid; } SpriteOwner;
+static SpriteOwner sprite_owners[64];
 static unsigned captured;
 static int native_x;
 static Ppu raster;
@@ -32,26 +32,27 @@ void SmwRendererRecordOam(unsigned slot, int x, uint16_t pos, uint16_t attr) {
 }
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end) {
   if (slot < 12 && first < end && end <= 256)
-    sprite_owners[slot] = (SpriteOwner){x,y,first,end,true};
+    for (unsigned index=first;index<end;index+=4)
+      sprite_owners[index/4] = (SpriteOwner){x,y,true};
 }
 void SmwRendererLatchOam(void) {
   /* SMW's small generic graphics paths do not call FinishOAMWrite. Their
    * GetDrawInfo call identifies the sprite's reserved OAM allocation. Bind
    * the completed pieces before NMI, with signed deltas to that draw origin.
+   * Each piece retains its own draw origin: multi-pass sprites such as Yoshi
+   * draw the head first, then shift the same sprite's origin for the body.
    * Store the exact final image so later OAM reuse cannot inherit an owner. */
-  for (unsigned sprite=0;sprite<12;++sprite) {
-    const SpriteOwner *owner=&sprite_owners[sprite];
+  for (unsigned piece=0;piece<64;++piece) {
+    const SpriteOwner *owner=&sprite_owners[piece];
     if (!owner->valid) continue;
-    for (unsigned index=owner->first;index<owner->end;index+=4) {
-      unsigned slot=64+index/4;
-      if (pending[slot].valid) continue;
-      unsigned pos=read16(g_ram,0x300+index), attr=read16(g_ram,0x302+index);
-      if ((pos>>8)==240) continue;
-      int dx=(int8_t)((pos&255)-(owner->x&255));
-      int dy=(int8_t)((pos>>8)-(owner->y&255));
-      if (abs(dx)>64 || abs(dy)>64) continue;
-      pending[slot]=(OamOwner){owner->x+dx,(uint16_t)pos,(uint16_t)attr,true};
-    }
+    unsigned slot=64+piece, index=piece*4;
+    if (pending[slot].valid) continue;
+    unsigned pos=read16(g_ram,0x300+index), attr=read16(g_ram,0x302+index);
+    if ((pos>>8)==240) continue;
+    int dx=(int8_t)((pos&255)-(owner->x&255));
+    int dy=(int8_t)((pos>>8)-(owner->y&255));
+    if (abs(dx)>64 || abs(dy)>64) continue;
+    pending[slot]=(OamOwner){owner->x+dx,(uint16_t)pos,(uint16_t)attr,true};
   }
   memcpy(latched, pending, sizeof(latched));
   memset(pending, 0, sizeof(pending));

@@ -58,7 +58,12 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
     return;
   }
   if(!g_smw_video.adaptive_spawns || !g_smw_viewport.extra) return;
-  if(pc==0x02A82E && !(r8(c,0x5b)&1)) {
+  if(pc==0x02A826 && !(r8(c,0x5b)&1)) {
+    /* At the left level edge, the native leftward frontier is negative and
+     * BMI exits before visiting any records. The adaptive record selection
+     * below remains valid even then, including while Mario stands still. */
+    c->_flag_N=0;
+  } else if(pc==0x02A82E && !(r8(c,0x5b)&1)) {
     /* Select every visible record on the native loader's ordinary sweep.
      * Keep native allocation, initialization, load flags and respawn policy.
      * Excluded records compare below $FF and continue instead of ending the
@@ -72,9 +77,10 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
     int x=(((a&2)<<3)|(b&15))*256+(b&0xf0);
     int camera=r16(c,0x1a), left=left_margin(c);
     bool visible=x>=camera-left-32 && x<camera+g_smw_viewport.width-left+32;
-    /* Scroll commands/generators remain native: starting a level's end
-     * command on a 100:9 monitor would change progression, not enemies. */
-    if(id>=0xcb) {
+    /* DA-E0 are placed shells and groups; their native factories use $00/$01
+     * as world X. CB-D9 generators and E1+ scene effects/scroll commands use
+     * the current camera instead, so retain their native activation frontier. */
+    if((id>=0xcb && id<0xda) || id>=0xe1) {
       unsigned direction=r8(c,0x55);
       int edge=(camera+(direction==0?-48:direction==2?288:0))&~15;
       visible=x==edge;
@@ -97,7 +103,7 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
   }
 }
 void SmwRendererInstallHooks(void) {
-  const uint32_t pcs[]={0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204};
+  const uint32_t pcs[]={0x02A826,0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204};
   for(unsigned i=0;i<sizeof(pcs)/sizeof(*pcs);++i)
     interp_bridge_set_pre_opcode_hook(pcs[i],SmwRendererGuestHook);
 }
