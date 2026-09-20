@@ -1,0 +1,295 @@
+"""No-build unit tests for tools/falcon_validation.py."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import pathlib
+import socket
+import sys
+import tempfile
+import unittest
+
+
+REPO = pathlib.Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location("falcon_validation", REPO / "tools" / "falcon_validation.py")
+assert SPEC and SPEC.loader
+falcon = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = falcon
+SPEC.loader.exec_module(falcon)
+
+
+class FalconValidationTests(unittest.TestCase):
+    def test_tcp_savestate_is_consumed_on_the_main_thread(self) -> None:
+        source = (REPO / "src" / "main.c").read_text(encoding="utf-8")
+        save_consume = source.index("debug_server_consume_savestate()")
+        save_call = source.index("RtlSaveLoad(kSaveLoad_Save, ss)", save_consume)
+        pause_wait = source.index("debug_server_wait_if_paused()")
+        self.assertLess(save_consume, save_call)
+        self.assertLess(save_call, pause_wait)
+
+    def test_launch_refuses_an_already_owned_tcp_port(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            with self.assertRaisesRegex(RuntimeError, "already owned"):
+                falcon.require_port_free(port)
+
+    def test_runtime_readiness_waits_past_zero_length_wram(self) -> None:
+        class Process:
+            returncode = None
+
+            @staticmethod
+            def poll() -> None:
+                return None
+
+        class Client:
+            def __init__(self) -> None:
+                self.replies = [
+                    {"error": "out of range", "addr": "0x100", "max": "0x0"},
+                    {"hex": "07"},
+                ]
+                self.commands: list[str] = []
+
+            def command(self, command: str) -> dict[str, object]:
+                self.commands.append(command)
+                return self.replies.pop(0)
+
+        client = Client()
+        self.assertEqual(
+            falcon.wait_for_runtime_ram(client, Process(), 1.0), {"hex": "07"})
+        self.assertEqual(client.commands, ["read_ram 100 1", "read_ram 100 1"])
+
+    def test_normalize_buttons(self) -> None:
+        self.assertEqual(falcon.normalize_buttons(["right", "b"], "p1"), "right+b")
+        self.assertEqual(falcon.normalize_buttons(None, "p1"), "none")
+        self.assertEqual(falcon.normalize_buttons("0x180", "p1"), "0x180")
+
+    def test_valid_fixture_loads(self) -> None:
+        scenario = falcon.load_scenario(REPO / "test" / "falcon_validation" / "falcon_smoke.json")
+        self.assertEqual(scenario["format"], "falcon-validation/v1")
+        self.assertEqual(scenario["mod"]["feature_id"], "captain-falcon")
+        self.assertEqual(scenario["steps"][0]["op"], "wait_ram")
+        self.assertTrue(any(step["op"] == "pulse_input_until_ram" for step in scenario["steps"]))
+
+    def test_showcase_keeps_every_gameplay_capture_in_gm14(self) -> None:
+        scenario = falcon.load_scenario(REPO / "test" / "falcon_validation" / "falcon_showcase.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures], [
+            "idle", "normal_x", "falcon_punch_active", "falcon_kick_ground",
+            "falcon_dive", "jump_takeoff", "aerial_x", "aerial_down_x",
+            "aerial_second_jump",
+        ])
+        for capture in captures:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+
+    def test_feedback_scenario_covers_reported_move_visuals(self) -> None:
+        names = [
+            "falcon_feedback.json", "falcon_feedback_jump.json",
+            "falcon_feedback_up_special.json",
+            "falcon_feedback_up_special_grace.json",
+            "falcon_feedback_punch.json", "falcon_feedback_air_kick.json",
+        ]
+        captures = []
+        for name in names:
+            scenario = falcon.load_scenario(
+                REPO / "test" / "falcon_validation" / name)
+            self.assertFalse(any(step["op"] in ("save_state", "load_state")
+                                 for step in scenario["steps"]))
+            captures.extend(step for step in scenario["steps"]
+                            if step["op"] == "capture")
+        self.assertEqual([step["id"] for step in captures], [
+            "kick_ground_direct", "jump_takeoff", "jump_near_apex",
+            "ground_up_special_simultaneous_start",
+            "ground_up_special_simultaneous_rise",
+            "ground_up_special_simultaneous",
+            "ground_up_special_grace_start",
+            "ground_up_special_grace_rise", "ground_up_special_grace",
+            "punch_active_reach", "kick_air_downward_foot_fire",
+        ])
+        for capture in captures:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+
+    def test_death_demo_proves_native_death_across_distinct_frames(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_death_demo.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures], [
+            "falcon_before_death", "falcon_death_0", "falcon_death_5",
+            "falcon_death_10", "falcon_death_30", "falcon_death_50",
+        ])
+        for capture in captures[1:]:
+            self.assertIn({"name": "game_mode", "addr": "0x0100", "len": 1,
+                           "equals": "0x14"}, capture["wram"])
+            self.assertIn({"name": "player_state", "addr": "0x0071", "len": 1,
+                           "equals": "0x09"}, capture["wram"])
+        waits = [step for step in scenario["steps"] if step["op"] == "wait_ram"]
+        self.assertTrue(any(step["id"] == "native_death" and
+                            step["addr"] == "0x0071" and step["equals"] == "0x09"
+                            for step in waits))
+
+    def test_profile_scenario_pins_both_native_facing_values(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_profile.json")
+        captures = [step for step in scenario["steps"] if step["op"] == "capture"]
+        self.assertEqual([step["id"] for step in captures],
+                         ["right_profile", "left_profile"])
+        self.assertIn({"name": "facing", "addr": "0x0076", "len": 1,
+                       "equals": "0x01"}, captures[0]["wram"])
+        self.assertIn({"name": "facing", "addr": "0x0076", "len": 1,
+                       "equals": "0x00"}, captures[1]["wram"])
+
+    def test_attract_scenario_requires_native_return_before_start(self) -> None:
+        scenario = falcon.load_scenario(
+            REPO / "test" / "falcon_validation" / "falcon_attract.json")
+        waits = {step["id"]: step for step in scenario["steps"]
+                 if step["op"] in ("wait_ram", "pulse_input_until_ram")}
+        self.assertEqual(waits["attract_script_started"]["addr"], "0x1df4")
+        self.assertEqual(waits["natural_fade_to_title"]["equals"], "0x02")
+        self.assertEqual(waits["returned_title"]["equals"], "0x07")
+        self.assertEqual(waits["overworld_after_start"]["equals"], "0x0e")
+        self.assertEqual(waits["gameplay_after_attract"]["equals"], "0x14")
+        attract = next(step for step in scenario["steps"]
+                       if step.get("id") == "native_attract")
+        self.assertIn({"name": "native_iframe_guard", "addr": "0x1497",
+                       "len": 1, "equals": "0x01"}, attract["wram"])
+
+    def test_rejects_out_of_range_wram(self) -> None:
+        bad = {"format": "falcon-validation/v1", "steps": [
+            {"op": "capture", "id": "bad", "wram": [
+                {"name": "bad", "addr": "0x1ffff", "len": 2}
+            ]}
+        ]}
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "bad.json"
+            path.write_text(json.dumps(bad), encoding="utf-8")
+            with self.assertRaises(falcon.ScenarioError):
+                falcon.load_scenario(path)
+
+    def test_missing_build_skips_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            args = type("Args", (), {
+                "scenario": REPO / "test" / "falcon_validation" / "falcon_smoke.json",
+                "exe": root / "missing.exe", "out": root / "out", "port": 49999,
+                "rom": root / "also-missing.sfc", "timeout": 0.1, "require_build": False,
+            })()
+            self.assertEqual(falcon.run(args), 0)
+
+    def test_launch_argv_requires_an_existing_rom_and_makes_it_absolute(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            exe = root / "Falcon.exe"
+            rom = root / "smw.sfc"
+            rom.write_bytes(b"test-rom")
+            self.assertEqual(
+                falcon.launch_argv(exe, rom),
+                [str(exe), "--paused", str(rom.resolve())],
+            )
+            with self.assertRaisesRegex(RuntimeError, "SMW ROM not found"):
+                falcon.launch_argv(exe, root / "missing.sfc")
+
+    def test_capture_uses_absolute_posix_screenshot_path(self) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def command(self, command: str) -> dict[str, object]:
+                self.commands.append(command)
+                if command.startswith("screenshot "):
+                    pathlib.Path(command.split(" ", 1)[1]).write_bytes(b"bmp")
+                    return {"ok": True}
+                if command == "frame":
+                    return {"frame": 17}
+                if command.startswith("read_ram "):
+                    return {"hex": "00"}
+                raise AssertionError(command)
+
+        with tempfile.TemporaryDirectory() as temp:
+            output = pathlib.Path(temp) / "tcp-baseline"
+            output.mkdir()
+            client = Client()
+            falcon.capture(client, {"id": "boot", "wram": []}, output)
+            screenshot = next(command for command in client.commands if command.startswith("screenshot "))
+            self.assertEqual(screenshot, f"screenshot {falcon.tcp_file_path(output / 'boot.bmp')}")
+            self.assertNotIn("\\", screenshot)
+
+    def test_tcp_file_path_uses_a_windows_drive_with_forward_slashes(self) -> None:
+        self.assertEqual(falcon.tcp_file_path(pathlib.Path("/f/triage/shot.bmp")), "F:/triage/shot.bmp")
+
+    def test_wait_ram_advances_declared_frame_quanta(self) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.frame = 100
+                self.reads = ["00", "05"]
+                self.commands: list[str] = []
+
+            def command(self, command: str) -> dict[str, object]:
+                self.commands.append(command)
+                if command == "frame":
+                    return {"frame": self.frame}
+                if command.startswith("read_ram "):
+                    return {"hex": self.reads.pop(0)}
+                if command.startswith("step "):
+                    self.frame += int(command.split()[1])
+                    return {"ok": True, "stepped": int(command.split()[1])}
+                raise AssertionError(command)
+
+        client = Client()
+        evidence = falcon.wait_ram(client, {
+            "id": "ready", "addr": "0x100", "len": 1, "equals": "0x05",
+            "timeout_frames": 30, "step_frames": 4,
+        })
+        self.assertEqual(evidence["frames_elapsed"], 4)
+        self.assertEqual(evidence["observed"], "05")
+        self.assertEqual(client.commands, ["frame", "read_ram 100 1", "frame", "step 4", "read_ram 100 1", "frame"])
+
+    def test_mod_state_is_temporary_and_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            exe = root / "build" / "SuperMarioWorldSNESRecomp.exe"
+            exe.parent.mkdir()
+            exe.write_bytes(b"exe")
+            manifest = exe.parent / "mods" / "packages" / "example.falcon" / "1.0.0" / "manifest.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("format_version = 1\n", encoding="utf-8")
+            state = exe.parent / "mods" / "state.toml"
+            state.write_bytes(b"previous-state\n")
+            guard = falcon.stage_mod_state(exe, {
+                "package_id": "example.falcon", "feature_id": "captain-falcon", "version": "1.0.0",
+            }, None)
+            assert guard is not None
+            staged = state.read_text(encoding="utf-8")
+            self.assertIn('enabled = true', staged)
+            self.assertIn('id = "captain-falcon"', staged)
+            guard.restore()
+            self.assertEqual(state.read_bytes(), b"previous-state\n")
+
+    def test_resource_state_requires_and_uses_explicit_owner_rom(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            exe = root / "build" / "Falcon.exe"
+            exe.parent.mkdir()
+            exe.write_bytes(b"exe")
+            manifest = exe.parent / "mods" / "packages" / "example.falcon" / "1.0.0" / "manifest.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("format_version = 1\n", encoding="utf-8")
+            mod = {"package_id": "example.falcon", "feature_id": "captain-falcon",
+                   "version": "1.0.0", "resource_id": "smash64-us-v10"}
+            with self.assertRaisesRegex(RuntimeError, "--owner-rom"):
+                falcon.stage_mod_state(exe, mod, None)
+            owner_rom = root / "owner.z64"
+            owner_rom.write_bytes(b"owner")
+            guard = falcon.stage_mod_state(exe, mod, owner_rom)
+            assert guard is not None
+            staged = guard.path.read_text(encoding="utf-8")
+            self.assertIn('id = "smash64-us-v10"', staged)
+            self.assertIn(owner_rom.resolve().as_posix(), staged)
+            guard.restore()
+            self.assertFalse(guard.path.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

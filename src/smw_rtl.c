@@ -10,6 +10,7 @@
 #include "debug_server.h"
 #include "cpu_trace.h"
 #include "snes/interp_bridge.h"   /* faithful LLE of the $806B main loop */
+#include "mods/falcon/smw_falcon_presentation_runtime.h"
 
 static SnesrecompExecutionMode smw_execution_mode(void) {
   /* LLE is the correctness floor. The hand-written frame driver remains an
@@ -24,6 +25,12 @@ void SmwDrawPpuFrame(void) {
   Dma *dma = g_dma;
 
   dma_startDma(dma, mirror_hdmaenable, true);
+
+  /* This is the last host seam before ppu_runLine(0) snapshots OBJ.  The
+   * Falcon presentation bridge must relocate only the completed, transient
+   * shell OAM pair here; prepare_ppu happens earlier to configure capture and
+   * can otherwise be overtaken by the guest's OAM DMA. */
+  smw_falcon_presentation_finalize_ppu_oam(g_ppu);
 
   SimpleHdma_Init(&hdma_chans[0], &dma->channel[5]);
   SimpleHdma_Init(&hdma_chans[1], &dma->channel[6]);

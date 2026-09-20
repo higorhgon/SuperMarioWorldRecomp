@@ -74,6 +74,14 @@ See [`RELEASE.md`](RELEASE.md) for the latest release notes.
 
 The ROM is **never** redistributed — supply your own dump.
 
+## Optional Lua scripting
+
+The Windows/Linux packages include an opt-in localhost Lua server and
+a `lua/` folder with a **100-fireballs-per-second** hold-to-fire example.
+See [lua/README.md](lua/README.md) for activation and controls. Nothing runs or
+listens during ordinary play. Source builds enable this with
+`-DSNESRECOMP_ENABLE_LUA=ON`; the framework option defaults OFF.
+
 ## Widescreen
 
 Enable **SMW Adaptive Widescreen** in the one-player launcher's **Mods** page.
@@ -347,9 +355,10 @@ https://discord.gg/S4MvUGQFwd
 
 ## License
 
-Not yet declared. Code in this repo is original except where noted in
-**Acknowledgements** above; vendored dependencies under `third_party/`
-(and the `SMWDisX/` disassembly clone) retain their own licenses.
+PolyForm Noncommercial 1.0.0. See `LICENSE`. Code in this repo is original
+except where noted in **Acknowledgements** above; vendored dependencies under
+`third_party/` (and the `SMWDisX/` disassembly clone) retain their own
+licenses.
 
 The SMW ROM and any data extracted from it are **not** in this
 repo and are not licensed for redistribution.

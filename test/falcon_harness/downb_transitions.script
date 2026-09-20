@@ -1,0 +1,134 @@
+# Ground-origin Falcon Kick changes kinetics at a ledge immediately but keeps
+# DownSpecial until the source frame-32 continuation gate.
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 11
+expect_state FALCON_KICK_GROUND
+frames 1
+expect_attack 1 1
+pos_y 10000
+host_fall
+frames 1
+expect_state FALCON_KICK_GROUND
+expect_grounded 0 0
+roundtrip
+frames 19
+expect_state FALCON_KICK_GROUND
+frames 1
+expect_state FALCON_KICK_GROUND_AIR
+expect_grounded 0 0
+
+# An active Ground Kick meeting a low side wall is a solid stop. It must not
+# enter Bound, force air, or reapply its root through the accepted wall face.
+reset
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 11
+pos_x 745
+host_wall
+frames 1
+expect_state WAIT
+expect_grounded 1 1
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+
+# Late Ground SpecialLw is outside the source flag1 Bound window. It must
+# consume the remaining forward root at the native wall face rather than
+# letting the next endpoint sample tunnel it out of bounds.
+reset
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 32
+expect_state FALCON_KICK_GROUND
+pos_x 745
+host_wall
+frames 1
+expect_state WAIT
+expect_grounded 1 1
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+
+# Ground-origin SpecialLw that has already continued into its air spelling
+# is likewise not eligible for Bound. A side wall consumes its root and falls
+# safely with no carried X.
+reset
+neutral
+stick_y -80
+special down
+frames 1
+special up
+frames 11
+frames 1
+pos_y 10000
+host_fall
+frames 1
+frames 19
+frames 1
+expect_state FALCON_KICK_GROUND_AIR
+pos_x 745
+host_wall
+frames 1
+expect_state FALL
+expect_grounded 0 0
+expect_vel_air_x 0 0
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+
+# Direct SpecialAirLw has landing-only ProcMap: a side wall must never be
+# promoted to Ground SpecialLw Bound. Consume its root and fall safely.
+reset
+pos_y 1000
+host_fall
+stick_y -80
+special down
+frames 1
+special up
+expect_state FALCON_KICK_AIR
+pos_x 745
+host_wall
+frames 1
+expect_state FALL
+expect_grounded 0 0
+expect_vel_air_x 0 0
+expect_pos_x 745 745
+frames 4
+expect_pos_x 745 745
+roundtrip
+
+# Direct aerial Kick touching ground settles immediately.  The adapter must
+# not emit the obsolete KickLanding/Ground-Kick pose for even one frame.
+reset
+pos_y 1000
+host_fall
+stick_y -80
+special down
+frames 1
+special up
+expect_state FALCON_KICK_AIR
+host_land
+frames 1
+expect_state WAIT
+expect_grounded 1 1
+
+# An ordinary jump wall collision remains ordinary jump behavior.
+reset
+jump down
+frames 4
+jump up
+frames 1
+expect_state JUMP_F
+host_wall
+frames 1
+expect_state JUMP_F

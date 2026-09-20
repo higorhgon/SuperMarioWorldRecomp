@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "debug_server.h"
+#if SNESRECOMP_ENABLE_LUA
+#include "lua_bridge.h"
+#include "lua_fire_stream.h"
+#endif
 #include "desktop/sdl_compat.h"
 #ifdef _WIN32
 #include <windows.h>
@@ -34,6 +38,8 @@
 #if SNESRECOMP_ENABLE_MODS
 #include "mod_runtime.h"
 #endif
+#include "mods/falcon/smw_falcon_presentation_runtime.h"
+#include "foreign_controller.h"
 
 #include "snes/snes.h"
 #ifdef __SWITCH__
@@ -43,12 +49,12 @@
 #include "launcher.h"
 #if defined(SNES_LAUNCHER) || defined(RECOMP_LAUNCHER)
 #if defined(RECOMP_LAUNCHER)
-/* Shared recomp-ui launcher (F:\Projects\recomp-ui) — the console-agnostic
+/* Shared recomp-ui launcher (F:\Projects\recomp-ui) â€” the console-agnostic
  * extraction of launcher_ng, consumed as a junction/submodule. recomp_ui.cmake
  * defines RECOMP_LAUNCHER. SMW drives it as the SNES profile
  * (launcher_profile_apply("snes", ...)). */
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() */
-#include "launcher_profile.h"  /* launcher_profile_apply("snes", &gi) — SNES identity */
+#include "launcher_profile.h"  /* launcher_profile_apply("snes", &gi) â€” SNES identity */
 #elif defined(SNES_LAUNCHER)
 #include "launcher/launcher_capi.h"
 #endif
@@ -76,6 +82,47 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len);
 static void EnsureConfigIni(void);
 static void RenderNumber(uint8 *dst, size_t pitch, int n, uint8 big);
 static void OpenOneGamepad(SDL_JoystickID i);
+
+static FILE *g_stall_log_file;
+static double g_stall_log_threshold_ms = -1.0;
+
+static double PerfDeltaMs(Uint64 start, Uint64 end) {
+  return (double)(end - start) * 1000.0 /
+         (double)SDL_GetPerformanceFrequency();
+}
+
+static void StallLogInit(void) {
+  if (g_stall_log_threshold_ms >= 0.0) return;
+  g_stall_log_threshold_ms = 0.0;
+  const char *path = getenv("SNESRECOMP_STALL_LOG");
+  if (!path || !path[0]) return;
+  const char *threshold = getenv("SNESRECOMP_STALL_MS");
+  g_stall_log_threshold_ms = threshold && threshold[0] ? atof(threshold) : 40.0;
+  if (g_stall_log_threshold_ms < 1.0) g_stall_log_threshold_ms = 40.0;
+  g_stall_log_file = fopen(path, "w");
+  if (g_stall_log_file) {
+    fprintf(g_stall_log_file,
+            "frame,total_ms,event_ms,run_ms,draw_ms,pace_ms,gm,state,air,"
+            "blocked,x,y,pipe_timer,pipe_action\n");
+    fflush(g_stall_log_file);
+  }
+}
+
+static void StallLogFrame(uint32 frame, Uint64 t0, Uint64 t_events,
+                          Uint64 t_run, Uint64 t_draw, Uint64 t_end) {
+  if (!g_stall_log_file) return;
+  double total = PerfDeltaMs(t0, t_end);
+  if (total < g_stall_log_threshold_ms) return;
+  uint16 px = (uint16)(g_ram[0x94] | ((uint16)g_ram[0x95] << 8));
+  uint16 py = (uint16)(g_ram[0x96] | ((uint16)g_ram[0x97] << 8));
+  fprintf(g_stall_log_file,
+          "%u,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u,%u,%u,%u,%u,%u,%u\n",
+          frame, total, PerfDeltaMs(t0, t_events),
+          PerfDeltaMs(t_events, t_run), PerfDeltaMs(t_run, t_draw),
+          PerfDeltaMs(t_draw, t_end), g_ram[0x100], g_ram[0x71],
+          g_ram[0x72], g_ram[0x77], px, py, g_ram[0x88], g_ram[0x89]);
+  fflush(g_stall_log_file);
+}
 static uint32 GetActiveControllers(void);
 static void RefreshKeybindControllerBits(void);
 #ifdef SMW_COOP_BUILD
@@ -121,7 +168,7 @@ enum {
 
 /* Export an environment variable for this process. `_putenv` is a
  * Windows-CRT name and does not exist in glibc, so every export goes
- * through here rather than through an #ifdef at each call site — an
+ * through here rather than through an #ifdef at each call site â€” an
  * unguarded `_putenv` only breaks the Linux link, which is easy to miss
  * from a Windows-only build. */
 static void SetEnvVar(const char *name, const char *value) {
@@ -272,7 +319,7 @@ static uint32 TickScript(void) {
   if (g_script_phase == 1) {
     // waiting
     if (g_script_counter > 0) { g_script_counter--; return 0; }
-    // done waiting — start hold
+    // done waiting â€” start hold
     g_script_phase = 0;
     g_script_counter = e->hold_frames;
   }
@@ -291,7 +338,7 @@ static uint32 TickScript(void) {
       }
       return e->mask;
     }
-    // hold done — advance
+    // hold done â€” advance
     g_script_index++;
     if (g_script_index < g_script_count) {
       e = &g_script_entries[g_script_index];
@@ -390,6 +437,7 @@ static SDL_HitTestResult HitTestCallback(SDL_Window *win, const SDL_Point *pt, v
 void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
   PpuSetExtraSpace(g_ppu, 0);
   PpuBeginDrawing(g_ppu, g_my_pixels, 256 * 4, render_flags);
+  smw_falcon_presentation_prepare_ppu(g_ppu);
   g_rtl_game_info->draw_ppu_frame();
   if (g_smw_video.enabled) {
     SmwRendererDraw(pixel_buffer, pitch, g_my_pixels);
@@ -398,6 +446,8 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
     for (int y = 0; y < 224; ++y)
       memcpy(pixel_buffer + y * pitch, g_my_pixels + y * 256 * 4, 256 * 4);
   }
+  smw_falcon_presentation_present(pixel_buffer, pitch, g_snes_width,
+                                  g_snes_height);
 }
 
 static void DrawPpuFrameWithPerf(void) {
@@ -425,6 +475,9 @@ static void DrawPpuFrameWithPerf(void) {
   if (g_display_perf)
     RenderNumber(pixel_buffer + pitch * render_scale, pitch, g_curr_fps, render_scale == 4);
 
+#if SNESRECOMP_ENABLE_LUA
+  smw_fire_stream_draw(g_ppu, pixel_buffer, pitch, g_snes_width, g_snes_height);
+#endif
   g_renderer_funcs.EndDraw();
 }
 
@@ -673,8 +726,8 @@ static void crash_handler(int sig) {
           sig, g_last_recomp_func ? g_last_recomp_func : "(unknown)");
   dump_sprite_state();
   RecompStackDump();
-  cpu_trace_dump_dbpb("CRASH — DB/PB mutations");
-  cpu_trace_dump_recent("CRASH — main trace ring", 256);
+  cpu_trace_dump_dbpb("CRASH â€” DB/PB mutations");
+  cpu_trace_dump_recent("CRASH â€” main trace ring", 256);
   fflush(stderr);
   recomp_post_mortem_dump("signal", NULL);
   _exit(128 + sig);
@@ -698,8 +751,8 @@ static LONG WINAPI seh_handler(EXCEPTION_POINTERS* info) {
   }
   dump_sprite_state();
   RecompStackDump();
-  cpu_trace_dump_dbpb("SEH CRASH — DB/PB mutations");
-  cpu_trace_dump_recent("SEH CRASH — main trace ring", 256);
+  cpu_trace_dump_dbpb("SEH CRASH â€” DB/PB mutations");
+  cpu_trace_dump_recent("SEH CRASH â€” main trace ring", 256);
   fflush(stderr);
   recomp_post_mortem_dump("seh", info);
   return EXCEPTION_EXECUTE_HANDLER;
@@ -779,7 +832,7 @@ int main(int argc, char** argv) {
   /* On Windows, do NOT install a SIGSEGV handler: the MSVC CRT's signal
    * shim intercepts access violations BEFORE the SetUnhandledExceptionFilter
    * SEH filter, so crashes would reach crash_handler with no
-   * EXCEPTION_POINTERS — no exception record in the minidump/report. With
+   * EXCEPTION_POINTERS â€” no exception record in the minidump/report. With
    * SIGSEGV left uninstalled, AVs reach seh_handler with full fault
    * context. SIGABRT (abort/assert) stays handled on all platforms. */
   signal(SIGSEGV, crash_handler);
@@ -868,7 +921,7 @@ int main(int argc, char** argv) {
     argv[0] = (char *)AbsolutizePathArg(argv[0], rom_abs, sizeof(rom_abs));
   }
 
-  /* The config is config.ini next to the executable — nothing else,
+  /* The config is config.ini next to the executable â€” nothing else,
    * no directory walking. Anchoring cwd to the exe dir also pins
    * keybinds.ini, rom.cfg and saves/ there, however the process was
    * launched. (On read-only installs the anchor declines and cwd
@@ -1218,7 +1271,7 @@ int main(int argc, char** argv) {
         /* Persist the launcher's choices so they're remembered next boot. */
         WriteConfigFile(config_file);
         /* The launcher's Hotkeys editor writes [KeyMap] straight into the
-         * config file, which was parsed before the launcher ran — re-apply
+         * config file, which was parsed before the launcher ran â€” re-apply
          * so rebinds work on THIS boot, not the next one. (WriteConfigFile
          * above preserves [KeyMap] lines, so order is safe.) */
         ConfigReloadKeyMap(config_file);
@@ -1329,7 +1382,7 @@ int main(int argc, char** argv) {
 
   // Initialize debug server. Production builds (SNESRECOMP_TRACE = 0) get
   // debug_server.h's static-inline no-op stubs and never compile
-  // debug_server.c, so nothing is listening — but the stub returns 0 for
+  // debug_server.c, so nothing is listening â€” but the stub returns 0 for
   // "success", which made a prod build announce a debug server it does not
   // have. Only report the port when the real server is compiled in.
   {
@@ -1341,7 +1394,7 @@ int main(int argc, char** argv) {
     if (start_paused) {
       debug_server_start_paused();
 #if SNESRECOMP_TRACE
-      fprintf(stderr, "[main] Started paused — send 'step N' or 'continue' via TCP\n");
+      fprintf(stderr, "[main] Started paused â€” send 'step N' or 'continue' via TCP\n");
 #endif
     }
   }
@@ -1491,11 +1544,32 @@ error_reading:;
     return 1;
   }
 
+  /* Optional, bounded foreign-controller evidence.  The ring is always
+   * maintained by the runner; this only arms its existing atexit CSV writer
+   * when SNESRECOMP_FTRING_DUMP names a file. */
+  snes_foreign_trace_init_dump();
+
   // Connect debug server to SNES RAM. Declared by debug_server.h, which in
-  // a production build resolves this to a no-op stub — do NOT redeclare it
+  // a production build resolves this to a no-op stub â€” do NOT redeclare it
   // `extern` here, or the call bypasses the stub and only fails at link
   // time on a non-Windows production build.
   debug_server_set_ram(snes->ram, 0x20000);
+#if SNESRECOMP_ENABLE_LUA
+  {
+    const char *port_text = getenv("SNESRECOMP_LUA_PORT");
+    if (port_text && *port_text) {
+      char *end;
+      long port = strtol(port_text, &end, 10);
+      if (*end || port < 1 || port > 65535 ||
+          lua_bridge_init(snes->ram, 0x20000, kRom, kRom_SIZE, (int)port) != 0) {
+        fprintf(stderr, "[lua] Could not start requested Lua TCP server\n");
+        return 1;
+      }
+      smw_fire_stream_init(snes->ram, kRom, kRom_SIZE);
+      lua_bridge_set_game_command_handler(smw_fire_stream_command);
+    }
+  }
+#endif
 
 #ifdef ENABLE_ORACLE_BACKEND
   // Start the emulator-oracle backend with the same ROM. Gated on the
@@ -1537,6 +1611,9 @@ error_reading:;
 
   g_audio_mutex = SDL_CreateMutex();
   if (!g_audio_mutex) Die("No mutex");
+  /* Trusted owner-cache audio may have been verified during mod activation,
+   * but registration takes RtlApuLock and is unsafe until this mutex exists. */
+  smw_falcon_presentation_audio_ready();
 
   if (!g_spc_player)
     g_spc_player = SmwSpcPlayer_Create();
@@ -1719,11 +1796,16 @@ error_reading:;
 #endif
 
   host_report_breadcrumb("entering main loop");
+  StallLogInit();
 
   while (running) {
+    Uint64 stall_t0 = SDL_GetPerformanceCounter();
+    Uint64 stall_t_events = stall_t0;
+    Uint64 stall_t_run = stall_t0;
+    Uint64 stall_t_draw = stall_t0;
     SDL_Event event;
 
-    /* Inert unless SNESRECOMP_CRASH_TEST is set — support drill for the
+    /* Inert unless SNESRECOMP_CRASH_TEST is set â€” support drill for the
      * whole crash-capture pipeline (minidump + report + crash copy). */
     host_report_crash_test_tick();
 
@@ -1794,6 +1876,7 @@ error_reading:;
         break;
       }
     }
+    stall_t_events = SDL_GetPerformanceCounter();
 
     UpdateWidescreen();
 
@@ -1803,6 +1886,13 @@ error_reading:;
         SetAudioPaused(audiopaused != 0);
     }
 
+#if SNESRECOMP_ENABLE_LUA
+    lua_bridge_poll();
+    if (lua_bridge_paused()) {
+      SDL_Delay(16);
+      continue;
+    }
+#endif
     if (g_paused) {
       SDL_Delay(16);
       continue;
@@ -1820,6 +1910,18 @@ error_reading:;
         if (!snes_netplay_request_load(ls))
 #endif
         RtlSaveLoad(kSaveLoad_Load, ls);
+      }
+    }
+    {
+      /* TCP `savestate N` is queued by the debug-server thread.  Consume it
+       * here, at the same unpaused main-thread boundary as loadstate: save
+       * serialization walks live CPU/PPU/APU state and is not thread-safe. */
+      int ss = debug_server_consume_savestate();
+      if (ss >= 0) {
+#ifdef SMW_COOP_BUILD
+        if (!snes_netplay_request_save(ss))
+#endif
+        RtlSaveLoad(kSaveLoad_Save, ss);
       }
     }
     debug_server_wait_if_paused();
@@ -1869,14 +1971,22 @@ error_reading:;
                (uint32)g_gamepad[1].axis_buttons << 12;
       inputs |= TickScript();
       inputs |= debug_server_get_controller_inputs();
-      RtlRunFrame(inputs | GetActiveControllers() |
-                  debug_server_get_controller_active_mask());
+      inputs |= GetActiveControllers() | debug_server_get_controller_active_mask();
+#if SNESRECOMP_ENABLE_LUA
+      inputs = lua_bridge_frame_start(inputs);
+#endif
+      RtlRunFrame(inputs);
+#if SNESRECOMP_ENABLE_LUA
+      smw_fire_stream_tick();
+      lua_bridge_frame_end();
+#endif
     }
+    stall_t_run = SDL_GetPerformanceCounter();
 
 #ifdef ENABLE_ORACLE_BACKEND
     // Step the oracle emulator with the same input. First-light does
     // not guarantee input-bit parity between the runner's 12-bit-per-
-    // player layout and the bridge's SNES-hardware layout — good
+    // player layout and the bridge's SNES-hardware layout â€” good
     // enough for attract-demo comparison (no input), needs remapping
     // work before live gameplay divergence analysis.
     {
@@ -1886,7 +1996,7 @@ error_reading:;
     }
 #endif
 
-    // Bank validation removed — 100% oracle mode, no banks enabled.
+    // Bank validation removed â€” 100% oracle mode, no banks enabled.
 
     frameCtr++;
     if (frameCtr == 1)
@@ -1937,7 +2047,7 @@ error_reading:;
       DrawPpuFrameWithPerf();
     } else {
       /* Turbo (render skipped): SmwDrawPpuFrame / draw_ppu_frame is NOT purely
-       * cosmetic — it also simulates HDMA and fires the raster IRQ (I_IRQ).
+       * cosmetic â€” it also simulates HDMA and fires the raster IRQ (I_IRQ).
        * Under the default LLE scheduler the game runs the
        * REAL NMI/IRQ machinery, so skipping the raster IRQ 15/16 frames would
        * let an IRQ-gated guest path spin, the 5s watchdog longjmp out mid-frame
@@ -1947,6 +2057,7 @@ error_reading:;
        * on the raster IRQ). */
       g_rtl_game_info->draw_ppu_frame();
     }
+    stall_t_draw = SDL_GetPerformanceCounter();
 
     if (g_benchmark_frames > 0 &&
         frameCtr >= (uint32)g_benchmark_frames) {
@@ -1977,7 +2088,7 @@ error_reading:;
      * produced at 1/60 s per frame) stays in sync with the sound device. On by
      * default. Power users on an exactly-60 Hz / vsync-correct display can set
      * DisableFrameDelay = 1 in config.ini (cfg-only, no UI) to skip it for
-     * slightly better perf — at the risk of audio desync on other displays. */
+     * slightly better perf â€” at the risk of audio desync on other displays. */
     if (!g_snes->disableRender && !g_config.disable_frame_delay) {
       static const uint8 delays[3] = { 17, 17, 16 }; // 60 fps
       lastTick += delays[frameCtr % 3];
@@ -1994,6 +2105,8 @@ error_reading:;
         lastTick = curTick;
       }
     }
+    StallLogFrame(frameCtr, stall_t0, stall_t_events, stall_t_run,
+                  stall_t_draw, SDL_GetPerformanceCounter());
   }
 
   if (g_config.autosave
@@ -2175,6 +2288,9 @@ error_reading:;
   SwitchImpl_Exit();
 #endif
 
+#if SNESRECOMP_ENABLE_LUA
+  lua_bridge_shutdown();
+#endif
   SDL_Quit();
   return 0;
 }

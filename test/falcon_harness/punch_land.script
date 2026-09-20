@@ -1,0 +1,23 @@
+# An aerial Punch landing retains one authored timeline: it must not restart
+# or cancel before the visible frame-42 fist/fire impact.
+reset
+pos_y 100
+host_fall
+special down
+frames 1
+expect_state FALCON_PUNCH_AIR
+special up
+host_land
+frames 1
+expect_state FALCON_PUNCH_GROUND
+expect_grounded 1 1
+frames 40
+expect_attack 0 0
+frames 1
+expect_state FALCON_PUNCH_GROUND
+expect_attack 1 1
+expect_damage 25 25
+frames 13
+expect_attack 1 1
+frames 1
+expect_attack 0 0

@@ -14,6 +14,7 @@ typedef struct RasterLine {
 } RasterLine;
 typedef struct OamOwner { int x; uint16_t position, attr; bool valid; } OamOwner;
 static RasterLine lines[224];
+static PpuOverlayCapture obj_capture[224];
 static uint8_t frame_ram[0x20000];
 static OamOwner pending[128], latched[128];
 typedef struct SpriteOwner { int x,y; bool valid, exact; } SpriteOwner;
@@ -24,6 +25,7 @@ static bool level_scene;
 static Ppu raster;
 static uint16_t objects[SMW_RENDER_MAX_WIDTH];
 static uint32_t native_control[256*224];
+int SmwRendererNativeOffset(void) { return g_smw_video.enabled ? native_x : 0; }
 static bool world_layer(unsigned layer) {
   return layer == 0 || (layer == 1 && frame_ram[0x1925] < 32 &&
                        (0x800081feu & (1u << frame_ram[0x1925])));
@@ -122,6 +124,7 @@ void SmwRendererBeginFrame(void) {
 void SmwRendererCaptureLine(const Ppu *p, int line) {
   if (!g_smw_video.enabled || line < 1 || line > 224) return;
   RasterLine *l = &lines[line-1];
+  obj_capture[line-1] = p->overlayCaptures[kPpuOverlaySource_Obj];
   memcpy(l->regs, p, sizeof(l->regs));
   memcpy(l->palette, p->cgram, sizeof(l->palette));
   memcpy(l->oam, p->oam, sizeof(l->oam));
@@ -278,6 +281,10 @@ static void sprites(const Ppu *p, const RasterLine *l, int y) {
   static const int sizes[8][2]={{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
   memset(objects,0,g_smw_viewport.width*sizeof(*objects));
   for (int slot=127;slot>=0;--slot) {
+    const PpuOverlayCapture *capture = &obj_capture[y];
+    bool remove = (capture->flags & kPpuOverlayFlag_RemoveFromGame) &&
+        y >= capture->y0 && y < capture->y1 &&
+        slot >= capture->oamFirst && slot < capture->oamFirst + capture->oamCount;
     unsigned pos=l->oam[slot*2], attr=l->oam[slot*2+1];
     unsigned hi=l->high[slot/4]>>((slot%4)*2);
     int size=sizes[p->obsel>>5][(hi>>1)&1];
@@ -301,6 +308,7 @@ static void sprites(const Ppu *p, const RasterLine *l, int y) {
     unsigned priority=((attr>>12)&3)*4+2;
     unsigned layer=attr&0x800?4:6;
     for(int col=0;col<size;++col) {
+      if(remove && x+col >= capture->x0 && x+col < capture->x1) continue;
       int dest=x+col+native_x;
       if(dest<0 || dest>=g_smw_viewport.width) continue;
       int cx=attr&0x4000?size-1-col:col;

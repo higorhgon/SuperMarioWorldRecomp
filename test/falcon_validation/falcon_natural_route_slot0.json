@@ -1,0 +1,16 @@
+{
+  "format": "falcon-native-route/v1",
+  "name": "slot0-jump-past-step-natural-sprite-scout",
+  "slot": 0,
+  "boot_wait_frames": 180,
+  "settle_frames": 10,
+  "route_frames": 420,
+  "inputs": [
+    {"at": 0, "p1": "none"},
+    {"at": 10, "p1": "right"},
+    {"at": 11, "p1": "none"},
+    {"at": 14, "p1": "right+b"},
+    {"at": 34, "p1": "right"},
+    {"at": 180, "p1": "none"}
+  ]
+}

@@ -1,0 +1,76 @@
+# M3.5: the short hop and the full hop are DIFFERENT HEIGHTS.
+#
+# Both jumps are KNEEBEND then JUMP_F, so expect_state cannot tell them apart --
+# which is exactly how M3 shipped a build where every jump was a full hop and
+# every state assertion still passed. This script does both jumps in one run and
+# asserts the numbers.
+#
+# The expected values are DERIVED from the ported constants, not fitted to the
+# output. ftCommonJumpGetJumpForceButton with a neutral stick has vel_x = 0, so
+# sq = sqrt(1 - 0) = 1 and vel_y = force + min:
+#
+#   short  9.0 * 1 + 36.0 =  45.0                    (SHORT_FORCE, SHORT_MIN)
+#   full  17.0 * 1 + 63.0 =  80.0 -> 77.0            (clamped, BTN_HEIGHT_CLAMP)
+#
+# then ftCommonJumpSetStatus adds A_JUMP_HEIGHT_BASE 24.0.  The SMW adaptation
+# applies sqrt(0.4) to this primary grounded launch: first half-height, then
+# a playtest-requested 20% lower apex.  proc_physics applies A_GRAVITY 3.4 on
+# the same tick.  The velocity visible on the takeoff frame is:
+#
+#   short  (45.0 + 24.0) * sqrt(0.4) - 3.4 = 40.239
+#   full   (77.0 + 24.0) * sqrt(0.4) - 3.4 = 60.478
+#
+# Peak height is the sum of the rising frames, sum(V - 3.4k) while positive:
+#
+#   short  about 258 units (21 px), versus 666 units before scaling
+#   full   about 568 units (45 px), versus 1450 units before scaling
+#
+# A neutral full hop is higher than the ~1070-unit hop seen in host_launch.script
+# because that one holds the stick at 80, which drives sq to 0 and drops the
+# force term entirely. That is the source game's behaviour, not a discrepancy.
+
+neutral
+frames 5
+expect_state WAIT
+
+# ---------------------------------------------------------------- short hop --
+# Release the button inside C_KNEEBEND_SHORTHOP_FRAMES (3) so
+# ftCommonKneeBendProcUpdate flags the short hop before the squat ends.
+reset_peak
+jump down
+note short-hop-pressed
+frames 1
+expect_state KNEEBEND
+
+jump up
+note released-inside-shorthop-window
+frames 3
+expect_state KNEEBEND
+
+frames 1
+expect_state JUMP_F
+expect_vel_air_y 40.1 40.4
+
+frames 40
+expect_peak_y 252.0 265.0
+
+frames 60
+expect_state WAIT
+
+# ----------------------------------------------------------------- full hop --
+# Same squat, button held all the way through, so the short-hop flag never sets.
+reset_peak
+jump down
+note full-hop-pressed-and-held
+frames 1
+expect_state KNEEBEND
+
+frames 3
+expect_state KNEEBEND
+
+frames 1
+expect_state JUMP_F
+expect_vel_air_y 60.3 60.7
+
+frames 60
+expect_peak_y 560.0 578.0

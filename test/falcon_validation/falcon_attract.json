@@ -1,0 +1,23 @@
+{
+  "format": "falcon-validation/v1",
+  "name": "falcon-native-attract-return-and-start",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
+  "steps": [
+    {"op":"wait_ram","id":"title_ready","addr":"0x0100","len":1,"equals":"0x07","timeout_frames":1200,"step_frames":4},
+    {"op":"wait_ram","id":"attract_script_started","addr":"0x1df4","len":1,"equals":"0x02","timeout_frames":1200,"step_frames":1},
+    {"op":"capture","id":"native_attract","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x07"},{"name":"player_state","addr":"0x0071","len":1},{"name":"native_iframe_guard","addr":"0x1497","len":1,"equals":"0x01"},{"name":"title_script","addr":"0x1df4","len":2},{"name":"native_demo_input","addr":"0x0015","len":2}]},
+    {"op":"wait_ram","id":"natural_fade_to_title","addr":"0x0100","len":1,"equals":"0x02","timeout_frames":6000,"step_frames":2},
+    {"op":"wait_ram","id":"returned_title","addr":"0x0100","len":1,"equals":"0x07","timeout_frames":1800,"step_frames":4},
+    {"op":"capture","id":"title_after_attract","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x07"},{"name":"title_script_index","addr":"0x1df4","len":1}]},
+    {"op":"pulse_input_until_ram","id":"overworld_after_start","p1":["start"],"addr":"0x0100","len":1,"equals":"0x0e","timeout_frames":2400,"hold_frames":1,"release_frames":8},
+    {"op":"capture","id":"overworld","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x0e"}]},
+    {"op":"pulse_input_until_ram","id":"gameplay_after_attract","p1":["a"],"addr":"0x0100","len":1,"equals":"0x14","timeout_frames":1200,"hold_frames":1,"release_frames":8},
+    {"op":"step","frames":3},
+    {"op":"capture","id":"falcon_gameplay","wram":[{"name":"game_mode","addr":"0x0100","len":1,"equals":"0x14"},{"name":"player_state","addr":"0x0071","len":1,"equals":"0x00"}]}
+  ]
+}

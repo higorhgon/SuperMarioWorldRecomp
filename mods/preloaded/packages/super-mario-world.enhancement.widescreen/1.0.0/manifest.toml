@@ -26,7 +26,7 @@ label = "Aspect ratio"
 description = "Fit to screen follows your window or monitor as it changes."
 group = "Display"
 type = "choice"
-default = "adaptive"
+default = "16_9"
 
 [[option.choice]]
 value = "adaptive"

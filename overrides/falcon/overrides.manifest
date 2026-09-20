@@ -1,0 +1,13 @@
+# Side-effect hooks retain generated SMW collision. SMWDisX 3390ee1 bank_00
+# HandlePlayerPhysics ($D5F2) reads native gameplay input before reaching the
+# later UpdatePlayerSpritePosition ($DC2D) velocity seam. The early hook owns
+# pad suppression; DC2D commits velocity, then HandlePlayerLevelCollision
+# ($E92B), then PlayerState00_00CD24's inline $CD36 block joins ordinary
+# flow. The CD36 standalone entry is an external-only dispatch target; the
+# function-scoped block patch in apply_overrides.py owns the live seam.
+# ProcessNormalSprites begins at $01:808C; its first generated M1X1 entry at
+# $01:80D2 is the later carry bridge seam. Restrict M1X1.
+@hook HandlePlayerPhysics -> SmwFalconBeforePlayerPhysics M1X1
+@hook UpdatePlayerSpritePosition -> SmwFalconBeforePhysics M1X1
+@hook ProcessNormalSprites_GetNormalSpriteOAMIndexAndDecrementTimers -> SmwFalconBeforeNormalSprites M1X1
+@hook Spr035_Yoshi -> SmwFalconBeforeYoshi M1X1

@@ -1,0 +1,46 @@
+format_version = 1
+id = "super-mario-world.smash64.captain-falcon"
+version = "0.0.1"
+name = "Smash Bros 64 (Experimental)"
+author = "mstan"
+description = "Experimental Captain Falcon controller with verified owner-cache presentation and PCM audio, native SMW collision, and a conservative native-combat bridge for supported ordinary enemies and blocks."
+license = "LicenseRef-Upstream-Review"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "super-mario-world-us"
+rom_sha256 = "0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b"
+
+[[feature]]
+id = "captain-falcon"
+name = "Smash Bros 64 (Experimental)"
+description = "Early opt-in Smash Bros 64 character replacement with owner-cache presentation/audio, Falcon movement, block breaking, and conservative native SMW combat consequences."
+group = "Characters"
+default_enabled = false
+
+[[option]]
+feature = "captain-falcon"
+id = "character"
+label = "Character"
+description = "Choose the Smash Bros 64 character to use. Captain Falcon is the only character currently implemented."
+type = "choice"
+default = "captain-falcon"
+
+[[option.choice]]
+value = "captain-falcon"
+label = "Captain Falcon"
+
+[[plugin]]
+feature = "captain-falcon"
+id = "super-mario-world.smash64.captain-falcon"
+
+[[external_rom]]
+feature = "captain-falcon"
+id = "smash64-us-v10"
+label = "Super Smash Bros. (US v1.0)"
+description = "Required only for the approved Captain Falcon owner cache; z64, v64, and n64 byte orders are verified in memory."
+format = "n64"
+identity = "Super Smash Bros. US v1.0"
+normalized_sha1 = "e2929e10fccc0aa84e5776227e798abc07cedabf"
+size = 16777216

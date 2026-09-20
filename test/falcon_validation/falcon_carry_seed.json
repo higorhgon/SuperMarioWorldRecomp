@@ -1,0 +1,12 @@
+{
+  "format": "falcon-carry-validation/v1",
+  "name": "falcon-native-shell-carry",
+  "mod": {
+    "package_id": "super-mario-world.smash64.captain-falcon",
+    "feature_id": "captain-falcon",
+    "version": "0.1.0",
+    "resource_id": "smash64-us-v10"
+  },
+  "slot": 0,
+  "sprite_id": "0x04"
+}

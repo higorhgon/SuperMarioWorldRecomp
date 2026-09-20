@@ -1,0 +1,24 @@
+# Landing after the visible-impact frame must retain the existing Punch frame
+# counter and ledger identity; it is a physics transition, not a new move.
+reset
+pos_y 10000
+host_fall
+special down
+frames 1
+expect_state FALCON_PUNCH_AIR
+special up
+frames 41
+expect_attack 0 0
+frames 1
+expect_state FALCON_PUNCH_AIR
+expect_attack 1 1
+host_land
+frames 1
+expect_state FALCON_PUNCH_GROUND
+expect_grounded 1 1
+expect_attack 1 1
+expect_damage 25 25
+frames 12
+expect_attack 1 1
+frames 1
+expect_attack 0 0

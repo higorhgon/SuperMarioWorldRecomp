@@ -103,6 +103,9 @@ sprite list reset the guard, and generators retain their original frontier.
 An optional `SMWS` version-1 game chunk in RTLS snapshots preserves activation
 history across save/load. Older saves are still accepted and use their native
 loaded flags; duplicates already present in an older save are not deleted.
+The release writes a combined `SMX1` extension containing both this history
+and main's foreign-controller state. Legacy `SMWS` renderer saves and `SFW1`
+main-branch saves remain readable; `tools/test_smw_savestates.py` checks both.
 
 Ghost-house sprite-memory preset `$11` makes its two unused regular slots
 available to expanded-view placements and the five-Eerie factory, with separate
@@ -303,8 +306,8 @@ reactivation and rearming) and `sprites.csv` (per-frame entity state).
 ## Remaining scope
 
 Testing has focused mostly on **World 1-2 (Yoshi's Island 2)**. The rest of the
-game has not yet been fully tested. This feature remains an experimental draft
-on its feature branch, pending broader level and gameplay coverage.
+game has not yet been fully tested. The adaptive mod remains experimental
+pending broader level and gameplay coverage.
 The original 12 regular sprite slots remain, with two previously unused slots
 reclaimed in ghost-house preset `$11`; very wide views can still exhaust the
 available pool before every visible enemy activates.
