@@ -217,6 +217,45 @@ static void sprite_parts(void) {
   SmwRendererDraw(surface,558*4,native);
   for(int x=0;x<558;++x)assert(pixel[100*558+x]==0);
 }
+static void transitions(void) {
+  memset(g_ram,0,sizeof(g_ram));memset(&test_ppu,0,sizeof(test_ppu));
+  g_smw_video=(SmwVideoSettings){true,true,0};
+  g_smw_viewport=(SmwViewport){558,151,558.0/192};g_ram[0x5e]=31;
+  test_ppu.bgmode=1;test_ppu.screenEnabled[0]=16;
+  test_ppu.cgram[0]=31;test_ppu.cgram[129]=0x03e0;
+  for(int y=0;y<8;++y)test_ppu.vram[y]=0xff;
+  for(int i=0;i<128;++i)test_ppu.oam[i*2]=0xf000;
+  for(int i=0;i<256*224;++i)((uint32_t *)native)[i]=0x0000ff;
+  word(0x300,0x6490);word(0x302,0x3000);
+  test_ppu.oam[128]=0x6490;test_ppu.oam[129]=0x3000;
+  const int outgoing[]={0x0b,0x0f,0x15,0x18};
+  for(unsigned mode=0;mode<sizeof(outgoing)/sizeof(*outgoing);++mode) {
+    SmwRendererResetScene();g_ram[0x100]=0x14;
+    SmwRendererRecordOam(64,400,0x6490,0x3000);SmwRendererLatchFrame();
+    g_ram[0x100]=outgoing[mode];
+    for(int brightness=15;brightness>=0;--brightness) {
+      test_ppu.inidisp=brightness;
+      SmwRendererLatchFrame();SmwRendererBeginFrame();
+      for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+      SmwRendererDraw(surface,558*4,native);
+      const uint32_t *pixel=(const uint32_t *)surface;
+      assert(pixel[100*558+550]==(unsigned)(255*brightness/15)<<16);
+      assert(pixel[100*558+400]==(unsigned)(255*brightness/15)<<8);
+    }
+  }
+  /* A newly loaded level fades in wide. An overworld/title fade sharing a
+   * mode number must stay native, and save loading cannot inherit a scene. */
+  const int modes[]={0x12,0x13,0x14,0x0c,0x0d,0x0e,0x0b,0x0f};
+  for(unsigned i=0;i<sizeof(modes)/sizeof(*modes);++i) {
+    g_ram[0x100]=modes[i];test_ppu.inidisp=15;
+    SmwRendererLatchFrame();SmwRendererBeginFrame();
+    for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+    SmwRendererDraw(surface,558*4,native);
+    const uint32_t *pixel=(const uint32_t *)surface;
+    assert(pixel[80*558+550]==(modes[i]==0x13 || modes[i]==0x14 ? 0xff0000u : 0));
+  }
+  memset(native,0,sizeof(native));SmwRendererResetScene();
+}
 static void map16(void) {
   memset(g_ram,0,sizeof(g_ram));memset(rom,0,sizeof(rom));g_ram[0x5e]=31;
   rom[0x3da8]=0x00;rom[0x3da9]=0xc0; /* mode-0 screen table -> $00:C000 */
@@ -394,4 +433,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();spawn_lifecycle();objects();sprite_parts();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state, signed OAM/sprite parts, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();objects();sprite_parts();transitions();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state, signed OAM/sprite parts, transitions, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }

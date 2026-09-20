@@ -109,6 +109,20 @@ and checks every required site. Interpreter hooks cover fallback execution.
 `recomp/renderer_aot_roots.c` preserves the compiled sites through regeneration.
 SDL textures and OpenGL buffers follow the current host width.
 
+Level presentation remains adaptive during outgoing stage, pipe and death
+fades, and during a level's incoming fade. Shared fade modes retain the scene
+that entered them; title and overworld fades keep their native presentation.
+Frozen fade frames retain full OAM coordinates only while the exact uploaded
+position and attributes still match. Loaders and snapshot restores clear that
+association. Brightness and mosaic continue to come from the captured PPU.
+
+The pinned engine resets host audio interpolation and occupancy history after
+reset or snapshot loading. It waits for guest execution to rebuild the existing
+four-block audio cushion before resuming delivery, with continuous short fades
+across callbacks. It does not advance the SPC/DSP to fill the buffer. Disabled
+window checks and tile-index division were removed from the renderer's hot
+path so the tested 100:9 view can keep pace with the audio device.
+
 ## Verification
 
 ```sh
@@ -125,6 +139,9 @@ python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2
 python tools/test_adaptive_background.py --window 2048x352
 python tools/test_adaptive_background.py --window 2000x180
 python tools/test_adaptive_background.py --window 1280x720
+python tools/test_adaptive_transitions.py --scenario exit --state /path/to/right-exit.sav
+python tools/test_adaptive_transitions.py --scenario pipe --state /path/to/yi2-pipe-colors.sav
+python tools/test_adaptive_transitions.py --audio --state /path/to/right-exit.sav --window 2000x180
 ```
 
 Standalone checks cover arbitrary geometry, level edges, Map16 quadrants and
@@ -233,6 +250,27 @@ missing ownership. Native-control comparisons report zero unexplained
 differences. Yoshi, pipe-color and camera regressions also pass after this fix.
 These targeted saved scenes extend coverage, not the full-game testing claim.
 
+The transition regression uses the reported right-hand stage-exit save, or
+the earlier Yoshi's Island 2 pipe-color fixture. The exit checks 97,280 far-view
+pixels against the preceding scene scaled by the captured fade brightness.
+The pipe route uses ordinary movement to enter the pipe, then checks expanded
+scenery during both fades and native-control parity across the whole replay.
+Standalone checks additionally cover every brightness value and unchanged OAM
+ownership through frozen fades. Copies preserve the original saves.
+
+The paced audio check runs for 35 seconds with a real audio device and no
+benchmark flags or renderer capture overhead. It reports actual underflows,
+dropped samples and intentional priming separately, and closes only its own
+test process. On this Windows host, the F1 exit replay improved from 18
+underflows to zero at the reported 886-column width. At 100:9 (2134 columns),
+the final run also had zero underflows and dropped samples; startup and save
+loading used six priming callbacks in total. The engine's
+`tests/audio_delivery/run.ps1` checks PCM continuity, short-callback recovery,
+three device rates and isolation from guest sample production. These are
+delivery checks, not a claim that all music/instruments have been compared
+against a synthesis reference. Existing benchmark-audio tests run unpaced and
+should not be used to judge real-time audio stability.
+
 Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 `SMW_ENEMY_SPAWN=adaptive|original`, and `SMW_RENDER_DIAGNOSTICS=<directory>`.
 `SMW_RENDER_CAPTURE_FRAME` captures a frame plus a local raster dump, or accepts
@@ -252,7 +290,7 @@ The original 12 regular sprite slots and level-specific reserved allocations
 remain; very wide views can exhaust them before every visible enemy activates.
 Specialized sprite paths beyond the covered ownership hooks need more level
 coverage. Vertical levels retain native activation policy. Title screens,
-the overworld, transitions, Mode 7 and other unsupported PPU modes use the
-native view. Co-op remains native-only. CPU composition and snapshot copies
-have not been performance-tuned for extreme widths. Linux/macOS/Visual Studio
+the overworld, Mode 7 and other unsupported PPU modes use the native view.
+Co-op remains native-only. CPU composition and snapshot copies still impose
+costs at extreme widths despite the tested 100:9 improvement. Linux/macOS/Visual Studio
 builds and an entire-game playthrough have not been validated here.

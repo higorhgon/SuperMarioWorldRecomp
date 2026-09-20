@@ -45,6 +45,7 @@ void SmwRendererLoadExtra(SaveLoadInfo *sli,uint32_t version) {
 }
 void SmwRendererStateLoaded(uint32_t version) {
   (void)version;
+  SmwRendererResetScene();
   if(restored_extra) spawn_state=restored_spawn;
   else reset_spawns();
   restored_extra=false;

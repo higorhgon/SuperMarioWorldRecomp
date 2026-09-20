@@ -27,6 +27,7 @@ void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsign
 void SmwRendererRecordSpriteTile(unsigned piece, int x, int y);
 /* Latch scene RAM and completed OAM ownership together, immediately before NMI. */
 void SmwRendererLatchFrame(void);
+void SmwRendererResetScene(void);
 void SmwRendererSpawnFrame(void);
 struct SaveLoadInfo;
 void SmwRendererSaveExtra(struct SaveLoadInfo *sli);

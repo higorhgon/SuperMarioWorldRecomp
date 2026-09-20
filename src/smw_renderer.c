@@ -20,6 +20,7 @@ typedef struct SpriteOwner { int x,y; bool valid, exact; } SpriteOwner;
 static SpriteOwner sprite_owners[64];
 static unsigned captured;
 static int native_x;
+static bool level_scene;
 static Ppu raster;
 static uint16_t objects[SMW_RENDER_MAX_WIDTH];
 static uint32_t native_control[256*224];
@@ -60,12 +61,26 @@ void SmwRendererRecordSpriteTile(unsigned piece, int x, int y) {
    * Bind the final OAM image at NMI just like the other generic graphics. */
   if (piece < 64) sprite_owners[piece] = (SpriteOwner){x,y,true,true};
 }
+void SmwRendererResetScene(void) {
+  level_scene=false;
+  memset(pending,0,sizeof(pending));
+  memset(latched,0,sizeof(latched));
+  memset(sprite_owners,0,sizeof(sprite_owners));
+}
 void SmwRendererLatchFrame(void) {
   /* NMI uploads this scene's scroll and OAM before the next simulation tick.
    * Keep the camera, Map16 and sprite metadata from the same scene. Reading
    * live RAM at scanout instead mixes the next camera with the uploaded tiles,
    * making a clamped viewport move by the changing per-tick camera delta. */
   if (g_smw_video.enabled) memcpy(frame_ram,g_ram,sizeof(frame_ram));
+  unsigned mode=frame_ram[0x100];
+  if (mode==0x13 || mode==0x14) level_scene=true;
+  else if (mode!=0x0b && mode!=0x0f && mode!=0x15 && mode!=0x18)
+    level_scene=false;
+  /* Shared fade modes also serve the title and overworld. Retain the actual
+   * outgoing scene until its loader takes over, rather than switching the
+   * level to a centered native-width image on the first fade frame. */
+  bool fading_level=level_scene && mode!=0x13 && mode!=0x14;
   /* SMW's small generic graphics paths do not call FinishOAMWrite. Their
    * GetDrawInfo call identifies the sprite's reserved OAM allocation. Bind
    * the completed pieces before NMI, with signed deltas to that draw origin.
@@ -84,6 +99,15 @@ void SmwRendererLatchFrame(void) {
     if (abs(dx)>64 || abs(dy)>64) continue;
     pending[slot]=(OamOwner){owner->x+dx,(uint16_t)pos,(uint16_t)attr,true};
   }
+  /* Fade routines reuse the last uploaded OAM without drawing it again. Keep
+   * its full coordinates only while that exact image still belongs to this
+   * outgoing scene; loaders and save loads clear the association. */
+  if (fading_level) for (unsigned slot=0;slot<128;++slot) {
+    if (!pending[slot].valid && latched[slot].valid &&
+        latched[slot].position==read16(g_ram,0x200+slot*4) &&
+        latched[slot].attr==read16(g_ram,0x202+slot*4))
+      pending[slot]=latched[slot];
+  }
   memcpy(latched, pending, sizeof(latched));
   memset(pending, 0, sizeof(pending));
   memset(sprite_owners,0,sizeof(sprite_owners));
@@ -92,7 +116,7 @@ void SmwRendererBeginFrame(void) {
   captured = 0;
   if (!g_smw_video.enabled) return;
   native_x = g_smw_viewport.extra;
-  if (frame_ram[0x100] == 0x14 && !(frame_ram[0x5b] & 1))
+  if (level_scene && !(frame_ram[0x5b] & 1))
     native_x = SmwViewOffset(g_smw_viewport, read16(frame_ram, 0x1a), (frame_ram[0x5e]+1)*256);
 }
 void SmwRendererCaptureLine(const Ppu *p, int line) {
@@ -186,6 +210,7 @@ static uint32_t colour(const Ppu *p, const uint16_t *palette, const uint8_t *bri
 
 static bool window(const Ppu *p, int layer, int x) {
   unsigned flags = (p->windowsel >> (layer*4)) & 15;
+  if (!(flags&10)) return false;
   int left = -native_x, right = g_smw_viewport.width-native_x-1;
   int l1 = p->window1left ? p->window1left : left;
   int r1 = p->window1right == 255 ? right : p->window1right;
@@ -214,7 +239,8 @@ static uint16_t background(const Ppu *p, const RasterLine *l, unsigned layer, in
     else return 0;
   }
   if (layer == 2 && (y <= 40 || frame_ram[0x1426]) && (x < 0 || x >= 256)) return 0;
-  int size = PPU_bigTiles(p, layer) ? 16 : 8;
+  unsigned tile_shift = PPU_bigTiles(p, layer) ? 4 : 3;
+  int size = 1 << tile_shift;
   int bpp = layer == 2 ? 2 : 4;
   if (p->mosaic & (1u << layer)) {
     int m = (p->mosaic >> 4) + 1;
@@ -223,7 +249,7 @@ static uint16_t background(const Ppu *p, const RasterLine *l, unsigned layer, in
   }
   int px = (x + p->hScroll[layer]) & 1023;
   int py = (y + p->vScroll[layer]) & 1023;
-  unsigned sc = p->bgXsc[layer], tx = px/size, ty = py/size;
+  unsigned sc = p->bgXsc[layer], tx = (unsigned)px>>tile_shift, ty = (unsigned)py>>tile_shift;
   unsigned addr = (sc & 0xfc)*256 + (tx&31) + (ty&31)*32;
   if ((sc&1) && (tx&32)) addr += 1024;
   if ((sc&2) && (ty&32)) addr += sc&1 ? 2048 : 1024;
@@ -240,7 +266,7 @@ static uint16_t background(const Ppu *p, const RasterLine *l, unsigned layer, in
   int cx = px&(size-1), cy = py&(size-1);
   if (tile&0x4000) cx = size-1-cx;
   if (tile&0x8000) cy = size-1-cy;
-  unsigned number = ((tile&1023) + cx/8 + (cy/8)*16)&1023;
+  unsigned number = ((tile&1023) + (cx>>3) + ((cy>>3)<<4))&1023;
   unsigned base = ((p->bgTileAdr>>(layer*4))&15)*4096;
   unsigned pixel = tile_pixel(l->vram,base+number*(bpp*4),cx&7,cy&7,bpp);
   if (!pixel) return 0;
@@ -301,7 +327,7 @@ static uint32_t compose(const Ppu *p, const RasterLine *l, const uint8_t *bright
 }
 void SmwRendererDraw(uint8_t *pixels,size_t pitch,const uint8_t *stock) {
   int width=g_smw_viewport.width;
-  bool level=frame_ram[0x100]==0x14;
+  bool level=level_scene;
   const char *directory=getenv("SMW_RENDER_DIAGNOSTICS");
   bool control=directory && *directory;
   int shift=background_shift();
