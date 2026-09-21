@@ -38,8 +38,6 @@ Thumbs.db
 
 # External repos accessed via junction/symlink (tracked in their own repos)
 
-# Oracle disassembly repo (independent git clone)
-SMWDisX/
 
 # Claude auto-memory (per-user)
 memory/
@@ -67,3 +65,8 @@ SuperMarioWorldRecomp-widescreen-windows-*.zip
 release-stage/
 release-linux/
 release/
+
+# Disassembly-overlay build products: the assembled ROM and WLA symbol file
+# from third_party/SMWDisX, and the asar built from third_party/asar.
+# Both are reproducible from the pins by tools/ingest_smwdisx.py.
+_smw_build/

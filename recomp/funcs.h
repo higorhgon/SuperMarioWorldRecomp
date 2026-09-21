@@ -15,7 +15,7 @@
 
 #include "cpu_state.h"
 
-/* 1940 functions across all banks (5 decls each). */
+/* 2022 functions across all banks (5 decls each). */
 
 void I_RESET(CpuState *cpu);  /* $00:8000 alias */
 RecompReturn I_RESET_M0X0(CpuState *cpu);
@@ -67,6 +67,21 @@ RecompReturn I_NMI_M0X0(CpuState *cpu);
 RecompReturn I_NMI_M0X1(CpuState *cpu);
 RecompReturn I_NMI_M1X0(CpuState *cpu);
 RecompReturn I_NMI_M1X1(CpuState *cpu);
+void Sample02(CpuState *cpu);  /* $00:817E alias */
+RecompReturn Sample02_M0X0(CpuState *cpu);
+RecompReturn Sample02_M0X1(CpuState *cpu);
+RecompReturn Sample02_M1X0(CpuState *cpu);
+RecompReturn Sample02_M1X1(CpuState *cpu);
+void Sample03(CpuState *cpu);  /* $00:8283 alias */
+RecompReturn Sample03_M0X0(CpuState *cpu);
+RecompReturn Sample03_M0X1(CpuState *cpu);
+RecompReturn Sample03_M1X0(CpuState *cpu);
+RecompReturn Sample03_M1X1(CpuState *cpu);
+void I_EMPTY(CpuState *cpu);  /* $00:82C3 alias */
+RecompReturn I_EMPTY_M0X0(CpuState *cpu);
+RecompReturn I_EMPTY_M0X1(CpuState *cpu);
+RecompReturn I_EMPTY_M1X0(CpuState *cpu);
+RecompReturn I_EMPTY_M1X1(CpuState *cpu);
 void I_IRQ(CpuState *cpu);  /* $00:8374 alias */
 RecompReturn I_IRQ_M0X0(CpuState *cpu);
 RecompReturn I_IRQ_M0X1(CpuState *cpu);
@@ -102,6 +117,11 @@ RecompReturn ClearLayer3Tilemap_M0X0(CpuState *cpu);
 RecompReturn ClearLayer3Tilemap_M0X1(CpuState *cpu);
 RecompReturn ClearLayer3Tilemap_M1X0(CpuState *cpu);
 RecompReturn ClearLayer3Tilemap_M1X1(CpuState *cpu);
+void Sample06(CpuState *cpu);  /* $00:863D alias */
+RecompReturn Sample06_M0X0(CpuState *cpu);
+RecompReturn Sample06_M0X1(CpuState *cpu);
+RecompReturn Sample06_M1X0(CpuState *cpu);
+RecompReturn Sample06_M1X1(CpuState *cpu);
 void PollJoypadInputs(CpuState *cpu);  /* $00:8650 alias */
 RecompReturn PollJoypadInputs_M0X0(CpuState *cpu);
 RecompReturn PollJoypadInputs_M0X1(CpuState *cpu);
@@ -472,6 +492,16 @@ RecompReturn DisplayingContinueEnd_M0X0(CpuState *cpu);
 RecompReturn DisplayingContinueEnd_M0X1(CpuState *cpu);
 RecompReturn DisplayingContinueEnd_M1X0(CpuState *cpu);
 RecompReturn DisplayingContinueEnd_M1X1(CpuState *cpu);
+void InitContinueEndMenu(CpuState *cpu);  /* $00:9B91 alias */
+RecompReturn InitContinueEndMenu_M0X0(CpuState *cpu);
+RecompReturn InitContinueEndMenu_M0X1(CpuState *cpu);
+RecompReturn InitContinueEndMenu_M1X0(CpuState *cpu);
+RecompReturn InitContinueEndMenu_M1X1(CpuState *cpu);
+void DispContinueEndMenu(CpuState *cpu);  /* $00:9B9A alias */
+RecompReturn DispContinueEndMenu_M0X0(CpuState *cpu);
+RecompReturn DispContinueEndMenu_M0X1(CpuState *cpu);
+RecompReturn DispContinueEndMenu_M1X0(CpuState *cpu);
+RecompReturn DispContinueEndMenu_M1X1(CpuState *cpu);
 void OwPrompt07_DisplayingSavePrompt_trampoline(CpuState *cpu);  /* $00:9BA8 alias */
 RecompReturn OwPrompt07_DisplayingSavePrompt_trampoline_M0X0(CpuState *cpu);
 RecompReturn OwPrompt07_DisplayingSavePrompt_trampoline_M0X1(CpuState *cpu);
@@ -1107,6 +1137,11 @@ RecompReturn SetPlayerPose_M0X0(CpuState *cpu);
 RecompReturn SetPlayerPose_M0X1(CpuState *cpu);
 RecompReturn SetPlayerPose_M1X0(CpuState *cpu);
 RecompReturn SetPlayerPose_M1X1(CpuState *cpu);
+void Sample11(CpuState *cpu);  /* $00:CFB7 alias */
+RecompReturn Sample11_M0X0(CpuState *cpu);
+RecompReturn Sample11_M0X1(CpuState *cpu);
+RecompReturn Sample11_M1X0(CpuState *cpu);
+RecompReturn Sample11_M1X1(CpuState *cpu);
 void SetPlayerPose_Entry2(CpuState *cpu);  /* $00:CFBC alias */
 RecompReturn SetPlayerPose_Entry2_M0X0(CpuState *cpu);
 RecompReturn SetPlayerPose_Entry2_M0X1(CpuState *cpu);
@@ -1807,6 +1842,11 @@ RecompReturn SprStatus0C_GoalPowerUp_M0X0(CpuState *cpu);
 RecompReturn SprStatus0C_GoalPowerUp_M0X1(CpuState *cpu);
 RecompReturn SprStatus0C_GoalPowerUp_M1X0(CpuState *cpu);
 RecompReturn SprStatus0C_GoalPowerUp_M1X1(CpuState *cpu);
+void HandleSprLvlEnd(CpuState *cpu);  /* $01:816D alias */
+RecompReturn HandleSprLvlEnd_M0X0(CpuState *cpu);
+RecompReturn HandleSprLvlEnd_M0X1(CpuState *cpu);
+RecompReturn HandleSprLvlEnd_M1X0(CpuState *cpu);
+RecompReturn HandleSprLvlEnd_M1X1(CpuState *cpu);
 void SprStatus01_Init(CpuState *cpu);  /* $01:8172 alias */
 RecompReturn SprStatus01_Init_M0X0(CpuState *cpu);
 RecompReturn SprStatus01_Init_M0X1(CpuState *cpu);
@@ -1852,6 +1892,11 @@ RecompReturn Spr0AD_UpDownFirstWoodenSpike_Init_M0X0(CpuState *cpu);
 RecompReturn Spr0AD_UpDownFirstWoodenSpike_Init_M0X1(CpuState *cpu);
 RecompReturn Spr0AD_UpDownFirstWoodenSpike_Init_M1X0(CpuState *cpu);
 RecompReturn Spr0AD_UpDownFirstWoodenSpike_Init_M1X1(CpuState *cpu);
+void InitBowserScene(CpuState *cpu);  /* $01:836E alias */
+RecompReturn InitBowserScene_M0X0(CpuState *cpu);
+RecompReturn InitBowserScene_M0X1(CpuState *cpu);
+RecompReturn InitBowserScene_M1X0(CpuState *cpu);
+RecompReturn InitBowserScene_M1X1(CpuState *cpu);
 void Spr09A_SumoBro_Init(CpuState *cpu);  /* $01:8373 alias */
 RecompReturn Spr09A_SumoBro_Init_M0X0(CpuState *cpu);
 RecompReturn Spr09A_SumoBro_Init_M0X1(CpuState *cpu);
@@ -2117,16 +2162,236 @@ RecompReturn Spr04A_GoalSphere_M0X0(CpuState *cpu);
 RecompReturn Spr04A_GoalSphere_M0X1(CpuState *cpu);
 RecompReturn Spr04A_GoalSphere_M1X0(CpuState *cpu);
 RecompReturn Spr04A_GoalSphere_M1X1(CpuState *cpu);
+void InitReznor(CpuState *cpu);  /* $01:8789 alias */
+RecompReturn InitReznor_M0X0(CpuState *cpu);
+RecompReturn InitReznor_M0X1(CpuState *cpu);
+RecompReturn InitReznor_M1X0(CpuState *cpu);
+RecompReturn InitReznor_M1X1(CpuState *cpu);
+void Bank3SprHandler(CpuState *cpu);  /* $01:878E alias */
+RecompReturn Bank3SprHandler_M0X0(CpuState *cpu);
+RecompReturn Bank3SprHandler_M0X1(CpuState *cpu);
+RecompReturn Bank3SprHandler_M1X0(CpuState *cpu);
+RecompReturn Bank3SprHandler_M1X1(CpuState *cpu);
+void BanzaiBnCGrayPlat(CpuState *cpu);  /* $01:8793 alias */
+RecompReturn BanzaiBnCGrayPlat_M0X0(CpuState *cpu);
+RecompReturn BanzaiBnCGrayPlat_M0X1(CpuState *cpu);
+RecompReturn BanzaiBnCGrayPlat_M1X0(CpuState *cpu);
+RecompReturn BanzaiBnCGrayPlat_M1X1(CpuState *cpu);
+void BubbleWithSprite(CpuState *cpu);  /* $01:8798 alias */
+RecompReturn BubbleWithSprite_M0X0(CpuState *cpu);
+RecompReturn BubbleWithSprite_M0X1(CpuState *cpu);
+RecompReturn BubbleWithSprite_M1X0(CpuState *cpu);
+RecompReturn BubbleWithSprite_M1X1(CpuState *cpu);
+void HammerBrother(CpuState *cpu);  /* $01:879D alias */
+RecompReturn HammerBrother_M0X0(CpuState *cpu);
+RecompReturn HammerBrother_M0X1(CpuState *cpu);
+RecompReturn HammerBrother_M1X0(CpuState *cpu);
+RecompReturn HammerBrother_M1X1(CpuState *cpu);
+void FlyingPlatform(CpuState *cpu);  /* $01:87A2 alias */
+RecompReturn FlyingPlatform_M0X0(CpuState *cpu);
+RecompReturn FlyingPlatform_M0X1(CpuState *cpu);
+RecompReturn FlyingPlatform_M1X0(CpuState *cpu);
+RecompReturn FlyingPlatform_M1X1(CpuState *cpu);
+void InitHammerBrother(CpuState *cpu);  /* $01:87A7 alias */
+RecompReturn InitHammerBrother_M0X0(CpuState *cpu);
+RecompReturn InitHammerBrother_M0X1(CpuState *cpu);
+RecompReturn InitHammerBrother_M1X0(CpuState *cpu);
+RecompReturn InitHammerBrother_M1X1(CpuState *cpu);
+void VolcanoLotus(CpuState *cpu);  /* $01:87AC alias */
+RecompReturn VolcanoLotus_M0X0(CpuState *cpu);
+RecompReturn VolcanoLotus_M0X1(CpuState *cpu);
+RecompReturn VolcanoLotus_M1X0(CpuState *cpu);
+RecompReturn VolcanoLotus_M1X1(CpuState *cpu);
+void SumoBrother(CpuState *cpu);  /* $01:87B1 alias */
+RecompReturn SumoBrother_M0X0(CpuState *cpu);
+RecompReturn SumoBrother_M0X1(CpuState *cpu);
+RecompReturn SumoBrother_M1X0(CpuState *cpu);
+RecompReturn SumoBrother_M1X1(CpuState *cpu);
+void SumosLightning(CpuState *cpu);  /* $01:87B6 alias */
+RecompReturn SumosLightning_M0X0(CpuState *cpu);
+RecompReturn SumosLightning_M0X1(CpuState *cpu);
+RecompReturn SumosLightning_M1X0(CpuState *cpu);
+RecompReturn SumosLightning_M1X1(CpuState *cpu);
+void JumpingPiranha(CpuState *cpu);  /* $01:87BB alias */
+RecompReturn JumpingPiranha_M0X0(CpuState *cpu);
+RecompReturn JumpingPiranha_M0X1(CpuState *cpu);
+RecompReturn JumpingPiranha_M1X0(CpuState *cpu);
+RecompReturn JumpingPiranha_M1X1(CpuState *cpu);
+void GasBubble(CpuState *cpu);  /* $01:87C0 alias */
+RecompReturn GasBubble_M0X0(CpuState *cpu);
+RecompReturn GasBubble_M0X1(CpuState *cpu);
+RecompReturn GasBubble_M1X0(CpuState *cpu);
+RecompReturn GasBubble_M1X1(CpuState *cpu);
+void DirectionalCoins(CpuState *cpu);  /* $01:87CA alias */
+RecompReturn DirectionalCoins_M0X0(CpuState *cpu);
+RecompReturn DirectionalCoins_M0X1(CpuState *cpu);
+RecompReturn DirectionalCoins_M1X0(CpuState *cpu);
+RecompReturn DirectionalCoins_M1X1(CpuState *cpu);
+void ExplodingBlock(CpuState *cpu);  /* $01:87CF alias */
+RecompReturn ExplodingBlock_M0X0(CpuState *cpu);
+RecompReturn ExplodingBlock_M0X1(CpuState *cpu);
+RecompReturn ExplodingBlock_M1X0(CpuState *cpu);
+RecompReturn ExplodingBlock_M1X1(CpuState *cpu);
+void ScalePlatforms(CpuState *cpu);  /* $01:87D4 alias */
+RecompReturn ScalePlatforms_M0X0(CpuState *cpu);
+RecompReturn ScalePlatforms_M0X1(CpuState *cpu);
+RecompReturn ScalePlatforms_M1X0(CpuState *cpu);
+RecompReturn ScalePlatforms_M1X1(CpuState *cpu);
+void InitFloatingSkull(CpuState *cpu);  /* $01:87D9 alias */
+RecompReturn InitFloatingSkull_M0X0(CpuState *cpu);
+RecompReturn InitFloatingSkull_M0X1(CpuState *cpu);
+RecompReturn InitFloatingSkull_M1X0(CpuState *cpu);
+RecompReturn InitFloatingSkull_M1X1(CpuState *cpu);
+void FloatingSkulls(CpuState *cpu);  /* $01:87DE alias */
+RecompReturn FloatingSkulls_M0X0(CpuState *cpu);
+RecompReturn FloatingSkulls_M0X1(CpuState *cpu);
+RecompReturn FloatingSkulls_M1X0(CpuState *cpu);
+RecompReturn FloatingSkulls_M1X1(CpuState *cpu);
+void GhostHouseExit(CpuState *cpu);  /* $01:87E3 alias */
+RecompReturn GhostHouseExit_M0X0(CpuState *cpu);
+RecompReturn GhostHouseExit_M0X1(CpuState *cpu);
+RecompReturn GhostHouseExit_M1X0(CpuState *cpu);
+RecompReturn GhostHouseExit_M1X1(CpuState *cpu);
+void WarpBlocks(CpuState *cpu);  /* $01:87E8 alias */
+RecompReturn WarpBlocks_M0X0(CpuState *cpu);
+RecompReturn WarpBlocks_M0X1(CpuState *cpu);
+RecompReturn WarpBlocks_M1X0(CpuState *cpu);
+RecompReturn WarpBlocks_M1X1(CpuState *cpu);
+void Pokey(CpuState *cpu);  /* $01:87ED alias */
+RecompReturn Pokey_M0X0(CpuState *cpu);
+RecompReturn Pokey_M0X1(CpuState *cpu);
+RecompReturn Pokey_M1X0(CpuState *cpu);
+RecompReturn Pokey_M1X1(CpuState *cpu);
+void RedSuperKoopa(CpuState *cpu);  /* $01:87F2 alias */
+RecompReturn RedSuperKoopa_M0X0(CpuState *cpu);
+RecompReturn RedSuperKoopa_M0X1(CpuState *cpu);
+RecompReturn RedSuperKoopa_M1X0(CpuState *cpu);
+RecompReturn RedSuperKoopa_M1X1(CpuState *cpu);
+void YellowSuperKoopa(CpuState *cpu);  /* $01:87F7 alias */
+RecompReturn YellowSuperKoopa_M0X0(CpuState *cpu);
+RecompReturn YellowSuperKoopa_M0X1(CpuState *cpu);
+RecompReturn YellowSuperKoopa_M1X0(CpuState *cpu);
+RecompReturn YellowSuperKoopa_M1X1(CpuState *cpu);
+void FeatherSuperKoopa(CpuState *cpu);  /* $01:87FC alias */
+RecompReturn FeatherSuperKoopa_M0X0(CpuState *cpu);
+RecompReturn FeatherSuperKoopa_M0X1(CpuState *cpu);
+RecompReturn FeatherSuperKoopa_M1X0(CpuState *cpu);
+RecompReturn FeatherSuperKoopa_M1X1(CpuState *cpu);
+void PipeLakitu(CpuState *cpu);  /* $01:8801 alias */
+RecompReturn PipeLakitu_M0X0(CpuState *cpu);
+RecompReturn PipeLakitu_M0X1(CpuState *cpu);
+RecompReturn PipeLakitu_M1X0(CpuState *cpu);
+RecompReturn PipeLakitu_M1X1(CpuState *cpu);
+void DigginChuck(CpuState *cpu);  /* $01:8806 alias */
+RecompReturn DigginChuck_M0X0(CpuState *cpu);
+RecompReturn DigginChuck_M0X1(CpuState *cpu);
+RecompReturn DigginChuck_M1X0(CpuState *cpu);
+RecompReturn DigginChuck_M1X1(CpuState *cpu);
+void SwimJumpFish(CpuState *cpu);  /* $01:880B alias */
+RecompReturn SwimJumpFish_M0X0(CpuState *cpu);
+RecompReturn SwimJumpFish_M0X1(CpuState *cpu);
+RecompReturn SwimJumpFish_M1X0(CpuState *cpu);
+RecompReturn SwimJumpFish_M1X1(CpuState *cpu);
+void DigginChucksRock(CpuState *cpu);  /* $01:8810 alias */
+RecompReturn DigginChucksRock_M0X0(CpuState *cpu);
+RecompReturn DigginChucksRock_M0X1(CpuState *cpu);
+RecompReturn DigginChucksRock_M1X0(CpuState *cpu);
+RecompReturn DigginChucksRock_M1X1(CpuState *cpu);
+void GrowingPipe(CpuState *cpu);  /* $01:8815 alias */
+RecompReturn GrowingPipe_M0X0(CpuState *cpu);
+RecompReturn GrowingPipe_M0X1(CpuState *cpu);
+RecompReturn GrowingPipe_M1X0(CpuState *cpu);
+RecompReturn GrowingPipe_M1X1(CpuState *cpu);
+void YoshisHouseBirds(CpuState *cpu);  /* $01:881A alias */
+RecompReturn YoshisHouseBirds_M0X0(CpuState *cpu);
+RecompReturn YoshisHouseBirds_M0X1(CpuState *cpu);
+RecompReturn YoshisHouseBirds_M1X0(CpuState *cpu);
+RecompReturn YoshisHouseBirds_M1X1(CpuState *cpu);
+void YoshisHouseSmoke(CpuState *cpu);  /* $01:881F alias */
+RecompReturn YoshisHouseSmoke_M0X0(CpuState *cpu);
+RecompReturn YoshisHouseSmoke_M0X1(CpuState *cpu);
+RecompReturn YoshisHouseSmoke_M1X0(CpuState *cpu);
+RecompReturn YoshisHouseSmoke_M1X1(CpuState *cpu);
+void SideExit(CpuState *cpu);  /* $01:8824 alias */
+RecompReturn SideExit_M0X0(CpuState *cpu);
+RecompReturn SideExit_M0X1(CpuState *cpu);
+RecompReturn SideExit_M1X0(CpuState *cpu);
+RecompReturn SideExit_M1X1(CpuState *cpu);
+void InitWiggler(CpuState *cpu);  /* $01:8829 alias */
+RecompReturn InitWiggler_M0X0(CpuState *cpu);
+RecompReturn InitWiggler_M0X1(CpuState *cpu);
+RecompReturn InitWiggler_M1X0(CpuState *cpu);
+RecompReturn InitWiggler_M1X1(CpuState *cpu);
+void Wiggler(CpuState *cpu);  /* $01:882E alias */
+RecompReturn Wiggler_M0X0(CpuState *cpu);
+RecompReturn Wiggler_M0X1(CpuState *cpu);
+RecompReturn Wiggler_M1X0(CpuState *cpu);
+RecompReturn Wiggler_M1X1(CpuState *cpu);
+void CoinCloud(CpuState *cpu);  /* $01:8833 alias */
+RecompReturn CoinCloud_M0X0(CpuState *cpu);
+RecompReturn CoinCloud_M0X1(CpuState *cpu);
+RecompReturn CoinCloud_M1X0(CpuState *cpu);
+RecompReturn CoinCloud_M1X1(CpuState *cpu);
+void TorpedoTed(CpuState *cpu);  /* $01:8838 alias */
+RecompReturn TorpedoTed_M0X0(CpuState *cpu);
+RecompReturn TorpedoTed_M0X1(CpuState *cpu);
+RecompReturn TorpedoTed_M1X0(CpuState *cpu);
+RecompReturn TorpedoTed_M1X1(CpuState *cpu);
+void Layer3Smash(CpuState *cpu);  /* $01:883D alias */
+RecompReturn Layer3Smash_M0X0(CpuState *cpu);
+RecompReturn Layer3Smash_M0X1(CpuState *cpu);
+RecompReturn Layer3Smash_M1X0(CpuState *cpu);
+RecompReturn Layer3Smash_M1X1(CpuState *cpu);
+void PeaBouncer(CpuState *cpu);  /* $01:8848 alias */
+RecompReturn PeaBouncer_M0X0(CpuState *cpu);
+RecompReturn PeaBouncer_M0X1(CpuState *cpu);
+RecompReturn PeaBouncer_M1X0(CpuState *cpu);
+RecompReturn PeaBouncer_M1X1(CpuState *cpu);
+void RipVanFish(CpuState *cpu);  /* $01:8853 alias */
+RecompReturn RipVanFish_M0X0(CpuState *cpu);
+RecompReturn RipVanFish_M0X1(CpuState *cpu);
+RecompReturn RipVanFish_M1X0(CpuState *cpu);
+RecompReturn RipVanFish_M1X1(CpuState *cpu);
+void WallFollowers(CpuState *cpu);  /* $01:885E alias */
+RecompReturn WallFollowers_M0X0(CpuState *cpu);
+RecompReturn WallFollowers_M0X1(CpuState *cpu);
+RecompReturn WallFollowers_M1X0(CpuState *cpu);
+RecompReturn WallFollowers_M1X1(CpuState *cpu);
 void Spr091_CharginChuck_Init(CpuState *cpu);  /* $01:8869 alias */
 RecompReturn Spr091_CharginChuck_Init_M0X0(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_Init_M0X1(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_Init_M1X0(CpuState *cpu);
 RecompReturn Spr091_CharginChuck_Init_M1X1(CpuState *cpu);
+void Chucks(CpuState *cpu);  /* $01:886A alias */
+RecompReturn Chucks_M0X0(CpuState *cpu);
+RecompReturn Chucks_M0X1(CpuState *cpu);
+RecompReturn Chucks_M1X0(CpuState *cpu);
+RecompReturn Chucks_M1X1(CpuState *cpu);
+void InitWingedCage(CpuState *cpu);  /* $01:886F alias */
+RecompReturn InitWingedCage_M0X0(CpuState *cpu);
+RecompReturn InitWingedCage_M0X1(CpuState *cpu);
+RecompReturn InitWingedCage_M1X0(CpuState *cpu);
+RecompReturn InitWingedCage_M1X1(CpuState *cpu);
+void WingedCage(CpuState *cpu);  /* $01:887A alias */
+RecompReturn WingedCage_M0X0(CpuState *cpu);
+RecompReturn WingedCage_M0X1(CpuState *cpu);
+RecompReturn WingedCage_M1X0(CpuState *cpu);
+RecompReturn WingedCage_M1X1(CpuState *cpu);
+void Dolphin(CpuState *cpu);  /* $01:8885 alias */
+RecompReturn Dolphin_M0X0(CpuState *cpu);
+RecompReturn Dolphin_M0X1(CpuState *cpu);
+RecompReturn Dolphin_M1X0(CpuState *cpu);
+RecompReturn Dolphin_M1X1(CpuState *cpu);
 void Spr052_MovingLedgeHole_Init(CpuState *cpu);  /* $01:8890 alias */
 RecompReturn Spr052_MovingLedgeHole_Init_M0X0(CpuState *cpu);
 RecompReturn Spr052_MovingLedgeHole_Init_M0X1(CpuState *cpu);
 RecompReturn Spr052_MovingLedgeHole_Init_M1X0(CpuState *cpu);
 RecompReturn Spr052_MovingLedgeHole_Init_M1X1(CpuState *cpu);
+void MovingLedge(CpuState *cpu);  /* $01:8893 alias */
+RecompReturn MovingLedge_M0X0(CpuState *cpu);
+RecompReturn MovingLedge_M0X1(CpuState *cpu);
+RecompReturn MovingLedge_M1X0(CpuState *cpu);
+RecompReturn MovingLedge_M1X1(CpuState *cpu);
 void SprXXX_Generic_JumpOverKickedObject(CpuState *cpu);  /* $01:8898 alias */
 RecompReturn SprXXX_Generic_JumpOverKickedObject_M0X0(CpuState *cpu);
 RecompReturn SprXXX_Generic_JumpOverKickedObject_M0X1(CpuState *cpu);
@@ -3512,6 +3777,11 @@ RecompReturn Spr05F_BrownChainedPlatform_UpdateAngle_M0X0(CpuState *cpu);
 RecompReturn Spr05F_BrownChainedPlatform_UpdateAngle_M0X1(CpuState *cpu);
 RecompReturn Spr05F_BrownChainedPlatform_UpdateAngle_M1X0(CpuState *cpu);
 RecompReturn Spr05F_BrownChainedPlatform_UpdateAngle_M1X1(CpuState *cpu);
+void PipeKoopaKids(CpuState *cpu);  /* $01:CD2A alias */
+RecompReturn PipeKoopaKids_M0X0(CpuState *cpu);
+RecompReturn PipeKoopaKids_M0X1(CpuState *cpu);
+RecompReturn PipeKoopaKids_M1X0(CpuState *cpu);
+RecompReturn PipeKoopaKids_M1X1(CpuState *cpu);
 void Spr029_KoopaKids_Init(CpuState *cpu);  /* $01:CD2F alias */
 RecompReturn Spr029_KoopaKids_Init_M0X0(CpuState *cpu);
 RecompReturn Spr029_KoopaKids_Init_M0X1(CpuState *cpu);
@@ -3547,6 +3817,21 @@ RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessLudwigsAttacks_M0X0(CpuState
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessLudwigsAttacks_M0X1(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessLudwigsAttacks_M1X0(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessLudwigsAttacks_M1X1(CpuState *cpu);
+void CODE_01CE78(CpuState *cpu);  /* $01:CE78 alias */
+RecompReturn CODE_01CE78_M0X0(CpuState *cpu);
+RecompReturn CODE_01CE78_M0X1(CpuState *cpu);
+RecompReturn CODE_01CE78_M1X0(CpuState *cpu);
+RecompReturn CODE_01CE78_M1X1(CpuState *cpu);
+void CODE_01CEB6(CpuState *cpu);  /* $01:CEB6 alias */
+RecompReturn CODE_01CEB6_M0X0(CpuState *cpu);
+RecompReturn CODE_01CEB6_M0X1(CpuState *cpu);
+RecompReturn CODE_01CEB6_M1X0(CpuState *cpu);
+RecompReturn CODE_01CEB6_M1X1(CpuState *cpu);
+void CODE_01CEFD(CpuState *cpu);  /* $01:CEFD alias */
+RecompReturn CODE_01CEFD_M0X0(CpuState *cpu);
+RecompReturn CODE_01CEFD_M0X1(CpuState *cpu);
+RecompReturn CODE_01CEFD_M1X0(CpuState *cpu);
+RecompReturn CODE_01CEFD_M1X1(CpuState *cpu);
 void Spr029_KoopaKid_MortonRoyLudwig_State03_Hurt(CpuState *cpu);  /* $01:CF7D alias */
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_State03_Hurt_M0X0(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_State03_Hurt_M0X1(CpuState *cpu);
@@ -3582,6 +3867,16 @@ RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessRoysAttacks_M0X0(CpuState *c
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessRoysAttacks_M0X1(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessRoysAttacks_M1X0(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_ProcessRoysAttacks_M1X1(CpuState *cpu);
+void CODE_01D146(CpuState *cpu);  /* $01:D146 alias */
+RecompReturn CODE_01D146_M0X0(CpuState *cpu);
+RecompReturn CODE_01D146_M0X1(CpuState *cpu);
+RecompReturn CODE_01D146_M1X0(CpuState *cpu);
+RecompReturn CODE_01D146_M1X1(CpuState *cpu);
+void CODE_01D23F(CpuState *cpu);  /* $01:D23F alias */
+RecompReturn CODE_01D23F_M0X0(CpuState *cpu);
+RecompReturn CODE_01D23F_M0X1(CpuState *cpu);
+RecompReturn CODE_01D23F_M1X0(CpuState *cpu);
+RecompReturn CODE_01D23F_M1X1(CpuState *cpu);
 void Spr029_KoopaKid_MortonRoyLudwig_01D2A8(CpuState *cpu);  /* $01:D2A8 alias */
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_01D2A8_M0X0(CpuState *cpu);
 RecompReturn Spr029_KoopaKid_MortonRoyLudwig_01D2A8_M0X1(CpuState *cpu);
@@ -4992,6 +5287,16 @@ RecompReturn Spr0A5_Sparky_M0X0(CpuState *cpu);
 RecompReturn Spr0A5_Sparky_M0X1(CpuState *cpu);
 RecompReturn Spr0A5_Sparky_M1X0(CpuState *cpu);
 RecompReturn Spr0A5_Sparky_M1X1(CpuState *cpu);
+void CODE_02BD68(CpuState *cpu);  /* $02:BD68 alias */
+RecompReturn CODE_02BD68_M0X0(CpuState *cpu);
+RecompReturn CODE_02BD68_M0X1(CpuState *cpu);
+RecompReturn CODE_02BD68_M1X0(CpuState *cpu);
+RecompReturn CODE_02BD68_M1X1(CpuState *cpu);
+void CODE_02BD75(CpuState *cpu);  /* $02:BD75 alias */
+RecompReturn CODE_02BD75_M0X0(CpuState *cpu);
+RecompReturn CODE_02BD75_M0X1(CpuState *cpu);
+RecompReturn CODE_02BD75_M1X0(CpuState *cpu);
+RecompReturn CODE_02BD75_M1X1(CpuState *cpu);
 void SprXXX_WallFollowers_SparkyDraw(CpuState *cpu);  /* $02:BE4E alias */
 RecompReturn SprXXX_WallFollowers_SparkyDraw_M0X0(CpuState *cpu);
 RecompReturn SprXXX_WallFollowers_SparkyDraw_M0X1(CpuState *cpu);
@@ -5007,6 +5312,16 @@ RecompReturn Spr03D_RipVanFish_M0X0(CpuState *cpu);
 RecompReturn Spr03D_RipVanFish_M0X1(CpuState *cpu);
 RecompReturn Spr03D_RipVanFish_M1X0(CpuState *cpu);
 RecompReturn Spr03D_RipVanFish_M1X1(CpuState *cpu);
+void CODE_02C02E(CpuState *cpu);  /* $02:C02E alias */
+RecompReturn CODE_02C02E_M0X0(CpuState *cpu);
+RecompReturn CODE_02C02E_M0X1(CpuState *cpu);
+RecompReturn CODE_02C02E_M1X0(CpuState *cpu);
+RecompReturn CODE_02C02E_M1X1(CpuState *cpu);
+void CODE_02C08A(CpuState *cpu);  /* $02:C08A alias */
+RecompReturn CODE_02C08A_M0X0(CpuState *cpu);
+RecompReturn CODE_02C08A_M0X1(CpuState *cpu);
+RecompReturn CODE_02C08A_M1X0(CpuState *cpu);
+RecompReturn CODE_02C08A_M1X1(CpuState *cpu);
 void SpawnMusicNoteOrZ_MusicNote(CpuState *cpu);  /* $02:C0CF alias */
 RecompReturn SpawnMusicNoteOrZ_MusicNote_M0X0(CpuState *cpu);
 RecompReturn SpawnMusicNoteOrZ_MusicNote_M0X1(CpuState *cpu);
@@ -5297,6 +5612,31 @@ RecompReturn Spr089_Layer3Smasher_M0X0(CpuState *cpu);
 RecompReturn Spr089_Layer3Smasher_M0X1(CpuState *cpu);
 RecompReturn Spr089_Layer3Smasher_M1X0(CpuState *cpu);
 RecompReturn Spr089_Layer3Smasher_M1X1(CpuState *cpu);
+void CODE_02D419(CpuState *cpu);  /* $02:D419 alias */
+RecompReturn CODE_02D419_M0X0(CpuState *cpu);
+RecompReturn CODE_02D419_M0X1(CpuState *cpu);
+RecompReturn CODE_02D419_M1X0(CpuState *cpu);
+RecompReturn CODE_02D419_M1X1(CpuState *cpu);
+void CODE_02D445(CpuState *cpu);  /* $02:D445 alias */
+RecompReturn CODE_02D445_M0X0(CpuState *cpu);
+RecompReturn CODE_02D445_M0X1(CpuState *cpu);
+RecompReturn CODE_02D445_M1X0(CpuState *cpu);
+RecompReturn CODE_02D445_M1X1(CpuState *cpu);
+void CODE_02D455(CpuState *cpu);  /* $02:D455 alias */
+RecompReturn CODE_02D455_M0X0(CpuState *cpu);
+RecompReturn CODE_02D455_M0X1(CpuState *cpu);
+RecompReturn CODE_02D455_M1X0(CpuState *cpu);
+RecompReturn CODE_02D455_M1X1(CpuState *cpu);
+void CODE_02D481(CpuState *cpu);  /* $02:D481 alias */
+RecompReturn CODE_02D481_M0X0(CpuState *cpu);
+RecompReturn CODE_02D481_M0X1(CpuState *cpu);
+RecompReturn CODE_02D481_M1X0(CpuState *cpu);
+RecompReturn CODE_02D481_M1X1(CpuState *cpu);
+void CODE_02D489(CpuState *cpu);  /* $02:D489 alias */
+RecompReturn CODE_02D489_M0X0(CpuState *cpu);
+RecompReturn CODE_02D489_M0X1(CpuState *cpu);
+RecompReturn CODE_02D489_M1X0(CpuState *cpu);
+RecompReturn CODE_02D489_M1X1(CpuState *cpu);
 void Spr089_Layer3Smasher_02D49C(CpuState *cpu);  /* $02:D49C alias */
 RecompReturn Spr089_Layer3Smasher_02D49C_M0X0(CpuState *cpu);
 RecompReturn Spr089_Layer3Smasher_02D49C_M0X1(CpuState *cpu);
@@ -5447,11 +5787,26 @@ RecompReturn Spr099_VolcanoLotus_M0X0(CpuState *cpu);
 RecompReturn Spr099_VolcanoLotus_M0X1(CpuState *cpu);
 RecompReturn Spr099_VolcanoLotus_M1X0(CpuState *cpu);
 RecompReturn Spr099_VolcanoLotus_M1X1(CpuState *cpu);
+void CODE_02DFC9(CpuState *cpu);  /* $02:DFC9 alias */
+RecompReturn CODE_02DFC9_M0X0(CpuState *cpu);
+RecompReturn CODE_02DFC9_M0X1(CpuState *cpu);
+RecompReturn CODE_02DFC9_M1X0(CpuState *cpu);
+RecompReturn CODE_02DFC9_M1X1(CpuState *cpu);
 void sub_2DFD0(CpuState *cpu);  /* $02:DFD0 alias */
 RecompReturn sub_2DFD0_M0X0(CpuState *cpu);
 RecompReturn sub_2DFD0_M0X1(CpuState *cpu);
 RecompReturn sub_2DFD0_M1X0(CpuState *cpu);
 RecompReturn sub_2DFD0_M1X1(CpuState *cpu);
+void CODE_02DFDF(CpuState *cpu);  /* $02:DFDF alias */
+RecompReturn CODE_02DFDF_M0X0(CpuState *cpu);
+RecompReturn CODE_02DFDF_M0X1(CpuState *cpu);
+RecompReturn CODE_02DFDF_M1X0(CpuState *cpu);
+RecompReturn CODE_02DFDF_M1X1(CpuState *cpu);
+void CODE_02DFEF(CpuState *cpu);  /* $02:DFEF alias */
+RecompReturn CODE_02DFEF_M0X0(CpuState *cpu);
+RecompReturn CODE_02DFEF_M0X1(CpuState *cpu);
+RecompReturn CODE_02DFEF_M1X0(CpuState *cpu);
+RecompReturn CODE_02DFEF_M1X1(CpuState *cpu);
 void Spr099_VolcanoLotus_Draw(CpuState *cpu);  /* $02:E00B alias */
 RecompReturn Spr099_VolcanoLotus_Draw_M0X0(CpuState *cpu);
 RecompReturn Spr099_VolcanoLotus_Draw_M0X1(CpuState *cpu);
@@ -5467,6 +5822,21 @@ RecompReturn Spr04F_JumpingPiranhaPlant_M0X0(CpuState *cpu);
 RecompReturn Spr04F_JumpingPiranhaPlant_M0X1(CpuState *cpu);
 RecompReturn Spr04F_JumpingPiranhaPlant_M1X0(CpuState *cpu);
 RecompReturn Spr04F_JumpingPiranhaPlant_M1X1(CpuState *cpu);
+void CODE_02E13C(CpuState *cpu);  /* $02:E13C alias */
+RecompReturn CODE_02E13C_M0X0(CpuState *cpu);
+RecompReturn CODE_02E13C_M0X1(CpuState *cpu);
+RecompReturn CODE_02E13C_M1X0(CpuState *cpu);
+RecompReturn CODE_02E13C_M1X1(CpuState *cpu);
+void CODE_02E159(CpuState *cpu);  /* $02:E159 alias */
+RecompReturn CODE_02E159_M0X0(CpuState *cpu);
+RecompReturn CODE_02E159_M0X1(CpuState *cpu);
+RecompReturn CODE_02E159_M1X0(CpuState *cpu);
+RecompReturn CODE_02E159_M1X1(CpuState *cpu);
+void CODE_02E177(CpuState *cpu);  /* $02:E177 alias */
+RecompReturn CODE_02E177_M0X0(CpuState *cpu);
+RecompReturn CODE_02E177_M0X1(CpuState *cpu);
+RecompReturn CODE_02E177_M1X0(CpuState *cpu);
+RecompReturn CODE_02E177_M1X1(CpuState *cpu);
 void SprXXX_JumpingPiranhaPlant_02E17F(CpuState *cpu);  /* $02:E17F alias */
 RecompReturn SprXXX_JumpingPiranhaPlant_02E17F_M0X0(CpuState *cpu);
 RecompReturn SprXXX_JumpingPiranhaPlant_02E17F_M0X1(CpuState *cpu);
@@ -5592,11 +5962,36 @@ RecompReturn Spr04B_PipeLakitu_M0X0(CpuState *cpu);
 RecompReturn Spr04B_PipeLakitu_M0X1(CpuState *cpu);
 RecompReturn Spr04B_PipeLakitu_M1X0(CpuState *cpu);
 RecompReturn Spr04B_PipeLakitu_M1X1(CpuState *cpu);
+void CODE_02E96D(CpuState *cpu);  /* $02:E96D alias */
+RecompReturn CODE_02E96D_M0X0(CpuState *cpu);
+RecompReturn CODE_02E96D_M0X1(CpuState *cpu);
+RecompReturn CODE_02E96D_M1X0(CpuState *cpu);
+RecompReturn CODE_02E96D_M1X1(CpuState *cpu);
 void sub_2E980(CpuState *cpu);  /* $02:E980 alias */
 RecompReturn sub_2E980_M0X0(CpuState *cpu);
 RecompReturn sub_2E980_M0X1(CpuState *cpu);
 RecompReturn sub_2E980_M1X0(CpuState *cpu);
 RecompReturn sub_2E980_M1X1(CpuState *cpu);
+void CODE_02E986(CpuState *cpu);  /* $02:E986 alias */
+RecompReturn CODE_02E986_M0X0(CpuState *cpu);
+RecompReturn CODE_02E986_M0X1(CpuState *cpu);
+RecompReturn CODE_02E986_M1X0(CpuState *cpu);
+RecompReturn CODE_02E986_M1X1(CpuState *cpu);
+void CODE_02E9B4(CpuState *cpu);  /* $02:E9B4 alias */
+RecompReturn CODE_02E9B4_M0X0(CpuState *cpu);
+RecompReturn CODE_02E9B4_M0X1(CpuState *cpu);
+RecompReturn CODE_02E9B4_M1X0(CpuState *cpu);
+RecompReturn CODE_02E9B4_M1X1(CpuState *cpu);
+void CODE_02E9BD(CpuState *cpu);  /* $02:E9BD alias */
+RecompReturn CODE_02E9BD_M0X0(CpuState *cpu);
+RecompReturn CODE_02E9BD_M0X1(CpuState *cpu);
+RecompReturn CODE_02E9BD_M1X0(CpuState *cpu);
+RecompReturn CODE_02E9BD_M1X1(CpuState *cpu);
+void CODE_02E9D5(CpuState *cpu);  /* $02:E9D5 alias */
+RecompReturn CODE_02E9D5_M0X0(CpuState *cpu);
+RecompReturn CODE_02E9D5_M0X1(CpuState *cpu);
+RecompReturn CODE_02E9D5_M1X0(CpuState *cpu);
+RecompReturn CODE_02E9D5_M1X1(CpuState *cpu);
 void Spr04B_PipeLakitu_Draw(CpuState *cpu);  /* $02:E9EC alias */
 RecompReturn Spr04B_PipeLakitu_Draw_M0X0(CpuState *cpu);
 RecompReturn Spr04B_PipeLakitu_Draw_M0X1(CpuState *cpu);
@@ -5727,6 +6122,16 @@ RecompReturn Spr08A_Bird_M0X0(CpuState *cpu);
 RecompReturn Spr08A_Bird_M0X1(CpuState *cpu);
 RecompReturn Spr08A_Bird_M1X0(CpuState *cpu);
 RecompReturn Spr08A_Bird_M1X1(CpuState *cpu);
+void CODE_02F342(CpuState *cpu);  /* $02:F342 alias */
+RecompReturn CODE_02F342_M0X0(CpuState *cpu);
+RecompReturn CODE_02F342_M0X1(CpuState *cpu);
+RecompReturn CODE_02F342_M1X0(CpuState *cpu);
+RecompReturn CODE_02F342_M1X1(CpuState *cpu);
+void CODE_02F38F(CpuState *cpu);  /* $02:F38F alias */
+RecompReturn CODE_02F38F_M0X0(CpuState *cpu);
+RecompReturn CODE_02F38F_M0X1(CpuState *cpu);
+RecompReturn CODE_02F38F_M1X0(CpuState *cpu);
+RecompReturn CODE_02F38F_M1X1(CpuState *cpu);
 void Spr08A_Bird_02F3C1(CpuState *cpu);  /* $02:F3C1 alias */
 RecompReturn Spr08A_Bird_02F3C1_M0X0(CpuState *cpu);
 RecompReturn Spr08A_Bird_02F3C1_M0X1(CpuState *cpu);
@@ -7437,6 +7842,11 @@ RecompReturn DisplayOwPrompt_M0X0(CpuState *cpu);
 RecompReturn DisplayOwPrompt_M0X1(CpuState *cpu);
 RecompReturn DisplayOwPrompt_M1X0(CpuState *cpu);
 RecompReturn DisplayOwPrompt_M1X1(CpuState *cpu);
+void CODE_04F3FA(CpuState *cpu);  /* $04:F3FA alias */
+RecompReturn CODE_04F3FA_M0X0(CpuState *cpu);
+RecompReturn CODE_04F3FA_M0X1(CpuState *cpu);
+RecompReturn CODE_04F3FA_M1X0(CpuState *cpu);
+RecompReturn CODE_04F3FA_M1X1(CpuState *cpu);
 void OwPrompt01_InitializeOwPrompt(CpuState *cpu);  /* $04:F3FF alias */
 RecompReturn OwPrompt01_InitializeOwPrompt_M0X0(CpuState *cpu);
 RecompReturn OwPrompt01_InitializeOwPrompt_M0X1(CpuState *cpu);

@@ -21,7 +21,7 @@ import os
 import re
 import sys
 
-SMWDISX = os.path.join(os.path.dirname(__file__), '..', 'SMWDisX')
+SMWDISX = os.path.join(os.path.dirname(__file__), '..', 'third_party', 'SMWDisX')
 CFG_DIR = os.path.normpath(os.path.join(
     os.path.dirname(__file__), '..', '..', 'snesrecomp-v2', 'tools', 'recomp'))
 

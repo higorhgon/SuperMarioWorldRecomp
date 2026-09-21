@@ -211,12 +211,7 @@ smw_add_recomp_target(SuperMarioWorldSNESRecomp
 # tree. tools/make_release.ps1 and tools/build-linux.sh both pick it up from
 # here, and the Linux packaging step fails outright if it is missing.
 set(SMW_PRELOADED_MODS "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded")
-if(EXISTS "${SMW_PRELOADED_MODS}/packages")
-    add_custom_command(TARGET SuperMarioWorldSNESRecomp POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${SMW_PRELOADED_MODS}"
-                "$<TARGET_FILE_DIR:SuperMarioWorldSNESRecomp>/mods")
-endif()
+snesrecomp_target_mod_catalog(SuperMarioWorldSNESRecomp "${SMW_PRELOADED_MODS}")
 
 if(SMW_BUILD_COOP)
     smw_add_recomp_target(SuperMarioWorldCoopSNESRecomp
@@ -234,6 +229,8 @@ if(SMW_BUILD_COOP)
     # recomp-net supplies deterministic two-peer delay-sync, LAN/ICE transport,
     # and the lobby client consumed by recomp-ui's game-owned callbacks.
     snesrecomp_enable_recomp_net(SuperMarioWorldCoopSNESRecomp)
+    snesrecomp_target_mod_catalog(SuperMarioWorldCoopSNESRecomp
+        "${SMW_PRELOADED_MODS}")
     add_custom_command(TARGET SuperMarioWorldCoopSNESRecomp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${CMAKE_SOURCE_DIR}/recomp/coop/smw_coop.ips

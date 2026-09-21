@@ -4,3 +4,9 @@
 [submodule "recomp-ui"]
 	path = recomp-ui
 	url = https://github.com/mstan/recomp-ui.git
+[submodule "third_party/SMWDisX"]
+	path = third_party/SMWDisX
+	url = https://github.com/IsoFrieze/SMWDisX.git
+[submodule "third_party/asar"]
+	path = third_party/asar
+	url = https://github.com/RPGHacker/asar.git
