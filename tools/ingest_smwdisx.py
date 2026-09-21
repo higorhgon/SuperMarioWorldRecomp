@@ -949,6 +949,13 @@ def emit_cfg(output_dir: Path, labels, regions, kind_by_pc24, arch_by_pc24,
             if BEGIN_MARK in text and END_MARK in text:
                 head = text.split(BEGIN_MARK)[0]
                 tail = text.split(END_MARK, 1)[1]
+                # The generated block already ends in a newline, and the tail
+                # opens with the one that followed the end marker. Keeping
+                # both grows the file by a blank line on every re-run, which
+                # makes the importer non-idempotent and every re-import a
+                # diff.
+                if tail.startswith("\n"):
+                    tail = tail[1:]
                 text = head + generated + tail
             else:
                 text = text.rstrip("\n") + "\n\n" + generated
