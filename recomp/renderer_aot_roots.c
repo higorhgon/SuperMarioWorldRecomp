@@ -5,6 +5,9 @@
  * tools/apply_renderer_hooks.py verifies these sites after every regeneration.
  * This manifest is scanned by the generator, never compiled into the game. */
 void SmwRendererAotRoots(CpuState *cpu) {
+  ProcessNormalSprites(cpu);
+  ProcessExtendedSprites(cpu);
+  ExtSpr0D_Baseball(cpu);
   GenericExtendedSpriteGFXRt_FireballEntry(cpu);
   FinishOAMWrite_01B844(cpu);
   GetDrawInfo_Bank01_Recomp(cpu);

@@ -26,6 +26,10 @@ bool SmwRendererMapTile(const uint8_t *ram, unsigned layer, int x, int y, uint16
 void SmwRendererRecordOam(unsigned slot, int x, uint16_t position, uint16_t attr);
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end);
 void SmwRendererRecordSpriteTile(unsigned piece, int x, int y);
+/* Commit each object's completed draw before another object reuses guest OAM.
+ * kind 0 = normal sprite, 1 = extended sprite. Host storage grows as needed. */
+void SmwRendererBeginActor(unsigned kind, unsigned index);
+void SmwRendererEndActor(void);
 /* Latch scene RAM and completed OAM ownership together, immediately before NMI. */
 void SmwRendererLatchFrame(void);
 void SmwRendererResetScene(void);

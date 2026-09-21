@@ -139,9 +139,37 @@ void SmwRendererDrawInfo(CpuState *c) {
 
 void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
   static int fireball_x, wing_x;
-  static bool wing_draw;
-  if(!active(c)) return;
+  static bool wing_draw, baseball_draw;
   pc &= 0x7fffff;
+  if(pc==0x0180B2 || pc==0x029B12) {
+    SmwRendererEndActor();
+    return;
+  }
+  if(!active(c)) return;
+  if(pc==0x0180AF || pc==0x029B0C) {
+    SmwRendererBeginActor(pc==0x029B0C,c->X&0xffff);
+    return;
+  }
+  if(pc==0x02A27E) {
+    unsigned slot=c->X&255;
+    if(slot>=10) return;
+    int x=(int16_t)((r8(c,0x171f+slot)|(r8(c,0x1733+slot)<<8))-r16(c,0x1a));
+    int left=g_smw_video.adaptive_spawns?left_margin(c):0;
+    int right=g_smw_video.adaptive_spawns?g_smw_viewport.width-left:256;
+    baseball_draw=x>=-left && x<right;
+    c->_flag_Z=baseball_draw;
+    return;
+  }
+  if(pc==0x02A2BE) {
+    /* Only the successful draw converts Y into an OAM tile index. The
+     * native return for an offscreen, approaching ball keeps it unconverted. */
+    unsigned slot=c->X&255, piece=c->Y&255;
+    if(baseball_draw && slot<10 && piece<64) {
+      int x=(int16_t)((r8(c,0x171f+slot)|(r8(c,0x1733+slot)<<8))-r16(c,0x1a));
+      SmwRendererRecordOam(piece,x,r16(c,0x200+piece*4),r16(c,0x202+piece*4));
+    }
+    return;
+  }
   if(pc==0x01A393 || pc==0x02D3A6 || pc==0x03B78E) {
     /* The same post-STA draw decision used by the generated hooks. The
      * current engine can keep a caller interpreted across these helpers. */
@@ -312,7 +340,8 @@ void SmwRendererGuestHook(CpuState *c,uint32_t pc) {
 void SmwRendererInstallHooks(void) {
   const uint32_t pcs[]={0x02A826,0x02A82E,0x01B844,0x01AC7C,0x02D076,0x03B8A8,0x02A1BE,0x02A204,
                         0x019E6D,0x019E93,0x019F5A,0x0180E5,0x02A916,0x02AFB3,
-                        0x01A393,0x02D3A6,0x03B78E};
+                        0x01A393,0x02D3A6,0x03B78E,
+                        0x0180AF,0x0180B2,0x029B0C,0x029B12,0x02A27E,0x02A2BE};
   for(unsigned i=0;i<sizeof(pcs)/sizeof(*pcs);++i)
     interp_bridge_set_pre_opcode_hook(pcs[i],SmwRendererGuestHook);
 }

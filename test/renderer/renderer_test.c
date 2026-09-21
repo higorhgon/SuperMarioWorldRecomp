@@ -273,6 +273,47 @@ static void sprite_parts(void) {
   for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
   SmwRendererDraw(surface,558*4,native);
   for(int x=0;x<558;++x)assert(pixel[100*558+x]==0);
+  /* Unowned pieces outside the native view must remain hidden, including
+   * short negative coordinates that fit within a larger sprite's footprint. */
+  SmwRendererResetScene();word(0x300,0x64f0);test_ppu.oam[128]=0x64f0;
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,558*4,native);
+  for(int x=0;x<558;++x)assert(pixel[100*558+x]==0);
+}
+static void completed_draws(void) {
+  memset(g_ram,0,sizeof(g_ram));memset(&test_ppu,0,sizeof(test_ppu));
+  SmwRendererResetScene();g_ram[0x100]=20;g_ram[0x5e]=31;
+  g_smw_video=(SmwVideoSettings){true,true,0};g_smw_viewport=(SmwViewport){2134,939,100.0/9};
+  test_ppu.inidisp=15;test_ppu.bgmode=1;test_ppu.screenEnabled[0]=16;
+  test_ppu.cgram[129]=31;test_ppu.cgram[161]=0x03e0;
+  for(int y=0;y<8;++y)test_ppu.vram[y]=0xff;
+  for(int i=0;i<128;++i)test_ppu.oam[i*2]=0xf000;
+  /* More than one hardware OAM's worth of draws reuse the SAME guest tile.
+   * Capture the caller's final palette, not the earlier helper's attributes. */
+  for(unsigned i=0;i<150;++i) {
+    unsigned x=16+i*8,pos=100*256+(x&255);
+    SmwRendererBeginActor(0,i%12);
+    word(0x300,pos);word(0x302,0x3000);
+    SmwRendererRecordOam(64,(int)x,(uint16_t)pos,0x3000);
+    word(0x302,0x3400);
+    SmwRendererEndActor();
+  }
+  test_ppu.oam[128]=(uint16_t)(100*256+((16+149*8)&255));test_ppu.oam[129]=0x3400;
+  const uint32_t *pixel=(const uint32_t *)surface;
+  for(unsigned pass=0;pass<2;++pass) {
+    if(pass)g_ram[0x100]=0x0f; /* fade reuses the complete display list */
+    SmwRendererLatchFrame();SmwRendererBeginFrame();
+    for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+    SmwRendererDraw(surface,2134*4,native);
+    for(unsigned i=0;i<150;++i)assert(pixel[100*2134+16+i*8]==0x00ff00);
+  }
+  SmwRendererResetScene();g_ram[0x100]=20;
+  test_ppu.oam[128]=0xf000;word(0x300,0xf000);
+  SmwRendererLatchFrame();SmwRendererBeginFrame();
+  for(int y=1;y<=224;++y)SmwRendererCaptureLine(&test_ppu,y);
+  SmwRendererDraw(surface,2134*4,native);
+  assert(pixel[100*2134+16]==0 && pixel[100*2134+1208]==0);
 }
 static void transitions(void) {
   memset(g_ram,0,sizeof(g_ram));memset(&test_ppu,0,sizeof(test_ppu));
@@ -490,4 +531,4 @@ static void pipe_variants(void) {
   rom[(5<<15)+0x4e0]=0x34;rom[(5<<15)+0x4e1]=0x12;
   assert(SmwRendererMapTile(g_ram,0,0,0,&tile) && tile==0x1234);
 }
-int main(void) { geometry();spawn();spawn_lifecycle();ghost_house_capacity();objects();sprite_parts();transitions();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state and ghost-house capacity, signed OAM/sprite parts, transitions, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }
+int main(void) { geometry();spawn();spawn_lifecycle();ghost_house_capacity();objects();sprite_parts();completed_draws();transitions();map16();pipe_variants();hud();parallax();camera_timing();puts("geometry, spawn lifecycle/save state and ghost-house capacity, signed OAM/sprite parts, independent sprite draws, transitions, Map16/pipe variants, anchored HUD, parallax and presentation camera timing: passed");return 0; }

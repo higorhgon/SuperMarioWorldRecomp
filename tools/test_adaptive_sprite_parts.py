@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check winged-block wings or a jumping Piranha head from local F1/F2 saves.
+"""Check composite sprites and extended projectiles from local saves.
 
 Copies saves into an isolated running game with Fit and Screen-based spawning.
 Requires actual OBJ pixels outside the native view; never pauses the runtime.
@@ -13,14 +13,17 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 
 from renderer_visibility import Capture, OWNER_OFFSET
 from test_adaptive_renderer import ROOT, environment, rows
+from test_adaptive_mario import owned_windows
 
 FRAMES = dict(wings=(242, 246, 250, 260, 280, 300, 320, 340, 360),
               # The plant descends behind its pipe after frame 260. Sample
               # the complete head above the pipe, in both animation poses.
-              plant=(242, 246, 250, 254, 260))
+              plant=(242, 246, 250, 254, 260),
+              lotus=(242, 260, 280, 300, 340, 360))
 
 
 def check(root, scenario):
@@ -29,6 +32,34 @@ def check(root, scenario):
     for frame in FRAMES[scenario]:
         cap = Capture(root, frame)
         assert not cap.ram[0x13d4], 'fixture must be running, not paused'
+        if scenario == 'lotus':
+            # A baseball naturally hits Mario late in this stationary replay;
+            # $71=1 is his shrink animation, during which sprites still draw.
+            assert cap.ram[0x13bf] == 0x15 and cap.ram[0x71] in (0, 1), 'wrong Lotus/baseball fixture'
+            slots = [i for i in cap.active() if cap.ram[0x9e+i] == 0x99]
+            assert len(slots) == 1
+            # Lotus advances its allocation by eight bytes after drawing
+            # two 16x16 leaves and two 8x8 flower pieces. Check all four.
+            first = 64+cap.ram[0x15ea+slots[0]]//4-2
+            parts = list(range(first, first+4))
+            pixels = [cap.piece(part) for part in parts]
+            xs = [struct.unpack_from('<i', cap.raw, OWNER_OFFSET+part*12)[0] for part in parts]
+            outside += sum(x+16 <= 0 or x >= 256 for x in xs)
+            # Slots 1/2 approach from the right; slot 7 approaches from the
+            # left. Their native table assigns OAM 36+index. Keep checking
+            # those same projectiles after they cross into the native view.
+            for actor in (1,2,7):
+                assert cap.ram[0x170b+actor] == 0x0d
+                piece = 36+actor
+                pixels.append(cap.piece(piece))
+                x = cap.ram[0x171f+actor]+256*cap.ram[0x1733+actor]-cap.camera
+                actual = struct.unpack_from('<i', cap.raw, OWNER_OFFSET+piece*12)[0]
+                assert actual == x, 'baseball wrapped to a different screen'
+                parts.append(piece);xs.append(x)
+                outside += x+8 <= 0 or x >= 256
+            checks.append(dict(frame=frame, camera=cap.camera, width=cap.width,
+                               parts=parts, x=xs, visible_pixels=pixels))
+            continue
         sprite_id = 0x83 if scenario == 'wings' else 0x4f
         slots = [i for i in cap.active() if cap.ram[0x9e+i] == sprite_id]
         assert len(slots) == 1, f'expected one {scenario} sprite, got {slots}'
@@ -74,7 +105,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--build', type=Path, default=ROOT/'build-adaptive')
     ap.add_argument('--state', type=Path)
-    ap.add_argument('--scenario', choices=('wings', 'plant'), required=True)
+    ap.add_argument('--scenario', choices=FRAMES, required=True)
     ap.add_argument('--window', default='2095x720')
     ap.add_argument('--check', type=Path, help='recheck an existing capture directory')
     args = ap.parse_args()
@@ -103,9 +134,19 @@ def main():
     exe = build/('SuperMarioWorldSNESRecomp.exe' if os.name == 'nt' else 'SuperMarioWorldSNESRecomp')
     try:
         with (root/'stdout.log').open('w') as out, (root/'stderr.log').open('w') as err:
-            subprocess.run([str(exe), '--config', str(root/'config.ini'), '--script', str(root/'route.script'),
-                            '--benchmark', '380', str(ROOT/'smw.sfc')], cwd=root, env=env,
-                           stdout=out, stderr=err, check=True, timeout=160)
+            process = subprocess.Popen([str(exe), '--config', str(root/'config.ini'), '--script', str(root/'route.script'),
+                            '--benchmark', '380', str(ROOT/'smw.sfc')], cwd=root, env=env, stdout=out, stderr=err)
+            try:
+                if os.name == 'nt':
+                    deadline = time.monotonic()+160
+                    while process.poll() is None and time.monotonic() < deadline:
+                        owned_windows(process.pid)
+                        time.sleep(.1)
+                assert process.wait(timeout=160) == 0
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=10)
     finally:
         assert hashlib.sha256(state.read_bytes()).hexdigest() == digest, 'original save changed'
     report = check(root, args.scenario)

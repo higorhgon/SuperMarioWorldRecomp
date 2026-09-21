@@ -81,17 +81,24 @@ as the camera moves. Vertical and background-only definitions retain their
 native pointer lookup.
 
 `src/smw_renderer_hooks.c` records signed sprite coordinates at the guest's
-draw paths and changes the optional activation/despawn policy. OAM ownership
-is paired with the exact emitted position and attributes, then latched before
-NMI, so OAM reuse cannot inherit a stale far-away owner. Draw origins are
-tracked per OAM piece; Yoshi's separate head/body passes retain both origins.
+draw paths and changes the optional activation/despawn policy. A host display
+list snapshots each normal/extended object's completed draw before the next
+object can reuse its guest OAM entries. It retains final tiles, palette, size
+and coordinates, including caller edits made after shared graphics helpers
+return (such as the Volcano Lotus leaves). Host storage grows beyond 128
+pieces; separate draws sharing the same guest entry survive independently.
+The list retains native OAM priority order and still uses per-line palette,
+VRAM and overlay state. Guest actor counts and simulation are not expanded.
+Draw origins are tracked per OAM piece; Yoshi's separate head/body passes retain both origins.
 The shared wing routine uses the visible horizontal bounds and records each
 completed wing. Single-tile generic draws record their exact OAM piece before
 composite sprites advance the allocation. This keeps adjacent sprites' inferred
 allocation spans from stealing a Piranha head. Final tile/attribute changes by
-the caller are retained when ownership is latched at NMI. Native vertical
+the caller are retained at the object boundary and latched at NMI. Native vertical
 culling still applies.
-Fireballs have a separate ownership/lifecycle hook. Native initialization and allocation still
+Fireballs and Chuck baseballs have separate ownership/lifecycle hooks. Baseballs
+use the expanded horizontal bounds with Screen-based spawning and retain native
+despawn behavior with Original 4:3 spawning. Native initialization and allocation still
 run once; the renderer does not replay simulation or shift the guest camera.
 
 Screen-based activation remembers each successfully loaded placement until its
@@ -145,6 +152,7 @@ python tools/test_adaptive_renderer.py --live --scenario standing --window 2133x
 python tools/test_adaptive_sprite_parts.py --scenario wings --state /path/to/winged-block.sav
 python tools/test_adaptive_sprite_parts.py --scenario plant --state /path/to/jumping-piranha.sav --window 2000x180
 python tools/test_adaptive_mario.py --state /path/to/split-mario-ghost-house.sav
+python tools/test_adaptive_sprite_parts.py --scenario lotus --state /path/to/lotus-baseballs.sav --window 2048x510
 python tools/test_adaptive_renderer.py --live --scenario yoshi --window 2133x720 --state build-adaptive/playtest/saves/save0.sav
 python tools/test_adaptive_renderer.py --live --scenario pipes --window 2048x352 --state build-adaptive/playtest/saves/save1.sav
 python tools/test_adaptive_spawns.py --state build-adaptive/playtest/saves/save2.sav
@@ -265,6 +273,14 @@ missing ownership. Native-control comparisons report zero unexplained
 differences. Yoshi, pipe-color and camera regressions also pass after this fix.
 These targeted saved scenes extend coverage, not the full-game testing claim.
 
+The Volcano Lotus/baseball F1 regression checks all four plant pieces and three
+approaching baseballs over six captures, including both expanded margins and
+the transition into the native view. It verifies 2,604 opaque pixels and rejects
+the previous build's stale leaf ownership. The standalone draw-list test renders
+150 pieces that reuse one guest OAM entry, including caller changes to the final
+palette, fade reuse and scene reset. The prior split-Mario scene and 1,150-frame
+ghost-house route also pass with the host draw list enabled.
+
 The transition regression uses the reported right-hand stage-exit save, or
 the earlier Yoshi's Island 2 pipe-color fixture. The exit checks 97,280 far-view
 pixels against the preceding scene scaled by the captured fade brightness.
@@ -302,6 +318,8 @@ Developer environment overrides are `SMW_RENDER_ASPECT=Fit` or `N:D`,
 comma-separated frame numbers for a sequence of numbered dumps;
 `SMW_RENDER_CAPTURE_EVERY` controls periodic BMPs. Captures and ROM-derived
 data are local artifacts and are not committed.
+Each selected capture also writes `frame-NNNNNN.draws.json`, identifying retained
+host pieces by guest OAM entry, final image, coordinates and source actor.
 Frame diagnostics include the presentation and simulation cameras, captured
 raster scroll and native-view offset. Diagnostics also record `spawns.csv` (candidates, successful loads, suppressed
 reactivation and rearming) and `sprites.csv` (per-frame entity state).

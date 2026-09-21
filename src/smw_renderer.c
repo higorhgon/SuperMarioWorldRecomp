@@ -19,6 +19,21 @@ static uint8_t frame_ram[0x20000];
 static OamOwner pending[128], latched[128];
 typedef struct SpriteOwner { int x,y; bool valid, exact; } SpriteOwner;
 static SpriteOwner sprite_owners[64];
+typedef struct SpriteDraw {
+  OamOwner image;
+  unsigned slot, high, kind, actor, order;
+} SpriteDraw;
+typedef struct DrawList { SpriteDraw *items; size_t count, capacity; } DrawList;
+static DrawList pending_draws, latched_draws;
+static size_t draw_start[129];
+static struct {
+  bool active;
+  unsigned kind, index;
+  uint8_t before[512];
+  OamOwner exact[128];
+  SpriteOwner inferred[64];
+} actor_draw;
+static bool actors_ran;
 static unsigned captured;
 static int native_x;
 static bool level_scene;
@@ -49,27 +64,92 @@ static unsigned rom16(unsigned bank, unsigned a) {
   return read16(g_rom, (bank << 15) | (a & 0x7fff));
 }
 void SmwRendererRecordOam(unsigned slot, int x, uint16_t pos, uint16_t attr) {
-  if (slot < 128) pending[slot] = (OamOwner){x, pos, attr, true};
+  if (slot < 128) {
+    pending[slot] = (OamOwner){x, pos, attr, true};
+    if (actor_draw.active) actor_draw.exact[slot]=pending[slot];
+  }
 }
 void SmwRendererRecordSprite(unsigned slot, int x, int y, unsigned first, unsigned end) {
   if (slot < 12 && first < end && end <= 256)
-    for (unsigned index=first;index<end;index+=4)
+    for (unsigned index=first;index<end;index+=4) {
       if (!sprite_owners[index/4].exact)
         sprite_owners[index/4] = (SpriteOwner){x,y,true,false};
+      if (actor_draw.active && !actor_draw.inferred[index/4].exact)
+        actor_draw.inferred[index/4] = (SpriteOwner){x,y,true,false};
+    }
 }
 void SmwRendererRecordSpriteTile(unsigned piece, int x, int y) {
   /* The draw identifies this exact tile. Adjacent sprites' inferred reserved
    * spans cannot replace it, but callers may still finish its tile/attributes.
    * Bind the final OAM image at NMI just like the other generic graphics. */
-  if (piece < 64) sprite_owners[piece] = (SpriteOwner){x,y,true,true};
+  if (piece < 64) {
+    sprite_owners[piece] = (SpriteOwner){x,y,true,true};
+    if (actor_draw.active) actor_draw.inferred[piece]=sprite_owners[piece];
+  }
+}
+static void append_draw(SpriteDraw draw) {
+  if (pending_draws.count==pending_draws.capacity) {
+    size_t capacity=pending_draws.capacity?pending_draws.capacity*2:128;
+    SpriteDraw *items=realloc(pending_draws.items,capacity*sizeof(*items));
+    if (!items) abort();
+    pending_draws.items=items;pending_draws.capacity=capacity;
+  }
+  draw.order=(unsigned)pending_draws.count;
+  pending_draws.items[pending_draws.count++]=draw;
+}
+void SmwRendererBeginActor(unsigned kind,unsigned index) {
+  SmwRendererEndActor();
+  if (kind>1 || index>=(kind?10u:12u)) return;
+  memset(&actor_draw,0,sizeof(actor_draw));
+  actor_draw.active=true;actor_draw.kind=kind;actor_draw.index=index;
+  memcpy(actor_draw.before,g_ram+0x200,sizeof(actor_draw.before));
+  actors_ran=true;
+}
+void SmwRendererEndActor(void) {
+  if (!actor_draw.active) return;
+  /* Draw helpers often return before callers replace tiles, palette or size.
+   * Capture at the object boundary, while its completed image still exists.
+   * A later object may reuse these same guest bytes: both host draws survive. */
+  for (unsigned slot=0;slot<128;++slot) {
+    unsigned pos=read16(g_ram,0x200+slot*4),attr=read16(g_ram,0x202+slot*4);
+    if ((pos>>8)==240) continue;
+    const OamOwner *exact=&actor_draw.exact[slot];
+    int x;
+    if (exact->valid) {
+      x=exact->x+(int8_t)((pos&255)-(exact->position&255));
+    } else {
+      if (slot<64) continue;
+      const SpriteOwner *owner=&actor_draw.inferred[slot-64];
+      if (!owner->valid || (!owner->exact &&
+          !memcmp(actor_draw.before+slot*4,g_ram+0x200+slot*4,4))) continue;
+      int dx=(int8_t)((pos&255)-(owner->x&255));
+      int dy=(int8_t)((pos>>8)-(owner->y&255));
+      if (abs(dx)>64 || abs(dy)>64) continue;
+      x=owner->x+dx;
+    }
+    pending[slot]=(OamOwner){x,(uint16_t)pos,(uint16_t)attr,true};
+    append_draw((SpriteDraw){pending[slot],slot,g_ram[0x420+slot]&3,
+                            actor_draw.kind,actor_draw.index,0});
+  }
+  actor_draw.active=false;
+}
+static int compare_draw(const void *a,const void *b) {
+  const SpriteDraw *x=a,*y=b;
+  if (x->slot!=y->slot) return x->slot<y->slot?-1:1;
+  return x->order<y->order?-1:x->order!=y->order;
 }
 void SmwRendererResetScene(void) {
   level_scene=false;
   memset(pending,0,sizeof(pending));
   memset(latched,0,sizeof(latched));
   memset(sprite_owners,0,sizeof(sprite_owners));
+  actor_draw.active=false;actors_ran=false;
+  pending_draws.count=latched_draws.count=0;
+  memset(draw_start,0,sizeof(draw_start));
 }
 void SmwRendererLatchFrame(void) {
+  SmwRendererEndActor();
+  bool reused_oam=!memcmp(frame_ram+0x200,g_ram+0x200,512);
   /* NMI uploads this scene's scroll and OAM before the next simulation tick.
    * Keep the camera, Map16 and sprite metadata from the same scene. Reading
    * live RAM at scanout instead mixes the next camera with the uploaded tiles,
@@ -83,6 +163,7 @@ void SmwRendererLatchFrame(void) {
    * outgoing scene until its loader takes over, rather than switching the
    * level to a centered native-width image on the first fade frame. */
   bool fading_level=level_scene && mode!=0x13 && mode!=0x14;
+  bool reuse_draws=level_scene && !actors_ran && !pending_draws.count && reused_oam;
   /* SMW's small generic graphics paths do not call FinishOAMWrite. Their
    * GetDrawInfo call identifies the sprite's reserved OAM allocation. Bind
    * the completed pieces before NMI, with signed deltas to that draw origin.
@@ -104,7 +185,7 @@ void SmwRendererLatchFrame(void) {
   /* Fade routines reuse the last uploaded OAM without drawing it again. Keep
    * its full coordinates only while that exact image still belongs to this
    * outgoing scene; loaders and save loads clear the association. */
-  if (fading_level) for (unsigned slot=0;slot<128;++slot) {
+  if (fading_level || reuse_draws) for (unsigned slot=0;slot<128;++slot) {
     if (!pending[slot].valid && latched[slot].valid &&
         latched[slot].position==read16(g_ram,0x200+slot*4) &&
         latched[slot].attr==read16(g_ram,0x202+slot*4))
@@ -113,6 +194,17 @@ void SmwRendererLatchFrame(void) {
   memcpy(latched, pending, sizeof(latched));
   memset(pending, 0, sizeof(pending));
   memset(sprite_owners,0,sizeof(sprite_owners));
+  if (!reuse_draws) {
+    DrawList swap=latched_draws;latched_draws=pending_draws;pending_draws=swap;
+    if (latched_draws.count>1)
+      qsort(latched_draws.items,latched_draws.count,sizeof(SpriteDraw),compare_draw);
+    size_t next=0;
+    for (unsigned slot=0;slot<=128;++slot) {
+      while (next<latched_draws.count && latched_draws.items[next].slot<slot) ++next;
+      draw_start[slot]=next;
+    }
+  }
+  pending_draws.count=0;actors_ran=false;
 }
 void SmwRendererBeginFrame(void) {
   captured = 0;
@@ -277,45 +369,56 @@ static uint16_t background(const Ppu *p, const RasterLine *l, unsigned layer, in
   if (layer == 2 && (tile&0x2000) && (p->bgmode&8)) priority = 15;
   return (priority<<12)|(layer<<8)|(((tile>>10)&7)*(1u<<bpp))|pixel;
 }
+static const int sprite_sizes[8][2]={{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
+static void sprite_piece(const Ppu *p,const RasterLine *l,int y,unsigned slot,
+                         unsigned pos,unsigned attr,unsigned hi,int x) {
+  const PpuOverlayCapture *capture = &obj_capture[y];
+  bool remove = (capture->flags & kPpuOverlayFlag_RemoveFromGame) &&
+      y >= capture->y0 && y < capture->y1 &&
+      slot >= capture->oamFirst && slot < capture->oamFirst + capture->oamCount;
+  int size=sprite_sizes[p->obsel>>5][(hi>>1)&1];
+  int row=(y-(pos>>8))&255;
+  if (row>=size) return;
+  /* $00:9Dxx DrawReserveItem owns OAM 56 (or 0 in the boss variant).
+   * Verify its native position and current tile before moving it. */
+  static const uint8_t item_tiles[4]={0x24,0x26,0x48,0x0e};
+  unsigned item=frame_ram[0xdc2];
+  if ((slot==56 || slot==0) && pos==0x0f78 && item>=1 && item<=4 &&
+      (attr&255)==item_tiles[item-1]) x += g_smw_viewport.extra-native_x;
+  if(attr&0x8000) row=size-1-row;
+  unsigned base=(p->obsel&7)*8192;
+  if(attr&256) base+=(((p->obsel>>3)&3)+1)*4096;
+  unsigned palette=128+((attr>>9)&7)*16;
+  unsigned priority=((attr>>12)&3)*4+2;
+  unsigned layer=attr&0x800?4:6;
+  for(int col=0;col<size;++col) {
+    if(remove && x+col >= capture->x0 && x+col < capture->x1) continue;
+    int dest=x+col+native_x;
+    if(dest<0 || dest>=g_smw_viewport.width) continue;
+    int cx=attr&0x4000?size-1-col:col;
+    unsigned tile=(((((attr&255)>>4)+row/8)&15)<<4)|(((attr&15)+cx/8)&15);
+    unsigned pixel=tile_pixel(l->vram,base+tile*16,cx&7,row&7,4);
+    if(pixel) objects[dest]=(priority<<12)|(layer<<8)|palette|pixel;
+  }
+}
 static void sprites(const Ppu *p, const RasterLine *l, int y) {
-  static const int sizes[8][2]={{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
   memset(objects,0,g_smw_viewport.width*sizeof(*objects));
   for (int slot=127;slot>=0;--slot) {
-    const PpuOverlayCapture *capture = &obj_capture[y];
-    bool remove = (capture->flags & kPpuOverlayFlag_RemoveFromGame) &&
-        y >= capture->y0 && y < capture->y1 &&
-        slot >= capture->oamFirst && slot < capture->oamFirst + capture->oamCount;
-    unsigned pos=l->oam[slot*2], attr=l->oam[slot*2+1];
-    unsigned hi=l->high[slot/4]>>((slot%4)*2);
-    int size=sizes[p->obsel>>5][(hi>>1)&1];
-    int row=(y-(pos>>8))&255;
-    if (row>=size) continue;
-    int x=(pos&255)|((hi&1)<<8);
-    if(x>=256) x-=512;
-    const OamOwner *owner=&latched[slot];
-    if(owner->valid && owner->position==pos && owner->attr==attr) x=owner->x;
-    else if(x+size<=0 || x>=256) continue;
-    /* $00:9Dxx DrawReserveItem owns OAM 56 (or 0 in the boss variant).
-     * Verify its native position and current tile before moving it. */
-    static const uint8_t item_tiles[4]={0x24,0x26,0x48,0x0e};
-    unsigned item=frame_ram[0xdc2];
-    if ((slot==56 || slot==0) && pos==0x0f78 && item>=1 && item<=4 &&
-        (attr&255)==item_tiles[item-1]) x += g_smw_viewport.extra-native_x;
-    if(attr&0x8000) row=size-1-row;
-    unsigned base=(p->obsel&7)*8192;
-    if(attr&256) base+=(((p->obsel>>3)&3)+1)*4096;
-    unsigned palette=128+((attr>>9)&7)*16;
-    unsigned priority=((attr>>12)&3)*4+2;
-    unsigned layer=attr&0x800?4:6;
-    for(int col=0;col<size;++col) {
-      if(remove && x+col >= capture->x0 && x+col < capture->x1) continue;
-      int dest=x+col+native_x;
-      if(dest<0 || dest>=g_smw_viewport.width) continue;
-      int cx=attr&0x4000?size-1-col:col;
-      unsigned tile=(((((attr&255)>>4)+row/8)&15)<<4)|(((attr&15)+cx/8)&15);
-      unsigned pixel=tile_pixel(l->vram,base+tile*16,cx&7,row&7,4);
-      if(pixel) objects[dest]=(priority<<12)|(layer<<8)|palette|pixel;
+    unsigned pos=l->oam[slot*2],attr=l->oam[slot*2+1];
+    unsigned hi=(l->high[slot/4]>>((slot%4)*2))&3;
+    bool captured_native=false;
+    for (size_t i=draw_start[slot];i<draw_start[slot+1];++i) {
+      const SpriteDraw *draw=&latched_draws.items[i];
+      sprite_piece(p,l,y,slot,draw->image.position,draw->image.attr,draw->high,draw->image.x);
+      if (draw->image.position==pos && draw->image.attr==attr && draw->high==hi)
+        captured_native=true;
     }
+    if (captured_native) continue;
+    int x=(pos&255)-((hi&1)<<8);
+    const OamOwner *owner=&latched[slot];
+    if (owner->valid && owner->position==pos && owner->attr==attr) x=owner->x;
+    else if (x+sprite_sizes[p->obsel>>5][(hi>>1)&1]<=0 || x>=256) continue;
+    sprite_piece(p,l,y,slot,pos,attr,hi,x);
   }
 }
 static uint32_t compose(const Ppu *p, const RasterLine *l, const uint8_t *brightness,
@@ -375,6 +478,18 @@ void SmwRendererDraw(uint8_t *pixels,size_t pitch,const uint8_t *stock) {
 static bool alias_footprint(int x,int y) {
   static const int sizes[8][2]={{8,16},{8,32},{8,64},{16,32},{16,64},{32,64},{16,32},{16,32}};
   const RasterLine *l=&lines[y];
+  for (size_t i=0;i<latched_draws.count;++i) {
+    const SpriteDraw *d=&latched_draws.items[i];
+    const OamOwner *o=&d->image;
+    unsigned slot=d->slot;
+    unsigned hi=(l->high[slot/4]>>((slot%4)*2))&3;
+    bool matches=o->position==l->oam[slot*2] && o->attr==l->oam[slot*2+1] && d->high==hi;
+    int old=(o->position&255)-((d->high&1)<<8);
+    if (matches && old==o->x) continue;
+    int size=sizes[l->regs[offsetof(Ppu,obsel)]>>5][(d->high>>1)&1];
+    if (((y-(o->position>>8))&255)>=(unsigned)size) continue;
+    if ((x>=o->x && x<o->x+size) || (matches && x>=old && x<old+size)) return true;
+  }
   for(unsigned slot=0;slot<128;++slot) {
     const OamOwner *o=&latched[slot];
     unsigned pos=l->oam[slot*2],attr=l->oam[slot*2+1];
@@ -458,6 +573,17 @@ void SmwRendererDiagnostics(const uint8_t *stock, const uint8_t *image, size_t p
     }
   } else selected=frame%every==0;
   if(!selected) return;
+  snprintf(path,sizeof(path),"%s/frame-%06u.draws.json",directory,frame);
+  FILE *draw_file=fopen(path,"w");
+  if (draw_file) {
+    fputs("[",draw_file);
+    for (size_t i=0;i<latched_draws.count;++i) {
+      const SpriteDraw *d=&latched_draws.items[i];
+      fprintf(draw_file,"%s{\"slot\":%u,\"x\":%d,\"position\":%u,\"attr\":%u,\"high\":%u,\"kind\":%u,\"actor\":%u}",
+              i?",":"",d->slot,d->image.x,d->image.position,d->image.attr,d->high,d->kind,d->actor);
+    }
+    fputs("]\n",draw_file);fclose(draw_file);
+  }
   snprintf(path,sizeof(path),"%s/frame-%06u.bmp",directory,frame);
   FILE *f=fopen(path,"wb");
   if(!f) return;

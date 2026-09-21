@@ -8,7 +8,10 @@ from pathlib import Path
 import re
 
 PCS = (0x02A82E, 0x01B844, 0x01AC7C, 0x02D076, 0x03B8A8, 0x02A204, 0x019E93, 0x019F5A,
-       0x02A916, 0x02AFB3)
+       0x02A916, 0x02AFB3, 0x029B0C, 0x029B12, 0x02A2BE)
+# The normal sprite dispatcher is currently certified LLE-only. Its interpreter
+# boundaries are always armed; instrument them too if a future generator emits it.
+OPTIONAL_PCS = (0x0180AF, 0x0180B2)
 MARKER = '/*SMW-HOST*/'
 def apply(text):
     if '/*WS-' in text:
@@ -26,6 +29,9 @@ def apply(text):
         m = re.search(r'cpu_trace_block\(cpu, 0x([0-9A-F]+)\)', line)
         if m: block = m[1]
         hook = None
+        if 'ExtSpr0D_Baseball' in name and 'if (cpu->_flag_Z == 1)' in line and 'goto L_A287' in line:
+            out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x02A27Eu); }\n')
+            found.add('baseball_cull')
         if block == '019E3C' and 'if (cpu->_flag_Z == 0)' in line and 'goto L_9E93' in line:
             out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x019E6Du); }\n')
             found.add('wing_cull')
@@ -37,7 +43,7 @@ def apply(text):
         if block in ('02A1A4', '02A1A7') and 'if (cpu->_flag_Z == 0)' in line:
             out.append('    /*SMW-HOST*/ { extern void SmwRendererGuestHook(CpuState *, uint32_t); SmwRendererGuestHook(cpu, 0x02A1BEu); }\n')
             found.add('fireball')
-        for pc in PCS:
+        for pc in PCS + OPTIONAL_PCS:
             if f'cpu_trace_block(cpu, 0x{pc:06X});' in line:
                 hook = f'SmwRendererGuestHook(cpu, 0x{pc:06X}u)'
                 found.add(pc)
@@ -67,7 +73,7 @@ def main():
         changed, hits = apply(text)
         found |= hits
         if changed != text: updates.append((path, changed))
-    missing = set(PCS) | {'draw', 'fireball', 'frontier', 'wing_cull', 'sprite_allocation'}
+    missing = set(PCS) | {'draw', 'fireball', 'frontier', 'wing_cull', 'sprite_allocation', 'baseball_cull'}
     missing -= found
     if missing: raise SystemExit(f'Missing required renderer hook sites: {missing}')
     for path, changed in updates: path.write_text(changed, encoding='utf-8', newline='\n')
