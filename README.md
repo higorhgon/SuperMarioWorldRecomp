@@ -308,6 +308,152 @@ pack details are in [`recomp/msu1/ATTRIBUTION.md`](recomp/msu1/ATTRIBUTION.md).
 
 MSU-1 is disabled in the simultaneous co-op build for now.
 
+## PortMaster / Anbernic H700 (muOS)
+
+Experimental packaging for Anbernic H700-chip handhelds - the RG34XX,
+RG34XX H, and RG34XXSP family - running muOS, installed as a PortMaster
+port. **This has not been tested on real hardware.** Everything below was
+built and reasoned about on a desktop machine with no H700 device
+available; please try it and report back what does and doesn't work.
+
+### Target devices
+
+The RG34XX family's physical panel is 720x480, i.e. a **3:2** aspect
+ratio - narrower than typical 16:9 handhelds. Getting SMW to fill that
+panel correctly at boot needs no source changes: it falls out of a
+feature that already exists.
+
+### Why Fullscreen=1 + Fit-to-screen give correct 3:2 for free
+
+`config.ini`'s `Fullscreen = 1` (desktop fullscreen, not `2`'s "fullscreen
+w/ mode change" - riskier on an embedded panel with exactly one fixed
+mode) makes the game's drawable window match the panel's native
+720x480 exactly. **SMW Adaptive Widescreen**'s "Fit to screen" mode
+(`mode = "adaptive"` in the mod's manifest; see
+[`docs/adaptive-renderer.md`](docs/adaptive-renderer.md)) "follows the
+drawable window, including fullscreen and live resizing" and keeps
+native pixel proportions. Combine the two and the rendered image is
+already the panel's real 3:2 - no new aspect-ratio logic needed, just
+shipping the right defaults.
+
+The catch: mods are not `config.ini` keys. They're enabled and configured
+through a separate `mods/state.toml` next to `config.ini`, and the
+manifest's own defaults ship the feature **off** (`default_enabled =
+false`) and, if turned on some other way, defaulting to a fixed `16_9`
+mode rather than adaptive Fit. [`portmaster/default-config/`](portmaster/default-config/)
+ships a `state.toml` that enables the mod with `mode = "adaptive"` and
+`spawn = "adaptive"` (the same structure `tools/run_adaptive_renderer.ps1`
+writes for isolated playtesting), plus a copy of `mods/preloaded/packages/`
+alongside it - the package files themselves have to be physically present
+next to `state.toml` for the mod to be selectable at all, referencing its
+id is not enough.
+
+### What's verified and what isn't
+
+Verified locally on x86_64 Linux in this sandbox (no ROM available here -
+see below):
+
+- `bash tools/test_adaptive_renderer.py --build build-adaptive` builds
+  `test/renderer/renderer_test.c` against `src/smw_renderer.c`,
+  `src/smw_renderer_hooks.c`, and `src/smw_video.c` (no `src/gen`, no ROM)
+  and passes, including the geometry assertions for `SmwCalculateViewport`/
+  `SmwDestination` that back Fit-to-screen. This is the same command
+  [`.github/workflows/arm64-linux.yml`](.github/workflows/arm64-linux.yml)
+  runs on `ubuntu-24.04-arm` (aarch64), matching the H700's CPU
+  architecture.
+- `portmaster/port.json` is valid JSON and `portmaster/default-config/mods/state.toml`
+  is valid TOML (checked with Python's `json`/`tomllib`).
+- The `state.toml` schema above matches `tools/run_adaptive_renderer.ps1`
+  exactly, which is the project's own dev helper for this same renderer.
+
+**Not verified - cannot be, from this environment:**
+
+- Building the actual `SuperMarioWorldSNESRecomp` game binary for aarch64.
+  `CMakeLists.txt` unconditionally includes the `snesrecomp`/`recomp-ui`
+  submodules and then hard-fails with `FATAL_ERROR` if `src/gen/` is
+  empty - this project has no `-DBUILD_GAME=OFF`-style escape hatch, so
+  producing a playable binary needs a maintainer's own legally dumped ROM
+  run through `tools/regen.sh`, on or for aarch64. None of that can exist
+  in this sandbox or a public CI runner.
+- Whether the packaged `mods/state.toml` + `mods/packages/` actually get
+  picked up by a real running game - this was checked by reading
+  `docs/adaptive-renderer.md`, the manifest, and the dev helper script that
+  writes the identical structure, not by launching the game (no ROM here).
+- Anything about actually running on an RG34XX/muOS: window creation,
+  controller mapping, audio, performance, and the video driver PortMaster
+  picks at runtime.
+- **The GPU/driver path.** `src/opengl.c`'s `OpenGLRenderer_Init()`
+  hard-fails (`Die("You need OpenGL 3.3")`) unless it gets an OpenGL 3.3
+  core context, and that path runs whenever `OutputMethod = OpenGL` is
+  selected at all - not only when a shader is set. The H700's Mali-G31
+  runs Mesa's Panfrost driver, whose desktop OpenGL ceiling for
+  Bifrost-class GPUs is currently **3.1** - below that requirement. The
+  packaged config below ships `OutputMethod = SDL` instead, which uses
+  SDL's own accelerated `SDL_Renderer` path and does not force a 3.3 core
+  context. **Practical takeaway: leave `OutputMethod = SDL` on this
+  handheld** - `OpenGL` is expected to fail to initialize on this
+  GPU/driver combination. If `SDL` gives you a black screen or poor
+  performance on real hardware, try `SDL-Software` next - `config.ini`'s
+  own upstream comment already calls software rendering out as sometimes
+  faster "on Raspberry Pi", i.e. other weak-GPU ARM SBCs, before trying
+  `OpenGL`.
+
+### Building and packaging
+
+You need your own legally dumped Super Mario World (USA) ROM and an
+aarch64 build environment (the RG34XX family is Cortex-A55, so an aarch64
+host or a cross-compiling toolchain both work):
+
+```bash
+git clone --recurse-submodules https://github.com/higorhgon/supermarioworldrecomp
+cd supermarioworldrecomp
+# stage your verified ROM as smw.sfc, then:
+bash tools/build-linux.sh --regen --no-package --out build-linux-prod
+bash tools/package_portmaster.sh --build build-linux-prod
+```
+
+`tools/package_portmaster.sh` reuses `tools/build-linux.sh` for the actual
+compile rather than duplicating its logic; it does not build anything
+itself, only stages a build you already produced. It deliberately does
+**not** ship the `.AppImage` `tools/build-linux.sh` normally produces -
+AppImages need FUSE/squashfuse to mount at runtime, which minimal
+handheld CFW images like muOS often don't ship. `--no-package` stops
+`build-linux.sh` right after compiling, leaving a plain ELF plus the
+`assets/` and `mods/packages/` it already stages beside the binary, which
+`package_portmaster.sh` then copies into the PortMaster layout together
+with the tracked defaults under [`portmaster/`](portmaster/).
+
+This produces `release-portmaster/SuperMarioWorldRecomp-portmaster-<version>.zip`,
+laid out the way PortMaster expects (verified against
+[PortsMaster/PortMaster-New](https://github.com/PortsMaster/PortMaster-New)'s
+own published ports): `port.json` and `SuperMarioWorldRecomp.sh` at the zip
+root, alongside a `SuperMarioWorldRecomp/` folder holding the binary, its
+assets, mod catalog, and a default `config.ini` / `mods/state.toml` with
+`Fullscreen=1` and Fit-to-screen already enabled, so a first launch is
+already fullscreen and correctly 3:2 without visiting the launcher's Mods
+page first.
+
+### Installing on muOS
+
+1. Copy the zip's contents onto the SD card's PortMaster ports folder
+   (typically `SD1:/roms/ports` under muOS), or install it through muOS's
+   own PortMaster app if you're distributing it that way -
+   [see muOS's PortMaster docs](https://muos.dev/) for the app-based flow.
+2. Drop your own `Super Mario World (USA).sfc`/`.smc` ROM into the
+   `SuperMarioWorldRecomp/` folder that was installed.
+3. Launch **Super Mario World Recomp** from muOS's Ports list.
+
+The launcher script (`portmaster/SuperMarioWorldRecomp.sh`) mirrors the
+ROM auto-detection the official Linux AppImage already uses
+(`tools/build-linux.sh`'s `AppRun`): it looks for a `.sfc`/`.smc` file
+next to the binary and caches its path in `rom.cfg`, the same file the
+game's own launcher UI reads. It deliberately does not hardcode
+`SDL_VIDEODRIVER`, since real PortMaster ports disagree on the right
+default for muOS (some force `x11`, some force `kmsdrm`, some only
+override for a detected vendor `mali` driver) and which is correct here
+cannot be checked without the actual device; the script has a commented
+override for either, with the reasoning, if you hit a black screen.
+
 ## Repo layout
 
 - `src/` — runtime C (CPU state, runtime helpers, hand-written
@@ -322,6 +468,9 @@ MSU-1 is disabled in the simultaneous co-op build for now.
 - `tools/` — build, regen, audit, and triage scripts.
 - `docs/` — design / debugging notes (internal-facing, may be stale).
 - `third_party/` — vendored deps with their own licenses.
+- `portmaster/` — PortMaster port sources (launcher script, `port.json`,
+  default `config.ini`/`mods/`) for Anbernic H700 handhelds; see
+  "PortMaster / Anbernic H700 (muOS)" above.
 
 ## Acknowledgements
 
