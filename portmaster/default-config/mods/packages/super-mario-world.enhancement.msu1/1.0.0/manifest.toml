@@ -1,0 +1,24 @@
+format_version = 1
+id = "super-mario-world.enhancement.msu1"
+version = "1.0.0"
+name = "Super Mario World MSU-1"
+author = "Conn; host-side Mods integration by mstan"
+description = "Implements Conn's classic SMW MSU-1 music behavior from a compatible audio pack without patching the ROM."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "super-mario-world-us"
+rom_sha256 = "0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b"
+
+[[feature]]
+id = "msu1"
+name = "MSU-1 Audio"
+description = "Use MSU-1 PCM music while leaving the game ROM stock."
+group = "Audio"
+default_enabled = false
+
+[[plugin]]
+feature = "msu1"
+id = "super-mario-world.msu1"

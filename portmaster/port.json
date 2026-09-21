@@ -1,0 +1,22 @@
+{
+    "version": 2,
+    "name": "supermarioworldrecomp.zip",
+    "items": [
+        "SuperMarioWorldRecomp.sh",
+        "SuperMarioWorldRecomp/"
+    ],
+    "items_opt": [],
+    "attr": {
+        "title": "Super Mario World Recomp",
+        "porter": "higorhgon",
+        "desc": "A native recompilation of Super Mario World for SNES, ported to handhelds through PortMaster. This is not an emulator: it runs the original game logic recompiled to native code, with an adaptive widescreen/Fit-to-screen renderer, save states, and native gamepad support. You must provide your own legally dumped Super Mario World (USA) ROM; none is included.",
+        "inst": "Requires your own legally dumped Super Mario World (USA) .sfc or .smc ROM. After installing this port, copy that ROM file into the SuperMarioWorldRecomp folder created by PortMaster, then launch the port.",
+        "genres": [
+            "platformer"
+        ],
+        "image": null,
+        "rtr": false,
+        "runtime": null,
+        "reqs": []
+    }
+}

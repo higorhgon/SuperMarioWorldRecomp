@@ -1,0 +1,82 @@
+format_version = 1
+id = "super-mario-world.enhancement.widescreen"
+version = "1.0.0"
+name = "SMW Adaptive Widescreen"
+author = "mstan"
+description = "An adaptive game view with fixed aspect ratios and a choice of screen-based or original enemy activation."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "super-mario-world-us"
+rom_sha256 = "0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b"
+
+[[feature]]
+id = "widescreen"
+name = "Adaptive widescreen"
+description = "Fit the game view to your screen, or choose a fixed aspect ratio."
+group = "Display"
+default_enabled = false
+
+[[option]]
+feature = "widescreen"
+id = "mode"
+label = "Aspect ratio"
+description = "Fit to screen follows your window or monitor as it changes."
+group = "Display"
+type = "choice"
+default = "16_9"
+
+[[option.choice]]
+value = "adaptive"
+label = "Fit to screen"
+
+[[option.choice]]
+value = "4_3"
+label = "4:3"
+
+[[option.choice]]
+value = "16_9"
+label = "16:9"
+
+[[option.choice]]
+value = "16_10"
+label = "16:10"
+
+[[option.choice]]
+value = "21_9"
+label = "21:9"
+
+[[option.choice]]
+value = "32_9"
+label = "32:9"
+
+[[option.choice]]
+value = "48_9"
+label = "48:9"
+
+[[option.choice]]
+value = "100_9"
+label = "100:9"
+
+[[option]]
+feature = "widescreen"
+id = "spawn"
+label = "Enemy spawn behavior"
+description = "Screen-based activates enemies just beyond the view. Original 4:3 preserves the original activation area; enemies may appear within a wider view."
+group = "Gameplay"
+type = "choice"
+default = "adaptive"
+
+[[option.choice]]
+value = "adaptive"
+label = "Screen-based"
+
+[[option.choice]]
+value = "original"
+label = "Original 4:3"
+
+[[plugin]]
+feature = "widescreen"
+id = "super-mario-world.widescreen"

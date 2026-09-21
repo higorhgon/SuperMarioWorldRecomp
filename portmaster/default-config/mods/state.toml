@@ -1,0 +1,29 @@
+# Default mod state shipped with the PortMaster package. This is the piece
+# that actually turns the SMW Adaptive Widescreen mod on and selects its
+# "Fit to screen" mode - the manifest's own default (mods/preloaded/packages/
+# super-mario-world.enhancement.widescreen/1.0.0/manifest.toml) ships with
+# the feature OFF (default_enabled = false) and, if enabled some other way,
+# defaulting to the fixed "16_9" mode rather than adaptive Fit. Without this
+# file the H700's 720x480 (3:2) panel would render letterboxed/cropped at a
+# fixed 16:9 instead of the panel's real aspect.
+#
+# Schema confirmed against tools/run_adaptive_renderer.ps1, the project's own
+# dev helper that writes this exact structure for isolated playtesting.
+#
+# The packages/ directory next to this file (a copy of mods/preloaded/
+# packages/) must also be present for the mod to be loadable at all - listing
+# its id here is not enough on its own.
+format_version = 1
+
+[[package]]
+id = "super-mario-world.enhancement.widescreen"
+version = "1.0.0"
+
+[[feature]]
+package_id = "super-mario-world.enhancement.widescreen"
+id = "widescreen"
+enabled = true
+
+[feature.values]
+mode = "adaptive"
+spawn = "adaptive"
