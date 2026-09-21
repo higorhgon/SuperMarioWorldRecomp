@@ -1,0 +1,102 @@
+name: ARM64 Linux (ROM-independent)
+
+# Manual only. This workflow validates the ROM-independent, submodule-header-
+# only slice of the project on aarch64 (the CPU architecture used by Anbernic
+# H700-chip handhelds such as the RG34XX family). It does three things, all
+# verified locally on x86_64 Linux before this workflow was added:
+#
+#   1. Builds and runs test/renderer/renderer_test.c the exact way
+#      tools/test_adaptive_renderer.py already builds it (same gcc flags and
+#      source list) - this is the SMW Adaptive Widescreen / Fit-to-screen
+#      renderer that this port's default config relies on for correct 3:2 on
+#      the H700's 720x480 panel. It only needs src/smw_renderer*.c,
+#      src/smw_video.c and snesrecomp/runner/src headers - no src/gen, no ROM.
+#   2. Builds and runs the two other test/ harnesses that turned out to be
+#      genuinely ROM-independent when actually tried (see below):
+#      test/falcon_audio and test/falcon_combat.
+#   3. Runs tools/apply_renderer_hooks.py's own idempotency self-check via the
+#      same script (folded into step 1).
+#
+# IMPORTANT - what this workflow does NOT do, and why:
+#
+# It does NOT and CANNOT produce a playable SuperMarioWorldSNESRecomp game
+# binary. CMakeLists.txt unconditionally includes
+# snesrecomp/runner/runner.cmake and recomp-ui/recomp_ui.cmake (before any
+# ROM check runs), then hard-fails with a FATAL_ERROR if src/gen/ is empty:
+#
+#   message(FATAL_ERROR
+#       "src/gen/ is empty - run `bash tools/regen.sh --stock` with a
+#        verified smw.sfc at the repository root before building.")
+#
+# Unlike some sibling recomp projects, this repository has no
+# "-DBUILD_GAME=OFF"-style escape hatch that skips the submodules/ROM check
+# entirely - so this workflow does not attempt a full `cmake` configure at
+# all, and instead compiles the specific hand-written .c files each check
+# actually needs, directly with gcc (mirroring how tools/test_adaptive_renderer.py
+# and test/falcon_*/build.bat already do it).
+#
+# Several other test/ harnesses that looked ROM-independent at a glance
+# (test/falcon_kick_guard, test/falcon_step_guard, test/falcon_harness,
+# test/falcon_smw_adapter_test) were tried locally and rejected from this
+# workflow because they link against symbols that only exist in the
+# ROM-decompiled src/gen/ tree (e.g. GetPlayerLevelCollisionMap16ID_Entry2,
+# SpawnBrickPieces, GenerateTile) - they are not actually ROM-independent
+# despite living under test/. test/falcon_combat_apply built cleanly but its
+# own test assertion already fails on plain x86_64 Linux/gcc in this
+# environment (a pre-existing test issue, not something this workflow
+# introduced), so it is left out too. A maintainer with the ROM can build and
+# run the full test/ suite and the real game locally - see README.md's
+# "PortMaster / Anbernic H700 (muOS)" section and tools/package_portmaster.sh
+# for that workflow.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-rom-independent:
+    name: Build + run ROM-independent checks on aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential python3
+
+      # Only snesrecomp is needed, and only for its runner/src/*.h headers
+      # (types.h, cpu_state.h, common_rtl.h, ...) - none of these checks touch
+      # recomp-ui or src/gen, so neither is fetched here.
+      - name: Init snesrecomp submodule (headers only)
+        run: git submodule update --init --depth 1 -- snesrecomp
+
+      - name: Adaptive renderer (widescreen / Fit-to-screen) checks
+        # Exact command tools/test_adaptive_renderer.py itself runs when
+        # invoked without --live; running the script directly also exercises
+        # apply_renderer_hooks.py's idempotency self-check against src/gen
+        # (a no-op here since src/gen is empty/untracked, but harmless).
+        run: python3 tools/test_adaptive_renderer.py --build build-adaptive
+
+      - name: Falcon audio unit test
+        working-directory: test/falcon_audio
+        # Same as build.bat's `gcc ...` line, plus -I../../src: on the
+        # currently pinned snesrecomp commit, foreign_controller.h lives in
+        # this game's own src/ (not snesrecomp/runner/src as the historical
+        # Windows batch file's include path assumed).
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror \
+            -I../../src/mods/falcon -I../../snesrecomp/runner/src -I../../src \
+            falcon_audio_test.c ../../src/mods/falcon/smw_falcon_audio.c \
+            -o falcon_audio_test
+          ./falcon_audio_test
+
+      - name: Falcon combat policy unit test
+        working-directory: test/falcon_combat
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -pedantic \
+            falcon_combat_policy_test.c ../../src/mods/falcon/smw_falcon_combat_policy.c \
+            -I../../snesrecomp/runner/src -I../../src \
+            -o falcon_combat_policy_test
+          ./falcon_combat_policy_test
