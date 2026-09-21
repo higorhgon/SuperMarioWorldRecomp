@@ -336,5 +336,6 @@ Specialized sprite paths beyond the covered ownership hooks need more level
 coverage. Vertical levels retain native activation policy. Title screens,
 the overworld, Mode 7 and other unsupported PPU modes use the native view.
 Co-op remains native-only. CPU composition and snapshot copies still impose
-costs at extreme widths despite the tested 100:9 improvement. Linux/macOS/Visual Studio
-builds and an entire-game playthrough have not been validated here.
+costs at extreme widths despite the tested 100:9 improvement. Windows and Linux
+release packages have passed focused launcher and gameplay checks. macOS/Visual
+Studio builds and an entire-game playthrough have not been validated here.
