@@ -1,0 +1,114 @@
+name: PortMaster zip (aarch64, self-hosted)
+
+# Produces a real, installable SuperMarioWorldRecomp-portmaster-<version>.zip
+# for Anbernic H700 handhelds (RG34XX family) and uploads it as a run
+# artifact.
+#
+# This CANNOT run on GitHub-hosted runners: like FZeroSNESRecomp, this game
+# statically recompiles YOUR ROM's own 65816 CPU code into src/gen/*.c
+# (see the README's "What static recompilation means here" section) -
+# CMakeLists.txt unconditionally FATAL_ERRORs if src/gen/ is empty, and
+# there is no -DBUILD_GAME=OFF escape hatch. The real game binary
+# structurally cannot exist without your ROM present at build time, and
+# that ROM must never reach GitHub's infrastructure (not as a secret, not
+# committed, not anywhere). So this workflow only runs on a self-hosted
+# runner that YOU register and control, pointed at a ROM that already
+# lives on that machine's own disk.
+#
+# See docs/self-hosted-runner.md for one-time setup: Docker, QEMU binfmt
+# (only needed if your runner machine is x86_64, not aarch64), and
+# registering the runner itself against this repo with the label below.
+#
+# Why a container, and why --platform linux/arm64: the H700 (RG34XX family)
+# is aarch64 (Cortex-A55). Building inside a linux/arm64 container gives a
+# real aarch64 compiler and a real aarch64 ELF - emulated by QEMU via
+# binfmt_misc if your runner is x86_64, or running natively at full speed if
+# your runner is already aarch64. tools/build-linux.sh drives the whole
+# regen -> configure -> build sequence (including fetching and building
+# SDL3 from source if no system package is found, per
+# snesrecomp/runner/runner.cmake) with --no-package so it stops right after
+# producing the plain ELF + assets/ + mods/ tree, before it would try to
+# fetch the x86_64-only linuxdeploy/appimagetool AppImage packaging tools
+# this project's own AppImage step uses (irrelevant here - see
+# tools/package_portmaster.sh's own comments on why PortMaster ships a raw
+# binary, not an AppImage).
+on:
+  workflow_dispatch:
+    inputs:
+      rom_path:
+        description: >-
+          Absolute path to your own legally dumped Super Mario World (USA)
+          .sfc/.smc, already sitting on the self-hosted runner machine
+          (e.g. /home/you/roms/smw.sfc). This is never a GitHub secret and
+          is never committed - the job only reads a file that already
+          exists locally on your own hardware, and deletes its staged copy
+          when it's done.
+        required: true
+        type: string
+
+jobs:
+  build-and-package:
+    # Matches the label you choose when registering the runner in
+    # docs/self-hosted-runner.md. Change here too if you use a different one.
+    runs-on: [self-hosted, h700-builder]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Verify the ROM exists on this runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "${{ inputs.rom_path }}" ]; then
+            echo "::error::${{ inputs.rom_path }} does not exist on this runner. This job never downloads a ROM for you - point it at a file already on this machine." >&2
+            exit 1
+          fi
+
+      - name: Build and package inside an aarch64 container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/workspace" \
+            -v "${{ inputs.rom_path }}:/rom/smw.sfc:ro" \
+            -w /workspace \
+            ubuntu:24.04 \
+            bash -euxc '
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake ninja-build git python3 zip pkg-config \
+                libasound2-dev libpulse-dev libx11-dev libxext-dev \
+                libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+                libxss-dev libxtst-dev libxkbcommon-dev libgl1-mesa-dev \
+                libgles2-mesa-dev libegl1-mesa-dev libdbus-1-dev libudev-dev
+
+              git config --global --add safe.directory /workspace
+              git submodule sync --recursive
+              git submodule update --init --recursive
+              cp /rom/smw.sfc smw.sfc
+              bash tools/build-linux.sh --regen --no-package
+              bash tools/package_portmaster.sh --build build-linux-prod
+              rm -f smw.sfc
+            '
+
+      - name: Guard rail - the zip must never contain a ROM
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="$(find release-portmaster -maxdepth 1 -name '*.zip' | head -1)"
+          if [ -z "$zip_path" ]; then
+            echo "::error::No zip found under release-portmaster/ - the build/package step above should have failed instead of getting here." >&2
+            exit 1
+          fi
+          if unzip -Z1 "$zip_path" | grep -Ei '\.(sfc|smc)$'; then
+            echo "::error::The packaged zip contains what looks like a ROM file. Refusing to publish it." >&2
+            exit 1
+          fi
+          echo "zip_path=$zip_path" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperMarioWorldRecomp-portmaster-h700
+          path: ${{ env.zip_path }}
+          if-no-files-found: error

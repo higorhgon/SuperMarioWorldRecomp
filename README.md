@@ -402,7 +402,22 @@ see below):
 
 You need your own legally dumped Super Mario World (USA) ROM and an
 aarch64 build environment (the RG34XX family is Cortex-A55, so an aarch64
-host or a cross-compiling toolchain both work):
+host or a cross-compiling toolchain both work).
+
+**Automated (recommended):** run
+[`.github/workflows/self-hosted-package.yml`](.github/workflows/self-hosted-package.yml)
+from the Actions tab - it does everything below for you and uploads the
+finished zip as a run artifact. It requires a **self-hosted runner you
+register and control**, since the ROM has to stay on hardware you own and
+can never touch GitHub-hosted infrastructure; see
+[`docs/self-hosted-runner.md`](docs/self-hosted-runner.md) for one-time
+setup (Docker + QEMU on a regular x86_64 PC works fine, emulating aarch64).
+This workflow has not been run for real (no self-hosted runner or ROM was
+available to test it from this environment) - the commands below are the
+same ones it runs, if you'd rather follow them by hand first or something
+needs debugging.
+
+**Manual:**
 
 ```bash
 git clone --recurse-submodules https://github.com/higorhgon/supermarioworldrecomp
